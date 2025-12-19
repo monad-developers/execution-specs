@@ -566,13 +566,16 @@ def test_creating_tx_to_contract_creator(
     creator_storage = Storage()
     initcode_storage = Storage()
 
-    inner_create_result_slot = creator_storage.peek_slot()
     creator_code = Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE) + Op.SSTORE(
         creator_storage.store_next(0, hint="inner create result"),
         create_opcode(value=0, offset=0, size=Op.CALLDATASIZE),
     )
 
-    creator_code_address = pre.deploy_contract(creator_code)
+    # creator_code will only be called from the context of the delegated EOA.
+    # Regardless, we want to make extra sure the storage is unaltered.
+    creator_code_address = pre.deploy_contract(
+        creator_code, storage=creator_storage.canary()
+    )
 
     auth_signer = pre.fund_eoa(delegation=creator_code_address)
 
@@ -589,7 +592,7 @@ def test_creating_tx_to_contract_creator(
         Op.SSTORE(initcode_storage.store_next(1, hint="outer code worked"), 1)
         + Op.MSTORE(0, Op.PUSH32(bytes(inner_initcode_bytes)))
         + Op.SSTORE(
-            initcode_storage.store_next(1, hint="outer call result"),
+            initcode_storage.store_next(0, hint="outer call result"),
             Op.CALL(address=auth_signer, args_size=len(inner_initcode_bytes)),
         )
         + Op.MSTORE(32, Op.PUSH32(test_bytes))
@@ -606,28 +609,33 @@ def test_creating_tx_to_contract_creator(
 
     deployed_contract_address = tx.created_contract
 
-    inner_create_code_address = compute_create_address(
-        address=auth_signer,
-        nonce=2,
-        initcode=inner_initcode_bytes,
-        opcode=create_opcode,
-    )
-    creator_storage[inner_create_result_slot] = inner_create_code_address
+    # None of potential inner deployments should exist after the tx.
+    # These are ones for nonces other than 1, which is the outer deployment.
+    inner_deployed_contract_addresses = [
+        compute_create_address(
+            address=auth_signer,
+            nonce=nonce,
+            initcode=inner_initcode_bytes,
+            opcode=create_opcode,
+        )
+        for nonce in [0, 2, 3]
+    ]
+    for addr in inner_deployed_contract_addresses:
+        assert addr != deployed_contract_address
 
     state_test(
         pre=pre,
         tx=tx,
         post={
-            creator_code_address: Account(storage={}),
+            creator_code_address: Account(storage=creator_storage.canary()),
             auth_signer: Account(
-                nonce=3,
+                nonce=2,
                 code=Spec.delegation_designation(creator_code_address),
-                storage=creator_storage,
+                storage={},
             ),
             deployed_contract_address: Account(
                 code=test_bytes, storage=initcode_storage
             ),
-            inner_create_code_address: Account(code=deployed_code),
         },
     )
 
@@ -749,7 +757,7 @@ def test_set_code_to_contract_creator(
     creator_code: Bytecode | Container
     if evm_code_type == EVMCodeType.LEGACY:
         creator_code = Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE) + Op.SSTORE(
-            storage.store_next(deployed_contract_address),
+            storage.store_next(0),
             create_opcode(value=0, offset=0, size=Op.CALLDATASIZE),
         )
     elif evm_code_type == EVMCodeType.EOF_V1:
@@ -790,14 +798,11 @@ def test_set_code_to_contract_creator(
         post={
             creator_code_address: Account(storage={}),
             auth_signer: Account(
-                nonce=2,
+                nonce=1,
                 code=Spec.delegation_designation(creator_code_address),
                 storage=storage,
             ),
-            deployed_contract_address: Account(
-                code=deployed_code,
-                storage={},
-            ),
+            deployed_contract_address: None,
         },
     )
 
