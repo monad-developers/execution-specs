@@ -75,7 +75,7 @@ def sufficient_gas(
     cost = 0
 
     if fork >= Berlin:
-        cost += 2600  # call and address_access_cost
+        cost += fork.gas_costs().G_COLD_ACCOUNT_ACCESS
     elif Byzantium <= fork < Berlin:
         cost += 700  # call
     elif fork == Homestead:
