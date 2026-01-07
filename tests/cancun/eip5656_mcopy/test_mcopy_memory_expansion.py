@@ -101,7 +101,7 @@ def call_exact_cost(
     pushes_cost = gas_costs.G_VERY_LOW * 9
     calldatasize_cost = gas_costs.G_BASE
 
-    sstore_cost = 22100
+    sstore_cost = gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
     return (
         tx_intrinsic_gas_cost_calculator(
             calldata=initial_memory, access_list=tx_access_list
