@@ -924,7 +924,8 @@ def test_gas_cost(
         # case.
         discount_gas = max_discount
 
-    gas_used = tx_gas_limit - discount_gas
+    # gas_used = tx_gas_limit - discount_gas
+    gas_used = tx_gas_limit
 
     sender_account = pre[sender]
     assert sender_account is not None
@@ -962,6 +963,7 @@ def test_account_warming(
     data: bytes,
     sender: EOA,
     check_delegated_account_first: bool,
+    fork: Fork,
 ) -> None:
     """
     Test warming of the authority and authorized accounts for set-code
@@ -971,8 +973,8 @@ def test_account_warming(
     # check.
     overhead_cost = 3 * len(Op.CALL.kwargs)
 
-    cold_account_cost = 2600
-    warm_account_cost = 100
+    cold_account_cost = fork.gas_costs().G_COLD_ACCOUNT_ACCESS
+    warm_account_cost = fork.gas_costs().G_WARM_ACCOUNT_ACCESS
 
     access_list_addresses = {
         access_list.address for access_list in access_list
@@ -1176,6 +1178,7 @@ def test_self_set_code_cost(
     state_test: StateTestFiller,
     pre: Alloc,
     pre_authorized: bool,
+    fork: Fork,
 ) -> None:
     """Test set to code account access cost when it delegates to itself."""
     if pre_authorized:
@@ -1196,7 +1199,11 @@ def test_self_set_code_cost(
 
     callee_address = pre.deploy_contract(callee_code)
     callee_storage = Storage()
-    callee_storage[slot_call_cost] = 200 if not pre_authorized else 2700
+    callee_storage[slot_call_cost] = (
+        fork.gas_costs().G_WARM_ACCOUNT_ACCESS
+        if not pre_authorized
+        else fork.gas_costs().G_COLD_ACCOUNT_ACCESS
+    ) + 100
 
     tx = Transaction(
         gas_limit=1_000_000,

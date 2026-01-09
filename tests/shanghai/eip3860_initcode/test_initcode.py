@@ -150,7 +150,9 @@ def test_contract_creating_tx(
         nonce=0,
         to=None,
         data=initcode,
-        gas_limit=10000000,
+        # In Monad initcodes are much larger, need moar gas
+        # was 10000000
+        gas_limit=15000000,
         gas_price=10,
         sender=sender,
     )
@@ -243,7 +245,11 @@ class TestContractCreationGasUsage:
         """
         return [
             AccessList(address=Address(i), storage_keys=[])
-            for i in range(1, 478)
+            # in Monad, the initcodes are much longer. Because of this the
+            # floor cost for near-limit initcodes becomes much higher. In order
+            # to exceed it, we need to send even moar access lists (was 478,
+            # need to ~5x it)
+            for i in range(1, 3000)
         ]
 
     @pytest.fixture
@@ -502,7 +508,9 @@ class TestCreateInitcode:
             nonce=0,
             to=caller_contract_address,
             data=initcode,
-            gas_limit=10000000,
+            # In Monad initcodes are much larger, need moar gas
+            # was 10000000
+            gas_limit=15000000,
             gas_price=10,
             sender=sender,
         )

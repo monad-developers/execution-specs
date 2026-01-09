@@ -1451,6 +1451,7 @@ def test_set_code_address_and_authority_warm_state(
     state_test: StateTestFiller,
     pre: Alloc,
     set_code_address_first: bool,
+    fork: Fork,
 ) -> None:
     """
     Test set to code address and authority warm status after a call to
@@ -1496,13 +1497,18 @@ def test_set_code_address_and_authority_warm_state(
     callee_address = pre.deploy_contract(
         callee_code, evm_code_type=EVMCodeType.LEGACY
     )
+    gas_costs = fork.gas_costs()
     callee_storage = Storage()
     callee_storage[slot_call_success] = 1
     callee_storage[slot_set_code_to_warm_state] = (
-        2_600 if set_code_address_first else 100
+        gas_costs.G_COLD_ACCOUNT_ACCESS
+        if set_code_address_first
+        else gas_costs.G_WARM_ACCOUNT_ACCESS
     )
-    callee_storage[slot_authority_warm_state] = (
-        200 if set_code_address_first else 2_700
+    callee_storage[slot_authority_warm_state] = 100 + (
+        gas_costs.G_WARM_ACCOUNT_ACCESS
+        if set_code_address_first
+        else gas_costs.G_COLD_ACCOUNT_ACCESS
     )
 
     tx = Transaction(
@@ -2739,7 +2745,7 @@ def test_nonce_validity(
     entry_address = pre.deploy_contract(entry_code)
 
     tx = Transaction(
-        gas_limit=100_000,
+        gas_limit=300_000,
         to=entry_address,
         value=0,
         authorization_list=[authorization],
@@ -2986,10 +2992,10 @@ def test_set_code_to_precompile_not_enough_gas_for_precompile_execution(
     intrinsic_gas = fork.transaction_intrinsic_cost_calculator()(
         authorization_list_or_count=[auth],
     )
-    discount = min(
-        Spec.PER_EMPTY_ACCOUNT_COST - Spec.PER_AUTH_BASE_COST,
-        intrinsic_gas // 5,  # max discount EIP-3529
-    )
+    # discount = min(
+    #     Spec.PER_EMPTY_ACCOUNT_COST - Spec.PER_AUTH_BASE_COST,
+    #     intrinsic_gas // 5,  # max discount EIP-3529
+    # )
 
     tx = Transaction(
         sender=pre.fund_eoa(),
@@ -2998,7 +3004,7 @@ def test_set_code_to_precompile_not_enough_gas_for_precompile_execution(
         value=1,
         authorization_list=[auth],
         # explicitly check expected gas, no precompile code executed
-        expected_receipt=TransactionReceipt(gas_used=intrinsic_gas - discount),
+        expected_receipt=TransactionReceipt(gas_used=intrinsic_gas),
     )
 
     state_test(

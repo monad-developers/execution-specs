@@ -25,5 +25,5 @@ class Spec:
     https://eips.ethereum.org/EIPS/eip-3860#parameters.
     """
 
-    MAX_INITCODE_SIZE = 49152
+    MAX_INITCODE_SIZE = 2 * 128 * 1024
     INITCODE_WORD_COST = 2

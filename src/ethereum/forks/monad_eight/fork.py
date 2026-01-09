@@ -926,29 +926,28 @@ def process_transaction(
 
     # For EIP-7623 we first calculate the execution_gas_used, which includes
     # the execution gas refund.
-    tx_gas_used_before_refund = tx.gas - tx_output.gas_left
-    tx_gas_refund = min(
-        tx_gas_used_before_refund // Uint(5), Uint(tx_output.refund_counter)
-    )
-    tx_gas_used_after_refund = tx_gas_used_before_refund - tx_gas_refund
+    # tx_gas_used_before_refund = tx.gas - tx_output.gas_left
+    # tx_gas_refund = min(
+    #     tx_gas_used_before_refund // Uint(5), Uint(tx_output.refund_counter)
+    # )
+    # tx_gas_used_after_refund = tx_gas_used_before_refund - tx_gas_refund
 
     # Transactions with less execution_gas_used than the floor pay at the
     # floor cost.
-    tx_gas_used_after_refund = max(
-        tx_gas_used_after_refund, calldata_floor_gas_cost
-    )
+    # tx_gas_used_after_refund = max(
+    #     tx_gas_used_after_refund, calldata_floor_gas_cost
+    # )
 
-    tx_gas_left = tx.gas - tx_gas_used_after_refund
-    gas_refund_amount = tx_gas_left * effective_gas_price
+    # tx_gas_left = tx.gas - tx_gas_used_after_refund
+    # gas_refund_amount = tx_gas_left * effective_gas_price
 
     # For non-1559 transactions effective_gas_price == tx.gas_price
     priority_fee_per_gas = effective_gas_price - block_env.base_fee_per_gas
-    transaction_fee = tx_gas_used_after_refund * priority_fee_per_gas
+    transaction_fee = tx.gas * priority_fee_per_gas
 
     # refund gas
-    sender_balance_after_refund = get_account(
-        block_env.state, sender
-    ).balance + U256(gas_refund_amount)
+    sender_balance_after_refund = get_account(block_env.state, sender).balance
+    # + U256(gas_refund_amount)
     set_account_balance(block_env.state, sender, sender_balance_after_refund)
 
     # transfer miner fees
@@ -964,7 +963,8 @@ def process_transaction(
     for address in tx_output.accounts_to_delete:
         destroy_account(block_env.state, address)
 
-    block_output.block_gas_used += tx_gas_used_after_refund
+    # block_output.block_gas_used += tx_gas_used_after_refund
+    block_output.block_gas_used += tx.gas
     block_output.blob_gas_used += tx_blob_gas_used
 
     receipt = make_receipt(

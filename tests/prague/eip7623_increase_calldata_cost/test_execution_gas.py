@@ -158,12 +158,12 @@ class TestGasConsumptionBelowDataFloor:
         state_test: StateTestFiller,
         pre: Alloc,
         tx: Transaction,
-        tx_floor_data_cost: int,
+        # tx_floor_data_cost: int,
     ) -> None:
         """
         Test executing a transaction that almost consumes the floor data cost.
         """
-        tx.expected_receipt = TransactionReceipt(gas_used=tx_floor_data_cost)
+        tx.expected_receipt = TransactionReceipt(gas_used=tx.gas_limit)
         state_test(
             pre=pre,
             post={},
