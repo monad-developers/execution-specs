@@ -98,6 +98,15 @@ class WriteInStaticContext(ExceptionalHalt):
     pass
 
 
+class CreateIn7702Context(ExceptionalHalt):
+    """
+    Raised when an attempt is made to CREATE or CREATE2 inside an EIP-7702
+    delegated account context.
+    """
+
+    pass
+
+
 class OutOfBoundsRead(ExceptionalHalt):
     """
     Raised when an attempt was made to read data beyond the

@@ -627,6 +627,7 @@ def process_system_transaction(
         accessed_storage_keys=set(),
         disable_precompiles=False,
         parent_evm=None,
+        disable_create_opcodes=False,
     )
 
     system_tx_output = process_message_call(system_tx_message)

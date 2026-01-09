@@ -87,4 +87,5 @@ def prepare_message(
         accessed_storage_keys=set(tx_env.access_list_storage_keys),
         disable_precompiles=False,
         parent_evm=None,
+        disable_create_opcodes=False,
     )

@@ -38,7 +38,12 @@ from .. import (
     incorporate_child_on_error,
     incorporate_child_on_success,
 )
-from ..exceptions import OutOfGasError, Revert, WriteInStaticContext
+from ..exceptions import (
+    CreateIn7702Context,
+    OutOfGasError,
+    Revert,
+    WriteInStaticContext,
+)
 from ..gas import (
     GAS_CALL_VALUE,
     GAS_COLD_ACCOUNT_ACCESS,
@@ -87,6 +92,8 @@ def generic_create(
     evm.gas_left -= create_message_gas
     if evm.message.is_static:
         raise WriteInStaticContext
+    if evm.message.disable_create_opcodes:
+        raise CreateIn7702Context
     evm.return_data = b""
 
     sender_address = evm.message.current_target
@@ -132,6 +139,7 @@ def generic_create(
         accessed_storage_keys=evm.accessed_storage_keys.copy(),
         disable_precompiles=False,
         parent_evm=evm,
+        disable_create_opcodes=False,
     )
     child_evm = process_create_message(child_message)
 
@@ -290,6 +298,7 @@ def generic_call(
     memory_output_size: U256,
     code: Bytes,
     disable_precompiles: bool,
+    disable_create_opcodes: bool,
 ) -> None:
     """
     Perform the core logic of the `CALL*` family of opcodes.
@@ -325,6 +334,7 @@ def generic_call(
         accessed_storage_keys=evm.accessed_storage_keys.copy(),
         disable_precompiles=disable_precompiles,
         parent_evm=evm,
+        disable_create_opcodes=disable_create_opcodes,
     )
     child_evm = process_message(child_message)
 
@@ -382,6 +392,7 @@ def call(evm: Evm) -> None:
     code_address = to
     (
         disable_precompiles,
+        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -426,6 +437,7 @@ def call(evm: Evm) -> None:
             memory_output_size,
             code,
             disable_precompiles,
+            disable_create_opcodes,
         )
 
     # PROGRAM COUNTER
@@ -470,6 +482,7 @@ def callcode(evm: Evm) -> None:
 
     (
         disable_precompiles,
+        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -511,6 +524,7 @@ def callcode(evm: Evm) -> None:
             memory_output_size,
             code,
             disable_precompiles,
+            disable_create_opcodes,
         )
 
     # PROGRAM COUNTER
@@ -611,6 +625,7 @@ def delegatecall(evm: Evm) -> None:
 
     (
         disable_precompiles,
+        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -639,6 +654,7 @@ def delegatecall(evm: Evm) -> None:
         memory_output_size,
         code,
         disable_precompiles,
+        disable_create_opcodes,
     )
 
     # PROGRAM COUNTER
@@ -681,6 +697,7 @@ def staticcall(evm: Evm) -> None:
     code_address = to
     (
         disable_precompiles,
+        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -713,6 +730,7 @@ def staticcall(evm: Evm) -> None:
         memory_output_size,
         code,
         disable_precompiles,
+        disable_create_opcodes,
     )
 
     # PROGRAM COUNTER

@@ -132,6 +132,7 @@ def process_message_call(message: Message) -> MessageCallOutput:
             message.accessed_addresses.add(delegated_address)
             message.code = get_account(block_env.state, delegated_address).code
             message.code_address = delegated_address
+            message.disable_create_opcodes = True
 
         evm = process_message(message)
 
