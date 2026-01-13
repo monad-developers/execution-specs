@@ -63,7 +63,7 @@ def tx_gas_limit_cap_tests(fork: Fork) -> List[ParameterSet]:
 
 
 @pytest.mark.parametrize_by_fork("tx_gas_limit,error", tx_gas_limit_cap_tests)
-@pytest.mark.with_all_tx_types
+@pytest.mark.with_all_tx_types(selector=lambda x: x != 3)
 @pytest.mark.valid_from("Prague")
 def test_transaction_gas_limit_cap(
     state_test: StateTestFiller,

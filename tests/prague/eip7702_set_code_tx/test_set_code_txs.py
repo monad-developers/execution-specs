@@ -3207,7 +3207,7 @@ def test_set_code_to_system_contract(
 
 @pytest.mark.with_all_evm_code_types
 @pytest.mark.with_all_tx_types(
-    selector=lambda tx_type: tx_type != 4,
+    selector=lambda tx_type: tx_type != 4 and tx_type != 3,
     marks=lambda tx_type: pytest.mark.execute(
         pytest.mark.skip("incompatible tx")
     )

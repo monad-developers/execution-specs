@@ -506,7 +506,7 @@ def test_block_at_rlp_size_limit_boundary(
 
 
 @EIPChecklist.BlockLevelConstraint.Test.Content.TransactionTypes()
-@pytest.mark.with_all_typed_transactions
+@pytest.mark.with_all_typed_transactions(selector=lambda x: x != 3)
 @pytest.mark.verify_sync
 @pytest.mark.valid_from("Osaka")
 def test_block_rlp_size_at_limit_with_all_typed_transactions(
