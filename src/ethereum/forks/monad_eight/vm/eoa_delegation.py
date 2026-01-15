@@ -13,7 +13,13 @@ from ethereum.crypto.hash import keccak256
 from ethereum.exceptions import InvalidBlock, InvalidSignatureError
 
 from ..fork_types import Address, Authorization
-from ..state import account_exists, get_account, increment_nonce, set_code
+from ..state import (
+    account_exists,
+    add_sender_authority,
+    get_account,
+    increment_nonce,
+    set_code,
+)
 from ..utils.hexadecimal import hex_to_address
 from ..vm.gas import GAS_COLD_ACCOUNT_ACCESS, GAS_WARM_ACCESS
 from . import Evm, Message
@@ -203,6 +209,8 @@ def set_delegation(message: Message) -> U256:
         set_code(state, authority, code_to_set)
 
         increment_nonce(state, authority)
+
+        add_sender_authority(state, message.block_env.number, authority)
 
     if message.code_address is None:
         raise InvalidBlock("Invalid type 4 transaction: no target")

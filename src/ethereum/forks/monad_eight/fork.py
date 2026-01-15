@@ -52,7 +52,9 @@ from .requests import (
 from .state import (
     State,
     TransientStorage,
+    add_sender_authority,
     destroy_account,
+    forget_senders_authorities,
     get_account,
     increment_nonce,
     modify_state,
@@ -600,6 +602,7 @@ def process_system_transaction(
         origin=SYSTEM_ADDRESS,
         gas_price=block_env.base_fee_per_gas,
         gas=SYSTEM_TRANSACTION_GAS,
+        tx_gas_limit=SYSTEM_TRANSACTION_GAS,
         access_list_addresses=set(),
         access_list_storage_keys=set(),
         transient_storage=TransientStorage(),
@@ -747,6 +750,7 @@ def apply_body(
 
     """
     block_output = vm.BlockOutput()
+    forget_senders_authorities(block_env.state, block_env.number - 3)
 
     process_unchecked_system_transaction(
         block_env=block_env,
@@ -911,6 +915,7 @@ def process_transaction(
         origin=sender,
         gas_price=effective_gas_price,
         gas=gas,
+        tx_gas_limit=tx.gas,
         access_list_addresses=access_list_addresses,
         access_list_storage_keys=access_list_storage_keys,
         transient_storage=TransientStorage(),
@@ -949,6 +954,7 @@ def process_transaction(
     sender_balance_after_refund = get_account(block_env.state, sender).balance
     # + U256(gas_refund_amount)
     set_account_balance(block_env.state, sender, sender_balance_after_refund)
+    add_sender_authority(block_env.state, block_env.number, sender)
 
     # transfer miner fees
     coinbase_balance_after_mining_fee = get_account(

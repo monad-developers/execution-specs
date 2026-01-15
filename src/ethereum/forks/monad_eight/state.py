@@ -47,6 +47,8 @@ class State:
     ] = field(default_factory=list)
     created_accounts: Set[Address] = field(default_factory=set)
 
+    _senders_authorities: Dict[int, Set[Address]] = field(default_factory=dict)
+
 
 @dataclass
 class TransientStorage:
@@ -70,6 +72,7 @@ def close_state(state: State) -> None:
     del state._storage_tries
     del state._snapshots
     del state.created_accounts
+    del state._senders_authorities
 
 
 def begin_transaction(
@@ -570,6 +573,32 @@ def set_code(state: State, address: Address, code: Bytes) -> None:
     modify_state(state, address, write_code)
 
 
+def get_balance_original(state: State, address: Address) -> U256:
+    """
+    Get the original balance of an account i.e. the balance before the current
+    transaction began. This function reads the value from the snapshots taken
+    before executing the transaction.
+
+    Parameters
+    ----------
+    state:
+        The current state.
+    address:
+        Address of the account to read the value from.
+
+    """
+    original_account_trie, _ = state._snapshots[0]
+    original_account = trie_get(original_account_trie, address)
+
+    if original_account is None:
+        original_balance = U256(0)
+    else:
+        original_balance = original_account.balance
+
+    assert isinstance(original_balance, U256)
+    return original_balance
+
+
 def get_storage_original(state: State, address: Address, key: Bytes32) -> U256:
     """
     Get the original value in a storage slot i.e. the value before the current
@@ -665,3 +694,37 @@ def set_transient_storage(
     trie_set(trie, key, value)
     if trie._data == {}:
         del transient_storage._tries[address]
+
+
+def add_sender_authority(
+    state: State,
+    block_number: int,
+    address: Address,
+) -> None:
+    """
+    Add an address being an authority signer or sender in block.
+    """
+    state._senders_authorities.setdefault(block_number, set()).add(address)
+
+
+def is_sender_authority(
+    state: State,
+    address: Address,
+) -> bool:
+    """
+    Returns true if address is a sender or authority in saved blocks.
+    """
+    for senders_authorities_at_block in state._senders_authorities.values():
+        if address in senders_authorities_at_block:
+            return True
+    return False
+
+
+def forget_senders_authorities(
+    state: State,
+    block_number: int,
+) -> None:
+    """
+    Forgets senders and authorities from block at number.
+    """
+    state._senders_authorities.pop(block_number, None)

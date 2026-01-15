@@ -32,6 +32,16 @@ class Revert(EthereumException):
     pass
 
 
+class RevertOnReserveBalance(EthereumException):
+    """
+    Raised when reserve balance is violated by a transaction.
+
+    .. FIXME description.
+    """
+
+    pass
+
+
 class StackUnderflowError(ExceptionalHalt):
     """
     Occurs when a pop is executed on an empty stack.

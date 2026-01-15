@@ -100,6 +100,7 @@ class TransactionEnvironment:
     origin: Address
     gas_price: Uint
     gas: Uint
+    tx_gas_limit: Uint
     access_list_addresses: Set[Address]
     access_list_storage_keys: Set[Tuple[Address, Bytes32]]
     transient_storage: TransientStorage

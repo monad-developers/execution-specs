@@ -38,14 +38,20 @@ from ..state import (
     commit_transaction,
     destroy_storage,
     get_account,
+    get_balance_original,
     increment_nonce,
+    is_sender_authority,
     mark_account_created,
     move_ether,
     rollback_transaction,
     set_code,
 )
 from ..vm import Message
-from ..vm.eoa_delegation import get_delegated_code_address, set_delegation
+from ..vm.eoa_delegation import (
+    get_delegated_code_address,
+    is_valid_delegation,
+    set_delegation,
+)
 from ..vm.gas import GAS_CODE_DEPOSIT, charge_gas
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
 from . import Evm
@@ -56,6 +62,7 @@ from .exceptions import (
     InvalidOpcode,
     OutOfGasError,
     Revert,
+    RevertOnReserveBalance,
     StackDepthLimitError,
 )
 from .instructions import Ops, op_implementation
@@ -64,6 +71,8 @@ from .runtime import get_valid_jump_destinations
 STACK_DEPTH_LIMIT = Uint(1024)
 MAX_CODE_SIZE = 128 * 1024
 MAX_INIT_CODE_SIZE = 2 * MAX_CODE_SIZE
+
+RESERVE_BALANCE = U256(10 * 10**18)  # 10 MON
 
 
 @dataclass
@@ -253,6 +262,39 @@ def process_message(message: Message) -> Evm:
         # since the message call resulted in an error
         rollback_transaction(state, transient_storage)
     else:
+        # FIXME: index_in_block is a proxy for not being a system tx
+        if message.depth == 0 and message.tx_env.index_in_block is not None:
+            for addr in set(state._main_trie._data.keys()):
+                acc = get_account(state, addr)
+                if acc.code == b"" or is_valid_delegation(acc.code):
+                    original_balance = get_balance_original(state, addr)
+                    if message.tx_env.origin == addr:
+                        # gas_fees already deducted, need to re-add if sender
+                        # to match with spec.
+                        gas_fees = U256(
+                            message.tx_env.gas_price
+                            * message.tx_env.tx_gas_limit
+                        )
+                        original_balance += gas_fees
+                        reserve = min(RESERVE_BALANCE, original_balance)
+                        threshold = reserve - gas_fees
+                    else:
+                        threshold = RESERVE_BALANCE
+                    is_exception = not is_sender_authority(
+                        state, addr
+                    ) and not is_valid_delegation(acc.code)
+                    if (
+                        acc.balance < original_balance
+                        and acc.balance < threshold
+                        and not is_exception
+                    ):
+                        rollback_transaction(state, transient_storage)
+                        error = RevertOnReserveBalance()
+                        evm_trace(evm, error)
+                        evm.error = error
+                        return evm
+                        # cannot do this because it fails the entire tx
+                        # raise RevertOnReserveBalance
         commit_transaction(state, transient_storage)
     return evm
 
