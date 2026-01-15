@@ -53,6 +53,7 @@ from execution_testing.forks import (
 from execution_testing.specs import BaseTest
 from execution_testing.specs.base import OpMode
 from execution_testing.test_types import EnvironmentDefaults
+from execution_testing.test_types.chain_config_types import ChainConfigDefaults
 from execution_testing.tools.utility.versioning import (
     generate_github_url,
     get_current_commit_hash_or_tag,
@@ -458,6 +459,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ),
     )
     evm_group.addoption(
+        "--chain-id",
+        action="store",
+        dest="chain_id",
+        type=str,
+        default=None,
+        help=("Specify the chain ID for the test filling."),
+    )
+    evm_group.addoption(
         "--traces",
         action="store_true",
         dest="evm_collect_traces",
@@ -776,6 +785,16 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[metadata_key]["Command-line args"] = (
         f"<code>{command_line_args}</code>"
     )
+
+    chain_id = config.getoption("chain_id")
+
+    if chain_id is None:
+        # Try to get the chain ID from the environment variable
+        chain_id = os.environ.get("CHAIN_ID")
+
+    # write to config
+    if chain_id is not None:
+        ChainConfigDefaults.chain_id = chain_id
 
 
 @pytest.hookimpl(trylast=True)
