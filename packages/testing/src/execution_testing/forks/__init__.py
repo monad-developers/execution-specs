@@ -26,6 +26,7 @@ from .forks.forks import (
     Prague,
     Shanghai,
     MONAD_EIGHT,
+    MONAD_NEXT,
 )
 from .forks.transition import (
     BerlinToLondonAt5,
@@ -37,6 +38,8 @@ from .forks.transition import (
     ParisToShanghaiAtTime15k,
     PragueToOsakaAtTime15k,
     ShanghaiToCancunAtTime15k,
+    PragueToMONAD_EIGHTAtTime15k,
+    MONAD_EIGHTToMONAD_NEXTAtTime15k,
 )
 from .gas_costs import GasCosts
 from .helpers import (
@@ -113,6 +116,9 @@ __all__ = [
     "Osaka",
     "OsakaToBPO1AtTime15k",
     "MONAD_EIGHT",
+    "PragueToMONAD_EIGHTAtTime15k",
+    "MONAD_NEXT",
+    "MONAD_EIGHTToMONAD_NEXTAtTime15k",
     "BPO1",
     "BPO1ToBPO2AtTime15k",
     "BPO2",

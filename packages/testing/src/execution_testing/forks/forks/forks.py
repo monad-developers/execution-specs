@@ -2347,6 +2347,12 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):
     """MONAD_EIGHT fork."""
 
 
+class MONAD_NEXT(MONAD_EIGHT, solc_name="cancun"):
+    """MONAD_NEXT fork."""
+
+    # placeholder
+
+
 class BPO1(Osaka, bpo_fork=True):
     """Mainnet BPO1 fork - Blob Parameter Only fork 1."""
 

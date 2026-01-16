@@ -6,6 +6,8 @@ from .forks import (
     BPO2,
     BPO3,
     BPO4,
+    MONAD_EIGHT,
+    MONAD_NEXT,
     Berlin,
     Cancun,
     London,
@@ -48,6 +50,20 @@ class CancunToPragueAtTime15k(Cancun):
 @transition_fork(to_fork=Osaka, at_timestamp=15_000)
 class PragueToOsakaAtTime15k(Prague):
     """Prague to Osaka transition at Timestamp 15k."""
+
+    pass
+
+
+@transition_fork(to_fork=MONAD_EIGHT, at_timestamp=15_000)
+class PragueToMONAD_EIGHTAtTime15k(Prague):
+    """Prague to MONAD_EIGHT transition at Timestamp 15k."""
+
+    pass
+
+
+@transition_fork(to_fork=MONAD_NEXT, at_timestamp=15_000)
+class MONAD_EIGHTToMONAD_NEXTAtTime15k(MONAD_EIGHT):
+    """Prague to MONAD_NEXT transition at Timestamp 15k."""
 
     pass
 
