@@ -2349,6 +2349,21 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):
     """MONAD_EIGHT fork."""
 
     @classmethod
+    def precompiles(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> List[Address]:
+        """
+        At MONAD_EIGHT, a precompile for p256verify operation is added.
+
+        P256VERIFY = 0x100
+        """
+        return [
+            Address(0x100, label="P256VERIFY"),
+        ] + super(MONAD_EIGHT, cls).precompiles(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
     def max_code_size(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> int:
