@@ -25,6 +25,7 @@ from .forks.forks import (
     Paris,
     Prague,
     Shanghai,
+    MONAD_EIGHT,
 )
 from .forks.transition import (
     BerlinToLondonAt5,
@@ -111,6 +112,7 @@ __all__ = [
     "PragueToOsakaAtTime15k",
     "Osaka",
     "OsakaToBPO1AtTime15k",
+    "MONAD_EIGHT",
     "BPO1",
     "BPO1ToBPO2AtTime15k",
     "BPO2",

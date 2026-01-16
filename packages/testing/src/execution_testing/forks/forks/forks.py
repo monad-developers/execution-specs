@@ -2343,6 +2343,10 @@ class Osaka(Prague, solc_name="cancun"):
         return 2**13  # EIP-7918 new parameter
 
 
+class MONAD_EIGHT(Prague, solc_name="cancun"):
+    """MONAD_EIGHT fork."""
+
+
 class BPO1(Osaka, bpo_fork=True):
     """Mainnet BPO1 fork - Blob Parameter Only fork 1."""
 

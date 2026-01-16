@@ -27,6 +27,9 @@ from ethereum_spec_tools.forks import Hardfork
 W = TypeVar("W", Uint, U64, U256)
 
 EXCEPTION_MAPS = {
+    "MONAD_EIGHT": {
+        "fork_blocks": [("monad_eight", 0)],
+    },
     "BPO4": {
         "fork_blocks": [("osaka", 0)],
     },
