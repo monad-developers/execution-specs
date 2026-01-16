@@ -2400,10 +2400,43 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):
         )
 
 
-class MONAD_NEXT(MONAD_EIGHT, solc_name="cancun"):
+class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):
     """MONAD_NEXT fork."""
 
-    # placeholder
+    @classmethod
+    def valid_opcodes(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> List[Opcodes]:
+        """Return spec from explicit parent."""
+        del block_number, timestamp
+        return Osaka.valid_opcodes()
+
+    @classmethod
+    def gas_costs(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> GasCosts:
+        """Return spec from explicit parent."""
+        return MONAD_EIGHT.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
+    def max_code_size(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int:
+        """Return spec from explicit parent."""
+        return MONAD_EIGHT.max_code_size(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
+    def precompiles(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> List[Address]:
+        """Return spec from explicit parent."""
+        return MONAD_EIGHT.precompiles(
+            block_number=block_number, timestamp=timestamp
+        )
 
 
 class BPO1(Osaka, bpo_fork=True):
