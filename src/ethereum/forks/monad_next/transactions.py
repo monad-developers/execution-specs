@@ -20,7 +20,11 @@ from ethereum.exceptions import (
     NonceOverflowError,
 )
 
-from .exceptions import InitCodeTooLargeError, TransactionTypeError
+from .exceptions import (
+    InitCodeTooLargeError,
+    TransactionGasLimitExceededError,
+    TransactionTypeError,
+)
 from .fork_types import Address, Authorization, VersionedHash
 
 TX_BASE_COST = Uint(21000)
@@ -59,6 +63,8 @@ TX_ACCESS_LIST_STORAGE_KEY_COST = Uint(1900)
 """
 Gas cost for including a storage key in the access list of a transaction.
 """
+
+TX_MAX_GAS_LIMIT = Uint(16_777_216)
 
 
 @slotted_freezable
@@ -557,6 +563,8 @@ def validate_transaction(tx: Transaction) -> Tuple[Uint, Uint]:
         raise NonceOverflowError("Nonce too high")
     if tx.to == Bytes0(b"") and len(tx.data) > MAX_INIT_CODE_SIZE:
         raise InitCodeTooLargeError("Code size too large")
+    if tx.gas > TX_MAX_GAS_LIMIT:
+        raise TransactionGasLimitExceededError("Gas limit too high")
 
     return intrinsic_gas, calldata_floor_gas_cost
 

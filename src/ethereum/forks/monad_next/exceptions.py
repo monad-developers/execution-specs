@@ -97,6 +97,12 @@ class NoBlobDataError(InvalidTransaction):
     """
 
 
+class BlobCountExceededError(InvalidTransaction):
+    """
+    The transaction has more blobs than the limit.
+    """
+
+
 class PriorityFeeGreaterThanMaxFeeError(InvalidTransaction):
     """
     The priority fee is greater than the maximum fee per gas.
@@ -112,4 +118,14 @@ class EmptyAuthorizationListError(InvalidTransaction):
 class InitCodeTooLargeError(InvalidTransaction):
     """
     The init code of the transaction is too large.
+    """
+
+
+class TransactionGasLimitExceededError(InvalidTransaction):
+    """
+    The transaction has specified a gas limit that is greater than the allowed
+    maximum.
+
+    Note that this is _not_ the exception thrown when bytecode execution runs
+    out of gas.
     """

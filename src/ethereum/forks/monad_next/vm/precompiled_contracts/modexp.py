@@ -15,10 +15,9 @@ from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U256, Uint
 
 from ...vm import Evm
+from ...vm.exceptions import ExceptionalHalt
 from ...vm.gas import charge_gas
 from ..memory import buffer_read
-
-GQUADDIVISOR = Uint(3)
 
 
 def modexp(evm: Evm) -> None:
@@ -30,8 +29,16 @@ def modexp(evm: Evm) -> None:
 
     # GAS
     base_length = U256.from_be_bytes(buffer_read(data, U256(0), U256(32)))
+    if base_length > U256(1024):
+        raise ExceptionalHalt("Mod-exp base length is too large")
+
     exp_length = U256.from_be_bytes(buffer_read(data, U256(32), U256(32)))
+    if exp_length > U256(1024):
+        raise ExceptionalHalt("Mod-exp exponent length is too large")
+
     modulus_length = U256.from_be_bytes(buffer_read(data, U256(64), U256(32)))
+    if modulus_length > U256(1024):
+        raise ExceptionalHalt("Mod-exp modulus length is too large")
 
     exp_start = U256(96) + base_length
 
@@ -85,7 +92,10 @@ def complexity(base_length: U256, modulus_length: U256) -> Uint:
     """
     max_length = max(Uint(base_length), Uint(modulus_length))
     words = (max_length + Uint(7)) // Uint(8)
-    return words ** Uint(2)
+    complexity = Uint(16)
+    if max_length > Uint(32):
+        complexity = Uint(2) * words ** Uint(2)
+    return complexity
 
 
 def iterations(exponent_length: U256, exponent_head: U256) -> Uint:
@@ -118,7 +128,7 @@ def iterations(exponent_length: U256, exponent_head: U256) -> Uint:
 
         count = bit_length
     else:
-        length_part = Uint(8) * (Uint(exponent_length) - Uint(32))
+        length_part = Uint(16) * (Uint(exponent_length) - Uint(32))
         bits_part = exponent_head.bit_length()
 
         if bits_part > Uint(0):
@@ -162,5 +172,4 @@ def gas_cost(
     multiplication_complexity = complexity(base_length, modulus_length)
     iteration_count = iterations(exponent_length, exponent_head)
     cost = multiplication_complexity * iteration_count
-    cost //= GQUADDIVISOR
-    return max(Uint(200), cost)
+    return max(Uint(500), cost)

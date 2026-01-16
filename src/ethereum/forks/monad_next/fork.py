@@ -32,6 +32,7 @@ from . import vm
 from .blocks import Block, Header, Log, Receipt, Withdrawal, encode_receipt
 from .bloom import logs_bloom
 from .exceptions import (
+    BlobCountExceededError,
     BlobGasLimitExceededError,
     EmptyAuthorizationListError,
     InsufficientMaxFeePerBlobGasError,
@@ -80,6 +81,8 @@ from .utils.message import prepare_message
 from .vm import Message
 from .vm.eoa_delegation import is_valid_delegation
 from .vm.gas import (
+    BLOB_SCHEDULE_MAX,
+    GAS_PER_BLOB,
     calculate_blob_gas_price,
     calculate_data_fee,
     calculate_excess_blob_gas,
@@ -97,7 +100,7 @@ BEACON_ROOTS_ADDRESS = hex_to_address(
     "0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02"
 )
 SYSTEM_TRANSACTION_GAS = Uint(30000000)
-MAX_BLOB_GAS_PER_BLOCK = U64(1179648)
+MAX_BLOB_GAS_PER_BLOCK = BLOB_SCHEDULE_MAX * GAS_PER_BLOB
 VERSIONED_HASH_VERSION_KZG = b"\x01"
 
 WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS = hex_to_address(
@@ -109,6 +112,10 @@ CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS = hex_to_address(
 HISTORY_STORAGE_ADDRESS = hex_to_address(
     "0x0000F90827F1C53a10cb7A02335B175320002935"
 )
+MAX_BLOCK_SIZE = 10_485_760
+SAFETY_MARGIN = 2_097_152
+MAX_RLP_BLOCK_SIZE = MAX_BLOCK_SIZE - SAFETY_MARGIN
+BLOB_COUNT_LIMIT = 6
 
 
 @dataclass
@@ -209,6 +216,9 @@ def state_transition(chain: BlockChain, block: Block) -> None:
         Block to apply to `chain`.
 
     """
+    if len(rlp.encode(block)) > MAX_RLP_BLOCK_SIZE:
+        raise InvalidBlock("Block rlp size exceeds MAX_RLP_BLOCK_SIZE")
+
     validate_header(chain, block.header)
     if block.ommers != ():
         raise InvalidBlock
@@ -439,6 +449,8 @@ def check_transaction(
         version.
     NoBlobDataError :
         If the transaction is a type 3 but has no blobs.
+    BlobCountExceededError :
+        If the transaction is a type 3 and has more blobs than the limit.
     TransactionTypeContractCreationError:
         If the transaction type is not allowed to create contracts.
     EmptyAuthorizationListError :
@@ -484,8 +496,13 @@ def check_transaction(
         max_gas_fee = tx.gas * tx.gas_price
 
     if isinstance(tx, BlobTransaction):
-        if len(tx.blob_versioned_hashes) == 0:
+        blob_count = len(tx.blob_versioned_hashes)
+        if blob_count == 0:
             raise NoBlobDataError("no blob data in transaction")
+        if blob_count > BLOB_COUNT_LIMIT:
+            raise BlobCountExceededError(
+                f"Tx has {blob_count} blobs. Max allowed: {BLOB_COUNT_LIMIT}"
+            )
         for blob_versioned_hash in tx.blob_versioned_hashes:
             if blob_versioned_hash[0:1] != VERSIONED_HASH_VERSION_KZG:
                 raise InvalidBlobVersionedHashError(

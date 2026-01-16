@@ -74,7 +74,10 @@ GAS_ALT_BN128_PAIRING_BASE = 45000 * 5
 GAS_ALT_BN128_PAIRING_PER_POINT = 34000 * 5
 
 GAS_PER_BLOB = U64(2**17)
-TARGET_BLOB_GAS_PER_BLOCK = U64(786432)
+BLOB_SCHEDULE_TARGET = U64(6)
+TARGET_BLOB_GAS_PER_BLOCK = GAS_PER_BLOB * BLOB_SCHEDULE_TARGET
+BLOB_BASE_COST = Uint(2**13)
+BLOB_SCHEDULE_MAX = U64(9)
 MIN_BLOB_GASPRICE = Uint(1)
 BLOB_BASE_FEE_UPDATE_FRACTION = Uint(5007716)
 
@@ -306,15 +309,28 @@ def calculate_excess_blob_gas(parent_header: Header) -> U64:
     # At the fork block, these are defined as zero.
     excess_blob_gas = U64(0)
     blob_gas_used = U64(0)
+    base_fee_per_gas = Uint(0)
 
     if isinstance(parent_header, Header):
         # After the fork block, read them from the parent header.
         excess_blob_gas = parent_header.excess_blob_gas
         blob_gas_used = parent_header.blob_gas_used
+        base_fee_per_gas = parent_header.base_fee_per_gas
 
     parent_blob_gas = excess_blob_gas + blob_gas_used
     if parent_blob_gas < TARGET_BLOB_GAS_PER_BLOCK:
         return U64(0)
+
+    target_blob_gas_price = Uint(GAS_PER_BLOB)
+    target_blob_gas_price *= calculate_blob_gas_price(excess_blob_gas)
+
+    base_blob_tx_price = BLOB_BASE_COST * base_fee_per_gas
+    if base_blob_tx_price > target_blob_gas_price:
+        blob_schedule_delta = BLOB_SCHEDULE_MAX - BLOB_SCHEDULE_TARGET
+        return (
+            excess_blob_gas
+            + blob_gas_used * blob_schedule_delta // BLOB_SCHEDULE_MAX
+        )
 
     return parent_blob_gas - TARGET_BLOB_GAS_PER_BLOCK
 

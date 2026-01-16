@@ -8,7 +8,7 @@ Hardfork Utility Functions For The Message Data-structure.
 Introduction
 ------------
 
-Message specific functions used in this MONAD_EIGHT version of
+Message specific functions used in this MONAD_NEXT version of
 specification.
 """
 
