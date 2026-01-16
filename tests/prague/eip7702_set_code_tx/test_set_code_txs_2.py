@@ -29,6 +29,7 @@ from execution_testing import (
     TransactionException,
     compute_create_address,
 )
+from execution_testing.forks import MONAD_EIGHT
 from execution_testing.test_types.eof.v1 import Container, Section
 
 from .spec import Spec, ref_spec_7702
@@ -1944,6 +1945,7 @@ def test_double_auth(
 def test_pointer_resets_an_empty_code_account_with_storage(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """
     So in Block1 we create a sender with empty code, but non empty storage
@@ -2031,7 +2033,12 @@ def test_pointer_resets_an_empty_code_account_with_storage(
     #
     # But it points to a newly created account, check that pointer
     # storage is not deleted
-    suicide_dest = pre.fund_eoa(amount=0)
+
+    # In MONAD_EIGHT it is impossible for a delegated EOA to use SELFDESTRUCT
+    # targetting anything else than back to itself.
+    suicide_dest = (
+        Op.ADDRESS if fork >= MONAD_EIGHT else pre.fund_eoa(amount=0)
+    )
     deploy_code = Op.SSTORE(5, 5) + Op.SELFDESTRUCT(suicide_dest)
     sender_storage[5] = 5
 
@@ -2073,8 +2080,12 @@ def test_pointer_resets_an_empty_code_account_with_storage(
         ],
     )
 
+    # fork >= MONAD_EIGHT conditions are the consequence of the above
+    # suicide_dest condition.
     post = {
-        pointer: Account(
+        pointer: Account(nonce=2, storage=pointer_storage, code=bytes())
+        if fork >= MONAD_EIGHT
+        else Account(
             nonce=2, balance=0, storage=pointer_storage, code=bytes()
         ),
         sender: Account(
@@ -2083,7 +2094,9 @@ def test_pointer_resets_an_empty_code_account_with_storage(
         ),
         newly_created_address: Account.NONEXISTENT,
         contract_create: Account(storage={1: newly_created_address}),
-        another_pointer: Account(balance=0, storage={5: 5}),
+        another_pointer: Account(storage={5: 5})
+        if fork >= MONAD_EIGHT
+        else Account(balance=0, storage={5: 5}),
     }
     blockchain_test(
         genesis_environment=Environment(),

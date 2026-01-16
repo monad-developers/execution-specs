@@ -43,6 +43,7 @@ from execution_testing import (
 )
 from execution_testing import Macros as Om
 from execution_testing.base_types import HexNumber
+from execution_testing.forks import MONAD_EIGHT
 from execution_testing.test_types.eof.v1 import Container, Section
 
 from ...cancun.eip4844_blobs.spec import Spec as Spec4844
@@ -502,14 +503,20 @@ def test_set_code_to_tstore_available_at_correct_address(
     "balance",
     [0, 1],
 )
+@pytest.mark.parametrize(
+    "pre_funded",
+    [False, True],
+)
 def test_set_code_to_self_destruct(
     state_test: StateTestFiller,
     pre: Alloc,
     external_sendall_recipient: bool,
     balance: int,
+    pre_funded: bool,
+    fork: Fork,
 ) -> None:
     """Test the executing self-destruct opcode in a set-code transaction."""
-    auth_signer = pre.fund_eoa(balance)
+    auth_signer = pre.fund_eoa(balance if pre_funded else 0)
     if external_sendall_recipient:
         recipient = pre.fund_eoa(0)
     else:
@@ -522,7 +529,7 @@ def test_set_code_to_self_destruct(
     tx = Transaction(
         gas_limit=10_000_000,
         to=auth_signer,
-        value=0,
+        value=0 if pre_funded else balance,
         authorization_list=[
             AuthorizationTuple(
                 address=set_code_to_address,
@@ -533,16 +540,25 @@ def test_set_code_to_self_destruct(
         sender=pre.fund_eoa(),
     )
 
+    reverted = (
+        pre_funded
+        and external_sendall_recipient
+        and fork >= MONAD_EIGHT
+        and balance > 0
+    )
+
     post = {
         auth_signer: Account(
             nonce=1,
             code=Spec.delegation_designation(set_code_to_address),
-            storage={1: 1},
-            balance=balance if not external_sendall_recipient else 0,
+            storage={1: 1} if not reverted else {},
+            balance=balance
+            if not external_sendall_recipient or reverted
+            else 0,
         ),
     }
 
-    if external_sendall_recipient and balance > 0:
+    if external_sendall_recipient and balance > 0 and not reverted:
         post[recipient] = Account(balance=balance)
 
     state_test(
@@ -1974,6 +1990,10 @@ def test_set_code_to_account_deployed_in_same_tx(
 @pytest.mark.parametrize(
     "create_opcode", [Op.CREATE, Op.CREATE2]
 )  # EOF code does not support SELFDESTRUCT
+@pytest.mark.parametrize(
+    "pre_funded",
+    [False, True],
+)
 def test_set_code_to_self_destructing_account_deployed_in_same_tx(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -1981,13 +2001,15 @@ def test_set_code_to_self_destructing_account_deployed_in_same_tx(
     call_set_code_first: bool,
     external_sendall_recipient: bool,
     balance: int,
+    pre_funded: bool,
+    fork: Fork,
 ) -> None:
     """
     Test setting the code of an account to an account that contains the
     SELFDESTRUCT opcode and was deployed in the same transaction, and test
     calling the set-code address and the deployed in both sequence orders.
     """
-    auth_signer = pre.fund_eoa(balance)
+    auth_signer = pre.fund_eoa(balance if pre_funded else 0)
     if external_sendall_recipient:
         recipient = pre.fund_eoa(0)
     else:
@@ -2012,7 +2034,10 @@ def test_set_code_to_self_destructing_account_deployed_in_same_tx(
     )
     if call_set_code_first:
         contract_creator_code += Op.SSTORE(
-            signer_call_return_code_slot, call_opcode(address=auth_signer)
+            signer_call_return_code_slot,
+            call_opcode(
+                address=auth_signer, value=0 if pre_funded else balance
+            ),
         ) + Op.SSTORE(
             deployed_contract_call_return_code_slot,
             call_opcode(address=Op.SLOAD(deployed_contract_address_slot)),
@@ -2022,12 +2047,17 @@ def test_set_code_to_self_destructing_account_deployed_in_same_tx(
             deployed_contract_call_return_code_slot,
             call_opcode(address=Op.SLOAD(deployed_contract_address_slot)),
         ) + Op.SSTORE(
-            signer_call_return_code_slot, call_opcode(address=auth_signer)
+            signer_call_return_code_slot,
+            call_opcode(
+                address=auth_signer, value=0 if pre_funded else balance
+            ),
         )
 
     contract_creator_code += Op.STOP
 
-    contract_creator_address = pre.deploy_contract(contract_creator_code)
+    contract_creator_address = pre.deploy_contract(
+        contract_creator_code, balance=0 if pre_funded else balance
+    )
 
     deployed_contract_address = compute_create_address(
         address=contract_creator_address,
@@ -2051,24 +2081,44 @@ def test_set_code_to_self_destructing_account_deployed_in_same_tx(
         sender=pre.fund_eoa(),
     )
 
-    post = {
-        deployed_contract_address: Account.NONEXISTENT,
-        auth_signer: Account(
-            nonce=1,
-            code=Spec.delegation_designation(deployed_contract_address),
-            storage={success_slot: 1},
-            balance=balance if not external_sendall_recipient else 0,
-        ),
-        contract_creator_address: Account(
-            storage={
-                deployed_contract_address_slot: deployed_contract_address,
-                signer_call_return_code_slot: 1,
-                deployed_contract_call_return_code_slot: 1,
-            }
-        ),
-    }
+    reverted = (
+        pre_funded
+        and external_sendall_recipient
+        and fork >= MONAD_EIGHT
+        and balance > 0
+    )
 
-    if external_sendall_recipient and balance > 0:
+    post = (
+        {
+            deployed_contract_address: Account.NONEXISTENT,
+            auth_signer: Account(
+                nonce=1,
+                code=Spec.delegation_designation(deployed_contract_address),
+                storage={success_slot: 1},
+                balance=balance if not external_sendall_recipient else 0,
+            ),
+            contract_creator_address: Account(
+                storage={
+                    deployed_contract_address_slot: deployed_contract_address,
+                    signer_call_return_code_slot: 1,
+                    deployed_contract_call_return_code_slot: 1,
+                }
+            ),
+        }
+        if not reverted
+        else {
+            deployed_contract_address: Account.NONEXISTENT,
+            auth_signer: Account(
+                nonce=1,
+                code=Spec.delegation_designation(deployed_contract_address),
+                storage={},
+                balance=balance if pre_funded else 0,
+            ),
+            contract_creator_address: Account(storage={}),
+        }
+    )
+
+    if external_sendall_recipient and balance > 0 and not reverted:
         post[recipient] = Account(balance=balance)
 
     state_test(
