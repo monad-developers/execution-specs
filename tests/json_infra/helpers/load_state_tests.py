@@ -132,6 +132,8 @@ class StateTest(FixtureTestItem):
             "t8n",
             "--input.alloc",
             "stdin",
+            "--input.senders_authorities",
+            "stdin",
             "--input.env",
             "stdin",
             "--input.txs",

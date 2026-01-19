@@ -32,6 +32,7 @@ from requests.exceptions import ReadTimeout
 from requests_unixsocket import Session
 
 from execution_testing.base_types import BlobSchedule
+from execution_testing.base_types.base_types import Address
 from execution_testing.base_types.composite_types import (
     ForkBlobSchedule,
 )
@@ -229,6 +230,7 @@ class TransitionTool(EthereumCLI):
         """Transition tool files and data to pass between methods."""
 
         alloc: Alloc | LazyAlloc
+        senders_authorities: Dict[int, List[Address]]
         txs: List[Transaction]
         env: Environment
         fork: Fork
@@ -284,6 +286,7 @@ class TransitionTool(EthereumCLI):
             """Convert the data to a TransactionToolInput object."""
             return TransitionToolInput(
                 alloc=self.alloc,
+                senders_authorities=self.senders_authorities,
                 txs=self.txs,
                 env=self.env,
                 blob_params=self.blob_params,
@@ -335,6 +338,8 @@ class TransitionTool(EthereumCLI):
             else t8n_data.fork_name,
             "--input.alloc",
             input_paths["alloc"],
+            "--input.senders_authorities",
+            input_paths["senders_authorities"],
             "--input.env",
             input_paths["env"],
             "--input.txs",
@@ -345,6 +350,8 @@ class TransitionTool(EthereumCLI):
             output_paths["result"],
             "--output.alloc",
             output_paths["alloc"],
+            "--output.senders_authorities",
+            output_paths["senders_authorities"],
             "--output.body",
             output_paths["body"],
             "--state.reward",
@@ -664,19 +671,27 @@ class TransitionTool(EthereumCLI):
 
         # Use literal strings for command flags
         input_alloc: LiteralString = "--input.alloc=stdin"
+        input_senders_authorities: LiteralString = (
+            "--input.senders_authorities=stdin"
+        )
         input_txs: LiteralString = "--input.txs=stdin"
         input_env: LiteralString = "--input.env=stdin"
         output_result: LiteralString = "--output.result=stdout"
         output_alloc: LiteralString = "--output.alloc=stdout"
+        output_senders_authorities: LiteralString = (
+            "--output.senders_authorities=stdout"
+        )
         output_body: LiteralString = "--output.body=stdout"
         trace_flag: LiteralString = "--trace"
 
         args = [
             input_alloc,
+            input_senders_authorities,
             input_txs,
             input_env,
             output_result,
             output_alloc,
+            output_senders_authorities,
             output_body,
             f"--state.fork={fork_name}",
             f"--state.chainid={chain_id}",

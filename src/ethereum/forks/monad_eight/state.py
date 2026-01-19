@@ -47,7 +47,9 @@ class State:
     ] = field(default_factory=list)
     created_accounts: Set[Address] = field(default_factory=set)
 
-    _senders_authorities: Dict[int, Set[Address]] = field(default_factory=dict)
+    _senders_authorities: Dict[Uint, Set[Address]] = field(
+        default_factory=dict
+    )
 
 
 @dataclass
@@ -698,7 +700,7 @@ def set_transient_storage(
 
 def add_sender_authority(
     state: State,
-    block_number: int,
+    block_number: Uint,
     address: Address,
 ) -> None:
     """
@@ -720,11 +722,16 @@ def is_sender_authority(
     return False
 
 
+RESERVE_BALANCE_DELAY_BLOCKS = Uint(3)
+
+
 def forget_senders_authorities(
     state: State,
-    block_number: int,
+    current_block_number: Uint,
 ) -> None:
     """
-    Forgets senders and authorities from block at number.
+    Forgets senders and authorities before processing the block at number.
     """
-    state._senders_authorities.pop(block_number, None)
+    if current_block_number >= RESERVE_BALANCE_DELAY_BLOCKS:
+        number = current_block_number - RESERVE_BALANCE_DELAY_BLOCKS
+        state._senders_authorities.pop(number, None)

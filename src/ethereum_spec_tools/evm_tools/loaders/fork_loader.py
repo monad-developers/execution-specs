@@ -263,6 +263,16 @@ class ForkLoad:
         return self._module("state").State
 
     @property
+    def forget_senders_authorities(self) -> Any:
+        """forget_senders_authorities function of the fork."""
+        return self._module("state").forget_senders_authorities
+
+    @property
+    def has_senders_authorities(self) -> Any:
+        """Fork has senders_authorities functions."""
+        return hasattr(self._module("state"), "forget_senders_authorities")
+
+    @property
     def set_account(self) -> Any:
         """set_account function of the fork."""
         return self._module("state").set_account

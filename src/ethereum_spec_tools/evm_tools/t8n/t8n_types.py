@@ -80,6 +80,38 @@ class Alloc:
         return data
 
 
+class SendersAuthorities(dict):
+    """
+    The extended state (senders/authorities history) type for the t8n tool.
+    """
+
+    def __init__(self, t8n: "T8N", stdin: Optional[Dict] = None):
+        """Read the alloc file and return the data."""
+        super().__init__()
+        if t8n.options.input_senders_authorities == "stdin":
+            assert stdin is not None
+            data = stdin["senders_authorities"]
+        else:
+            with open(t8n.options.input_senders_authorities, "r") as f:
+                data = json.load(f)
+
+        for block_number, account_list in data.items():
+            for address_hex in account_list:
+                address = t8n.fork.hex_to_address(address_hex)
+                bn = Uint(int(block_number))
+                self.setdefault(bn, set()).add(address)
+
+    def to_json(self) -> Any:
+        """Encode the data to JSON."""
+        data: dict[int, list[str]] = {}
+        for block_number, accounts in self.items():
+            data[int(block_number)] = []
+            for address in accounts:
+                data[int(block_number)].append("0x" + address.hex())
+
+        return data
+
+
 class Txs:
     """
     Read the transactions file, sort out the valid transactions and

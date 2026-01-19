@@ -15,6 +15,7 @@ from execution_testing.base_types import (
     Hash,
     HexNumber,
 )
+from execution_testing.base_types.base_types import Address
 from execution_testing.base_types.composite_types import (
     ForkBlobSchedule,
 )
@@ -353,6 +354,7 @@ class TransitionToolInput:
     """Transition tool input."""
 
     alloc: Alloc | LazyAlloc
+    senders_authorities: Dict[int, List[Address]]
     txs: List[Transaction]
     env: Environment
     blob_params: ForkBlobSchedule | None = None
@@ -379,8 +381,10 @@ class TransitionToolInput:
             )
             + "]"
         )
+        senders_authorities_contents = json.dumps(self.senders_authorities)
         input_contents: Dict[str, str] = {
             "alloc": alloc_contents,
+            "senders_authorities": senders_authorities_contents,
             "env": env_contents,
             "txs": txs_contents,
         }
@@ -414,8 +418,10 @@ class TransitionToolInput:
             )
             + "]"
         )
+        senders_authorities_contents = json.dumps(self.senders_authorities)
         input_contents: Dict[str, str] = {
             "alloc": alloc_contents,
+            "senders_authorities": senders_authorities_contents,
             "env": env_contents,
             "txs": txs_contents,
         }
@@ -444,8 +450,13 @@ class TransitionToolInput:
         txs_contents = [
             tx.model_dump(mode=mode, **model_dump_config) for tx in self.txs
         ]
+        senders_authorities_contents = {
+            bn: [addr.hex() for addr in addr_list]
+            for bn, addr_list in self.senders_authorities.items()
+        }
         input_contents: Dict[str, Any] = {
             "alloc": alloc_contents,
+            "senders_authorities": senders_authorities_contents,
             "env": env_contents,
             "txs": txs_contents,
         }
@@ -462,6 +473,7 @@ class TransitionToolOutput:
     """Transition tool output."""
 
     alloc: LazyAlloc
+    senders_authorities: Dict[int, List[Address]]
     result: Result
     body: Bytes | None = None
 
@@ -474,12 +486,18 @@ class TransitionToolOutput:
         different JSON file.
         """
         alloc_data = (directory_path / "alloc.json").read_text()
+        senders_authorities_data = (
+            directory_path / "senders_authorities.json"
+        ).read_text()
         result_data = (directory_path / "result.json").read_text()
         result = Result.model_validate_json(
             json_data=result_data, context=context
         )
         alloc = LazyAllocStr(raw=alloc_data, _state_root=result.state_root)
-        output = cls(result=result, alloc=alloc)
+        senders_authorities = json.loads(senders_authorities_data)
+        output = cls(
+            result=result, alloc=alloc, senders_authorities=senders_authorities
+        )
         return output
 
     @classmethod
@@ -496,7 +514,10 @@ class TransitionToolOutput:
         alloc = LazyAllocJson(
             raw=response_json["alloc"], _state_root=result.state_root
         )
-        output = cls(result=result, alloc=alloc)
+        senders_authorities = response_json["senders_authorities"]
+        output = cls(
+            result=result, alloc=alloc, senders_authorities=senders_authorities
+        )
         return output
 
     @classmethod
@@ -515,7 +536,10 @@ class TransitionToolOutput:
         alloc = LazyAllocStr(
             raw=json.dumps(parsed_json["alloc"]), _state_root=result.state_root
         )
-        output = cls(result=result, alloc=alloc)
+        senders_authorities = parsed_json["senders_authorities"]
+        output = cls(
+            result=result, alloc=alloc, senders_authorities=senders_authorities
+        )
         return output
 
 

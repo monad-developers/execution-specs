@@ -28,10 +28,13 @@ def test_count_opcodes(root_relative: Callable[[str | Path], Path]) -> None:
             "t8n",
             f"--input.env={base_path / 'env.json'}",
             f"--input.alloc={base_path / 'alloc.json'}",
+            "--input.senders_authorities="
+            + f"{base_path / 'senders_authorities.json'}",
             f"--input.txs={base_path / 'txs.json'}",
             "--output.result=stdout",
             "--output.body=stdout",
             "--output.alloc=stdout",
+            "--output.senders_authorities=stdout",
             "--opcode.count=stdout",
             "--state-test",
         ]

@@ -750,7 +750,7 @@ def apply_body(
 
     """
     block_output = vm.BlockOutput()
-    forget_senders_authorities(block_env.state, block_env.number - 3)
+    forget_senders_authorities(block_env.state, block_env.number)
 
     process_unchecked_system_transaction(
         block_env=block_env,

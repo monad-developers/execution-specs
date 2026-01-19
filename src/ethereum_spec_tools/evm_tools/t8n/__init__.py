@@ -29,7 +29,7 @@ from .env import Env
 from .evm_trace.count import CountTracer
 from .evm_trace.eip3155 import Eip3155Tracer
 from .evm_trace.group import GroupTracer
-from .t8n_types import Alloc, Result, Txs
+from .t8n_types import Alloc, Result, SendersAuthorities, Txs
 
 T = TypeVar("T")
 
@@ -42,6 +42,12 @@ def t8n_arguments(subparsers: argparse._SubParsersAction) -> None:
 
     t8n_parser.add_argument(
         "--input.alloc", dest="input_alloc", type=str, default="alloc.json"
+    )
+    t8n_parser.add_argument(
+        "--input.senders_authorities",
+        dest="input_senders_authorities",
+        type=str,
+        default="senders_authorities.json",
     )
     t8n_parser.add_argument(
         "--input.env", dest="input_env", type=str, default="env.json"
@@ -57,6 +63,12 @@ def t8n_arguments(subparsers: argparse._SubParsersAction) -> None:
     )
     t8n_parser.add_argument(
         "--output.alloc", dest="output_alloc", type=str, default="alloc.json"
+    )
+    t8n_parser.add_argument(
+        "--output.senders_authorities",
+        dest="output_senders_authorities",
+        type=str,
+        default="senders_authorities.json",
     )
     t8n_parser.add_argument(
         "--output.basedir", dest="output_basedir", type=str, default="."
@@ -175,6 +187,7 @@ class T8N(Load):
         if "stdin" in (
             options.input_env,
             options.input_alloc,
+            options.input_senders_authorities,
             options.input_txs,
             options.blob_parameters,
         ):
@@ -262,6 +275,7 @@ class T8N(Load):
 
         self.chain_id = parse_hex_or_int(self.options.state_chainid, U64)
         self.alloc = Alloc(self, stdin)
+        self.senders_authorities = SendersAuthorities(self, stdin)
         self.env = Env(self, stdin)
         self.txs = Txs(self, stdin)
         self.result = Result(
@@ -307,6 +321,11 @@ class T8N(Load):
                 self.env.parent_beacon_block_root
             )
             kw_arguments["excess_blob_gas"] = self.env.excess_blob_gas
+
+        if self.fork.has_senders_authorities:
+            kw_arguments[
+                "state"
+            ]._senders_authorities = self.senders_authorities
 
         return block_environment(**kw_arguments)
 
@@ -372,6 +391,11 @@ class T8N(Load):
         self.result.rejected = self.txs.rejected_txs
 
     def _run_blockchain_test(self, block_env: Any, block_output: Any) -> None:
+        if self.fork.has_senders_authorities:
+            self.fork.forget_senders_authorities(
+                block_env.state, block_env.number
+            )
+
         if self.fork.has_compute_requests_hash:
             self.fork.process_unchecked_system_transaction(
                 block_env=block_env,
@@ -440,6 +464,7 @@ class T8N(Load):
         files_to_delete = [
             self.options.output_result,
             self.options.output_alloc,
+            self.options.output_senders_authorities,
             self.options.output_body,
         ]
         pattern_to_delete = "trace-*.jsonl"
@@ -491,6 +516,21 @@ class T8N(Load):
             with open(alloc_output_path, "w") as f:
                 json.dump(json_state, f, indent=4)
             self.logger.info(f"Wrote alloc to {alloc_output_path}")
+
+        json_senders_authorities = self.senders_authorities.to_json()
+        if self.options.output_senders_authorities == "stdout":
+            json_output["senders_authorities"] = json_senders_authorities
+        else:
+            senders_authorities_output_path = os.path.join(
+                self.options.output_basedir,
+                self.options.output_senders_authorities,
+            )
+            with open(senders_authorities_output_path, "w") as f:
+                json.dump(json_senders_authorities, f, indent=4)
+            self.logger.info(
+                "Wrote senders authorities to"
+                + f" {senders_authorities_output_path}"
+            )
 
         if self.options.output_result == "stdout":
             json_output["result"] = json_result

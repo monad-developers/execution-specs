@@ -82,11 +82,13 @@ class ExecutionSpecsTransitionTool(TransitionTool):
         t8n_args = [
             "t8n",
             "--input.alloc=stdin",
+            "--input.senders_authorities=stdin",
             "--input.env=stdin",
             "--input.txs=stdin",
             "--output.result=stdout",
             "--output.body=stdout",
             "--output.alloc=stdout",
+            "--output.senders_authorities=stdout",
             f"--output.basedir={temp_dir.name}",
             f"--state.fork={request_data_json['state']['fork']}",
             f"--state.chainid={request_data_json['state']['chainid']}",

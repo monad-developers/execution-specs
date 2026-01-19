@@ -357,6 +357,7 @@ class BuiltBlock(CamelModel):
     header: FixtureHeader
     env: Environment
     alloc: LazyAlloc
+    senders_authorities: Dict[int, List[Address]]
     state_root: Hash
     txs: List[Transaction]
     ommers: List[FixtureHeader]
@@ -581,6 +582,7 @@ class BlockchainTest(BaseTest):
         block: Block,
         previous_env: Environment,
         previous_alloc: Alloc | LazyAlloc,
+        previous_senders_authorities: Dict[int, List[Address]],
         last_block: bool,
     ) -> BuiltBlock:
         """
@@ -604,6 +606,7 @@ class BlockchainTest(BaseTest):
         transition_tool_output = t8n.evaluate(
             transition_tool_data=TransitionTool.TransitionToolData(
                 alloc=previous_alloc,
+                senders_authorities=previous_senders_authorities,
                 txs=txs,
                 env=env,
                 fork=self.fork,
@@ -714,6 +717,7 @@ class BlockchainTest(BaseTest):
         built_block = BuiltBlock(
             header=header,
             alloc=transition_tool_output.alloc,
+            senders_authorities=transition_tool_output.senders_authorities,
             state_root=transition_tool_output.result.state_root,
             env=env,
             txs=txs,
@@ -798,6 +802,7 @@ class BlockchainTest(BaseTest):
         pre, genesis = self.make_genesis(apply_pre_allocation_blockchain=True)
 
         alloc: Alloc | LazyAlloc = pre
+        senders_authorities: dict[int, list[Address]] = {}
         state_root = genesis.header.state_root
         env = environment_from_parent_header(genesis.header)
         head = genesis.header.block_hash
@@ -811,6 +816,7 @@ class BlockchainTest(BaseTest):
                 block=block,
                 previous_env=env,
                 previous_alloc=alloc,
+                previous_senders_authorities=senders_authorities,
                 last_block=i == len(self.blocks) - 1,
             )
             fixture_blocks.append(built_block.get_fixture_block())
@@ -821,6 +827,7 @@ class BlockchainTest(BaseTest):
             if block.exception is None:
                 # Update env, alloc and last block hash for the next block.
                 alloc = built_block.alloc
+                senders_authorities = built_block.senders_authorities
                 state_root = built_block.state_root
                 env = apply_new_parent(built_block.env, built_block.header)
                 head = built_block.header.block_hash

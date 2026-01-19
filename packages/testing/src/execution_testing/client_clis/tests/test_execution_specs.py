@@ -174,6 +174,7 @@ def test_evm_t8n(
         t8n_output = default_t8n.evaluate(
             transition_tool_data=TransitionTool.TransitionToolData(
                 alloc=alloc,
+                senders_authorities={},
                 txs=txs,
                 env=env,
                 fork=Berlin,
