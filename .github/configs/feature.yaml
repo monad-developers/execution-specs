@@ -7,22 +7,6 @@ develop:
   evm-type: develop 
   fill-params: --until=BPO4 --fill-static-tests --ignore=tests/static/state_tests/stQuadraticComplexityTest
 
-benchmark:
-  evm-type: benchmark
-  fill-params: --fork=Prague --gas-benchmark-values 1,5,10,30,60,100,150 -m benchmark ./tests/benchmark
-
-benchmark_develop:
-  evm-type: benchmark
-  fill-params: --fork=Osaka --gas-benchmark-values 1,5,10,30,60,100,150 -m "benchmark" ./tests/benchmark
-  feature_only: true
-
-benchmark_fast:
-  evm-type: benchmark
-  fill-params: --fork=Prague --gas-benchmark-values 100 -m "benchmark" ./tests/benchmark
-  feature_only: true
-
-bal:
+monad:
   evm-type: develop
-  # TODO: Turn on block rlp limit tests after making filling them more flexible.
-  fill-params: --fork=Amsterdam -k "not eip7934" --fill-static-tests
-  feature_only: true
+  fill-params: --from=MONAD_EIGHT --until=MONAD_NEXT --chain-id=143 -k "not eip4844 and not eip7002 and not eip7251 and not eip7685 and not eip6110 and not eip7594 and not eip7918 and not eip7610 and not eip7934 and not invalid_header"

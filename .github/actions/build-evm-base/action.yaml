@@ -48,29 +48,3 @@ runs:
       if: steps.config-evm-reader.outputs.impl == 'eels'
       shell: bash
       run: echo "Skipping build for EELS"
-    - name: Build the EVM using Geth action
-      if: steps.config-evm-reader.outputs.impl == 'geth'
-      uses: ./.github/actions/build-evm-client/geth
-      with:
-        repo: ${{ steps.config-evm-reader.outputs.repo }}
-        ref: ${{ steps.config-evm-reader.outputs.ref }}
-    - name: Build the EVM using EVMONE action
-      if: steps.config-evm-reader.outputs.impl == 'evmone'
-      uses: ./.github/actions/build-evm-client/evmone
-      with:
-        repo: ${{ steps.config-evm-reader.outputs.repo }}
-        ref: ${{ steps.config-evm-reader.outputs.ref }}
-        # `targets` in the evm.yaml must be an inline array to not interfere with `config-evm-reader`'s parsing
-        targets: ${{ join(fromJSON(steps.config-evm-reader.outputs.targets), ' ') }}
-    - name: Build the EVM using Besu action
-      if: steps.config-evm-reader.outputs.impl == 'besu'
-      uses: ./.github/actions/build-evm-client/besu
-      with:
-        repo: ${{ steps.config-evm-reader.outputs.repo }}
-        ref: ${{ steps.config-evm-reader.outputs.ref }}
-    - name: Build the EVM using EthJS action
-      if: steps.config-evm-reader.outputs.impl == 'ethjs'
-      uses: ./.github/actions/build-evm-client/ethjs
-      with:
-        repo: ${{ steps.config-evm-reader.outputs.repo }}
-        ref: ${{ steps.config-evm-reader.outputs.ref }}
