@@ -468,10 +468,6 @@ def gas_test(
             "Gas tests before Berlin are not supported due to CALL gas changes"
         )
 
-    if cold_gas <= 0:
-        raise ValueError(
-            f"Target gas allocations (cold_gas) must be > 0, got {cold_gas}"
-        )
     if warm_gas is None:
         warm_gas = cold_gas
 
@@ -606,8 +602,15 @@ def gas_test(
             LEGACY_CALL_SUCCESS
         )
 
+    sstore_gas = gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
     if tx_gas is None:
-        tx_gas = gas_single_gas_run + cold_gas + 500_000
+        tx_gas = (
+            5 * gas_single_gas_run
+            + cold_gas
+            + 4 * warm_gas
+            + 5 * sstore_gas
+            + 500_000
+        )
     tx = Transaction(
         to=address_legacy_harness, gas_limit=tx_gas, sender=sender
     )
