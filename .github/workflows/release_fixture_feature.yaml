@@ -8,7 +8,7 @@ on:
 
 jobs:
   feature-names:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       names: ${{ steps.feature-name.outputs.names }}
     steps:
@@ -28,7 +28,7 @@ jobs:
 
   build:
     needs: feature-names
-    runs-on: [self-hosted-ghr, size-gigachungus-x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 1440
     strategy:
       matrix:
@@ -45,7 +45,7 @@ jobs:
           python_version: ${{ vars.DEFAULT_PYTHON_VERSION }}
 
   # release:
-  #   runs-on: ubuntu-latest
+  #   runs-on: ubuntu-24.04
   #   needs: build
   #   if: startsWith(github.ref, 'refs/tags/tests-')
   #   steps:
