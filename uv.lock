@@ -826,6 +826,7 @@ dependencies = [
     { name = "platformdirs" },
     { name = "py-ecc" },
     { name = "pycryptodome" },
+    { name = "pytest-custom-exit-code" },
     { name = "typing-extensions" },
 ]
 
@@ -936,6 +937,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.2,<5" },
     { name = "py-ecc", specifier = ">=8.0.0b2,<9" },
     { name = "pycryptodome", specifier = ">=3.22,<4" },
+    { name = "pytest-custom-exit-code", specifier = ">=0.3.0" },
     { name = "rust-pyspec-glue", marker = "extra == 'optimized'", specifier = ">=0.0.9,<0.1.0" },
     { name = "typing-extensions", specifier = ">=4.4" },
 ]
@@ -2200,6 +2202,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7a/15/da3df99fd551507694a9b01f512a2f6cf1254f33601605843c3775f39460/pytest-cov-4.1.0.tar.gz", hash = "sha256:3904b13dfbfec47f003b8e77fd5b589cd11904a21ddf1ab38a64f204d6a10ef6", size = 63245, upload-time = "2023-05-24T18:44:56.845Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/4b/8b78d126e275efa2379b1c2e09dc52cf70df16fc3b90613ef82531499d73/pytest_cov-4.1.0-py3-none-any.whl", hash = "sha256:6ba70b9e97e69fcc3fb45bfeab2d0a138fb65c4d0d6a41ef33983ad114be8c3a", size = 21949, upload-time = "2023-05-24T18:44:54.079Z" },
+]
+
+[[package]]
+name = "pytest-custom-exit-code"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/92/9d/e1eb0af5e96a5c34f59b9aa69dfb680764420fe60f2ec28cfbc5339f99f8/pytest-custom_exit_code-0.3.0.tar.gz", hash = "sha256:51ffff0ee2c1ddcc1242e2ddb2a5fd02482717e33a2326ef330e3aa430244635", size = 3633, upload-time = "2019-08-07T09:45:15.781Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/a0/effb6cbbccfd1c106c572d3d619b3418d71093afb4cd4f91f51e6a1799d2/pytest_custom_exit_code-0.3.0-py3-none-any.whl", hash = "sha256:6e0ce6e57ce3a583cb7e5023f7d1021e19dfec22be41d9ad345bae2fc61caf3b", size = 4055, upload-time = "2019-08-07T09:45:13.767Z" },
 ]
 
 [[package]]
