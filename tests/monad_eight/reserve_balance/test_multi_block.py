@@ -71,7 +71,7 @@ def test_exception_rule(
     fork: Fork,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values,
+    Test reserve balance violations for an EOA sending txs with various values,
     where the exception rules are enforced based on txs in various block
     positions.
     """
@@ -204,7 +204,7 @@ def test_exception_rule_invalid_block(
     fork: Fork,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values,
+    Test reserve balance violations for an EOA sending txs with various values,
     where the exception rules are not enforced based on txs in invalid block.
     """
     # gas spend by transactions send in setup blocks
@@ -354,7 +354,7 @@ def test_credit(
     fork: Fork,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values,
+    Test reserve balance violations for an EOA sending txs with various values,
     where the exception rules are not enforced based on txs in invalid block.
     """
     # gas spend by transactions send in setup blocks

@@ -246,7 +246,7 @@ def test_delegated_eoa_send_value(
     undelegate: bool,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values.
+    Test reserve balance violations for an EOA sending txs with various values.
     """
     target_address = Address(0x1111)
     if pre_delegated:
@@ -317,7 +317,7 @@ def test_sc_wallet_send_value(
     fork: Fork,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values
+    Test reserve balance violations for an EOA sending txs with various values
     using a CALL opcode in a smart contract wallet.
     """
     contract = Op.SSTORE(slot_code_worked, value_code_worked)
@@ -480,7 +480,7 @@ def test_sc_wallet_send_value_various_sponsors(
     fork: Fork,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values
+    Test reserve balance violations for an EOA sending txs with various values
     using a CALL opcode in a smart contract wallet.
 
     Includes edge cases where the sponsor (i.e. tx signer) is delegated
