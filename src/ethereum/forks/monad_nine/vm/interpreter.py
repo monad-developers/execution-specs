@@ -32,6 +32,7 @@ from ethereum.trace import (
 from ..blocks import Log
 from ..fork_types import Address
 from ..state import (
+    State,
     account_has_code_or_nonce,
     account_has_storage,
     begin_transaction,
@@ -46,7 +47,7 @@ from ..state import (
     rollback_transaction,
     set_code,
 )
-from ..vm import Message
+from ..vm import Message, TransactionEnvironment
 from ..vm.eoa_delegation import (
     get_delegated_code_address,
     is_valid_delegation,
@@ -74,6 +75,40 @@ MAX_CODE_SIZE = 128 * 1024
 MAX_INIT_CODE_SIZE = 2 * MAX_CODE_SIZE
 
 RESERVE_BALANCE = U256(10 * 10**18)  # 10 MON
+
+
+def is_reserve_balance_violated(
+    state: State,
+    tx_env: TransactionEnvironment,
+) -> bool:
+    """
+    Check if any EOA has violated the reserve balance constraint.
+
+    Returns True if a violation is detected, False otherwise.
+    """
+    for addr in set(state._main_trie._data.keys()):
+        acc = get_account(state, addr)
+        if acc.code == b"" or is_valid_delegation(acc.code):
+            original_balance = get_balance_original(state, addr)
+            if tx_env.origin == addr:
+                # gas_fees already deducted, need to re-add if sender
+                # to match with spec.
+                gas_fees = U256(tx_env.gas_price * tx_env.tx_gas_limit)
+                original_balance += gas_fees
+                reserve = min(RESERVE_BALANCE, original_balance)
+                threshold = reserve - gas_fees
+            else:
+                threshold = RESERVE_BALANCE
+            is_exception = not is_sender_authority(
+                state, addr
+            ) and not is_valid_delegation(acc.code)
+            if (
+                acc.balance < original_balance
+                and acc.balance < threshold
+                and not is_exception
+            ):
+                return True
+    return False
 
 
 @dataclass
@@ -322,34 +357,9 @@ def process_message(message: Message) -> Evm:
     else:
         # FIXME: index_in_block is a proxy for not being a system tx
         if message.depth == 0 and message.tx_env.index_in_block is not None:
-            for addr in set(state._main_trie._data.keys()):
-                acc = get_account(state, addr)
-                if acc.code == b"" or is_valid_delegation(acc.code):
-                    original_balance = get_balance_original(state, addr)
-                    if message.tx_env.origin == addr:
-                        # gas_fees already deducted, need to re-add if sender
-                        # to match with spec.
-                        gas_fees = U256(
-                            message.tx_env.gas_price
-                            * message.tx_env.tx_gas_limit
-                        )
-                        original_balance += gas_fees
-                        reserve = min(RESERVE_BALANCE, original_balance)
-                        threshold = reserve - gas_fees
-                    else:
-                        threshold = RESERVE_BALANCE
-                    is_exception = not is_sender_authority(
-                        state, addr
-                    ) and not is_valid_delegation(acc.code)
-                    if (
-                        acc.balance < original_balance
-                        and acc.balance < threshold
-                        and not is_exception
-                    ):
-                        rollback_transaction(state, transient_storage)
-                        evm.error = RevertOnReserveBalance()
-                        return evm
-                        # cannot do this because it fails the entire tx
-                        # raise RevertOnReserveBalance
+            if is_reserve_balance_violated(state, message.tx_env):
+                rollback_transaction(state, transient_storage)
+                evm.error = RevertOnReserveBalance()
+                return evm
         commit_transaction(state, transient_storage)
     return evm
