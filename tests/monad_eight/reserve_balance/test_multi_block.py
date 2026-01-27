@@ -95,7 +95,7 @@ def test_exception_rule(
 
     nblocks = 4
     blocks = []
-    test_sender_nonce = test_sender.nonce
+    test_sender_nonce = int(test_sender.nonce)
     latest_delegated_block = nblocks if pre_delegated else -1
     for nblock in range(nblocks):
         txs = []
@@ -229,7 +229,7 @@ def test_exception_rule_invalid_block(
 
     nblocks = 2
     blocks = []
-    test_sender_nonce = test_sender.nonce
+    test_sender_nonce = int(test_sender.nonce)
     for nblock in range(nblocks):
         txs = []
         for ntx in range(2):
@@ -378,7 +378,7 @@ def test_credit(
 
     nblocks = 3
     blocks = []
-    test_sender_nonce = test_sender.nonce
+    test_sender_nonce = int(test_sender.nonce)
     for nblock in range(nblocks):
         txs = []
         for ntx in range(2):
@@ -500,7 +500,7 @@ def test_7702_caller_is_no_sender(
     contract_address = pre.deploy_contract(contract)
 
     blocks = []
-    test_sender_nonce = test_sender.nonce
+    test_sender_nonce = int(test_sender.nonce)
     prepare_tx = Transaction(
         gas_limit=generous_gas(fork),
         to=test_sender,
@@ -563,7 +563,7 @@ def test_valid_tx_after_invalid(
 
     nblocks = 2
     blocks = []
-    test_sender_nonce = test_sender.nonce
+    test_sender_nonce = int(test_sender.nonce)
     for nblock in range(nblocks):
         txs = []
         for ntx in range(2):

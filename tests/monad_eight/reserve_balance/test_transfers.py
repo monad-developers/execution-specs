@@ -42,6 +42,7 @@ pytestmark = [
 def test_smoke_reserve_balance(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """
     Simplest smoke test for checking if reserve balance is enforced.
@@ -51,9 +52,12 @@ def test_smoke_reserve_balance(
 
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)
+    gas_limit = generous_gas(fork)
+    gas_price = 10
 
     tx_1 = Transaction(
-        gas_limit=100_000,
+        gas_limit=gas_limit,
+        gas_price=gas_price,
         to=contract_address,
         value=1,
         sender=sender,
@@ -63,9 +67,7 @@ def test_smoke_reserve_balance(
         pre=pre,
         post={
             contract_address: Account(storage={}),
-            sender: Account(
-                balance=initial_balance - tx_1.gas_price * tx_1.gas_limit
-            ),
+            sender: Account(balance=initial_balance - gas_price * gas_limit),
         },
         blocks=[Block(txs=[tx_1])],
     )
@@ -1011,8 +1013,9 @@ def test_access_lists(
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)
 
+    access_list_items = None
     if access_lists:
-        access_lists = [
+        access_list_items = [
             AccessList(address=sender, storage_keys=[Hash(0)]),
             AccessList(
                 address=contract_address, storage_keys=[slot_code_worked]
@@ -1024,7 +1027,7 @@ def test_access_lists(
         to=contract_address,
         value=value,
         sender=sender,
-        access_list=access_lists or None,
+        access_list=access_list_items,
     )
     reverted = violation and pre_delegated
     storage = {} if reverted else {slot_code_worked: value_code_worked}
@@ -1086,7 +1089,7 @@ def test_creation_tx(
         ty=tx_type,
         value=value,
         sender=sender,
-        input=initcode,
+        data=initcode,
     )
     new_address = tx_1.created_contract
 
@@ -1422,7 +1425,7 @@ def test_unrestricted_in_creation_tx_initcode(
         ty=tx_type,
         value=balance if not new_address_pre_funded else 0,
         sender=sender,
-        input=initcode,
+        data=initcode,
     )
     new_address = tx_1.created_contract
 

@@ -888,6 +888,7 @@ class BlockchainTest(BaseTest):
             != BlockchainEngineXFixture,
         )
         alloc: Alloc | LazyAlloc = pre
+        senders_authorities: dict[int, list[Address]] = {}
         state_root = genesis.header.state_root
         env = environment_from_parent_header(genesis.header)
         head_hash = genesis.header.block_hash
@@ -898,6 +899,7 @@ class BlockchainTest(BaseTest):
                 block=block,
                 previous_env=env,
                 previous_alloc=alloc,
+                previous_senders_authorities=senders_authorities,
                 last_block=i == len(self.blocks) - 1,
             )
             fixture_payloads.append(
@@ -905,6 +907,7 @@ class BlockchainTest(BaseTest):
             )
             if block.exception is None:
                 alloc = built_block.alloc
+                senders_authorities = built_block.senders_authorities
                 state_root = built_block.state_root
                 env = apply_new_parent(built_block.env, built_block.header)
                 head_hash = built_block.header.block_hash
@@ -980,6 +983,7 @@ class BlockchainTest(BaseTest):
                 block=Block(),
                 previous_env=env,
                 previous_alloc=alloc,
+                previous_senders_authorities=senders_authorities,
                 last_block=False,
             )
             fixture_data.update(

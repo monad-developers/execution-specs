@@ -144,6 +144,7 @@ class StateTest(BaseTest):
         modified_tool_output = t8n.evaluate(
             transition_tool_data=TransitionTool.TransitionToolData(
                 alloc=pre_alloc,
+                senders_authorities={},
                 txs=[new_tx],
                 env=env,
                 fork=fork,
@@ -352,6 +353,7 @@ class StateTest(BaseTest):
         transition_tool_output = t8n.evaluate(
             transition_tool_data=TransitionTool.TransitionToolData(
                 alloc=pre_alloc,
+                senders_authorities={},
                 txs=[tx],
                 env=env,
                 fork=fork,

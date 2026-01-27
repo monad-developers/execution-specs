@@ -59,11 +59,12 @@ class ImportHygiene(Lint):
 
         active_fork = forks[position].name
         future_forks = tuple(fork.name for fork in forks[position + 1 :])
-        ancient_forks = (
-            tuple(fork.name for fork in forks[: position - 1])
-            if position > 1
-            else tuple()
-        )
+        # NOTE: unused in monad, see below.
+        # ancient_forks = (
+        #     tuple(fork.name for fork in forks[: position - 1])
+        #     if position > 1
+        #     else tuple()
+        # )
 
         relative_name = name.removeprefix(active_fork)
         assert name != relative_name
@@ -108,15 +109,18 @@ class ImportHygiene(Lint):
                     )
                 )
                 diagnostics.append(diagnostic)
-            elif item.startswith(ancient_forks):
-                diagnostic = Diagnostic(
-                    message=(
-                        f"The import `{item}` in `{name}` is from an "
-                        "older fork. Only imports from the previous "
-                        "fork are allowed."
-                    )
-                )
-                diagnostics.append(diagnostic)
+            # NOTE: in monadized EELS we have a non-linear fork history
+            #       this check doesn't work anymore.
+            # TODO: think about fixing this
+            # elif item.startswith(ancient_forks):
+            #     diagnostic = Diagnostic(
+            #         message=(
+            #             f"The import `{item}` in `{name}` is from an "
+            #             "older fork. Only imports from the previous "
+            #             "fork are allowed."
+            #         )
+            #     )
+            #     diagnostics.append(diagnostic)
 
         return diagnostics
 
