@@ -44,32 +44,32 @@ jobs:
           uv_version: ${{ vars.UV_VERSION }}
           python_version: ${{ vars.DEFAULT_PYTHON_VERSION }}
 
-  # release:
-  #   runs-on: ubuntu-24.04
-  #   needs: build
-  #   if: startsWith(github.ref, 'refs/tags/tests-')
-  #   steps:
-  #     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-  #       with:
-  #         submodules: false
+  release:
+    runs-on: ubuntu-24.04
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/tests-')
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: false
 
-  #     - name: Download all artifacts
-  #       run: |
-  #         gh run download ${{ github.run_id }} --dir ./artifacts
-  #       env:
-  #         GH_TOKEN: ${{ github.token }}
+      - name: Download all artifacts
+        run: |
+          gh run download ${{ github.run_id }} --dir ./artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
 
-  #     - name: Draft Pre-release to EEST Repository
-  #       run: |
-  #         # Strip "tests-" prefix from tag for EEST
-  #         TAG_NAME="${{ github.ref_name }}"
-  #         RELEASE_TAG="${TAG_NAME#tests-}"
+      - name: Draft Pre-release to EEST Repository
+        run: |
+          # Strip "tests-" prefix from tag for EEST
+          TAG_NAME="${{ github.ref_name }}"
+          RELEASE_TAG="${TAG_NAME#tests-}"
 
-  #         gh release create "$RELEASE_TAG" \
-  #           --repo monad/execution-spec-tests \
-  #           --draft \
-  #           --prerelease \
-  #           --generate-notes \
-  #           ./artifacts/**/*
-  #       env:
-  #         GH_TOKEN: ${{ secrets.EEST_RELEASE_TOKEN }}
+          gh release create "$RELEASE_TAG" \
+            --repo monad-developers/execution-spec-tests \
+            --draft \
+            --prerelease \
+            --generate-notes \
+            ./artifacts/**/*
+        env:
+          GH_TOKEN: ${{ secrets.EEST_RELEASE_TOKEN }}
