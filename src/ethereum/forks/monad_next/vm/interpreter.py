@@ -290,7 +290,6 @@ def process_message(message: Message) -> Evm:
                     ):
                         rollback_transaction(state, transient_storage)
                         error = RevertOnReserveBalance()
-                        evm_trace(evm, error)
                         evm.error = error
                         return evm
                         # cannot do this because it fails the entire tx

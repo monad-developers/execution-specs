@@ -42,6 +42,7 @@ pytestmark = [
 def test_smoke_reserve_balance(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """
     Simplest smoke test for checking if reserve balance is enforced.
@@ -51,9 +52,12 @@ def test_smoke_reserve_balance(
 
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)
+    gas_limit = generous_gas(fork)
+    gas_price = 10
 
     tx_1 = Transaction(
-        gas_limit=100_000,
+        gas_limit=gas_limit,
+        gas_price=gas_price,
         to=contract_address,
         value=1,
         sender=sender,
@@ -63,9 +67,7 @@ def test_smoke_reserve_balance(
         pre=pre,
         post={
             contract_address: Account(storage={}),
-            sender: Account(
-                balance=initial_balance - tx_1.gas_price * tx_1.gas_limit
-            ),
+            sender: Account(balance=initial_balance - gas_price * gas_limit),
         },
         blocks=[Block(txs=[tx_1])],
     )
@@ -246,7 +248,7 @@ def test_delegated_eoa_send_value(
     undelegate: bool,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values.
+    Test reserve balance violations for an EOA sending txs with various values.
     """
     target_address = Address(0x1111)
     if pre_delegated:
@@ -317,7 +319,7 @@ def test_sc_wallet_send_value(
     fork: Fork,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values
+    Test reserve balance violations for an EOA sending txs with various values
     using a CALL opcode in a smart contract wallet.
     """
     contract = Op.SSTORE(slot_code_worked, value_code_worked)
@@ -356,6 +358,279 @@ def test_sc_wallet_send_value(
                 storage=storage, balance=value if not reverted else 0
             ),
             sender: Account(balance=balance),
+        },
+        blocks=[Block(txs=[tx_1])],
+    )
+
+
+@pytest.mark.parametrize(
+    ["value", "balance", "violation"],
+    [
+        pytest.param(0, 0, False, id="zero_value"),
+        pytest.param(1, 1, True, id="one"),
+        pytest.param(
+            Spec.RESERVE_BALANCE,
+            Spec.RESERVE_BALANCE,
+            True,
+            id="reserve_balance",
+        ),
+        pytest.param(
+            2 * Spec.RESERVE_BALANCE,
+            2 * Spec.RESERVE_BALANCE,
+            True,
+            id="reserve_balance2",
+        ),
+    ],
+)
+@pytest.mark.parametrize("pre_delegated", [True, False])
+def test_sc_wallet_send_value_with_selfdestruct(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    value: int,
+    balance: int,
+    violation: bool,
+    pre_delegated: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test reserve balance violations for an EOA sending by
+    using a SELFDESTRUCT opcode in a smart contract wallet.
+    """
+    assert value == balance
+    contract_address = pre.deploy_contract(
+        Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+
+    wallet_address = pre.deploy_contract(
+        code=Op.CALL(address=contract_address)
+        + Op.SELFDESTRUCT(address=contract_address)
+    )
+    if pre_delegated:
+        sender = pre.fund_eoa(balance, delegation=wallet_address)
+        authorization_list = []
+    else:
+        sender = pre.fund_eoa(balance)
+        authorization_list = [
+            AuthorizationTuple(
+                address=wallet_address,
+                nonce=0,
+                signer=sender,
+            )
+        ]
+
+    tx_1 = Transaction(
+        gas_limit=generous_gas(fork),
+        to=sender,
+        sender=pre.fund_eoa(),
+        authorization_list=authorization_list or None,
+    )
+    reverted = violation
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage=storage, balance=value if not reverted else 0
+            ),
+            sender: Account(balance=balance if reverted else 0),
+        },
+        blocks=[Block(txs=[tx_1])],
+    )
+
+
+@pytest.mark.parametrize(
+    ["value", "balance", "violation"],
+    [
+        pytest.param(0, Spec.RESERVE_BALANCE, False, id="zero_value"),
+        pytest.param(1, Spec.RESERVE_BALANCE, True, id="non_zero_value"),
+        pytest.param(
+            1, Spec.RESERVE_BALANCE + 1, False, id="non_zero_value_good"
+        ),
+    ],
+)
+@pytest.mark.parametrize("pre_delegated", [True, False])
+@pytest.mark.parametrize("delegate", [True, False])
+@pytest.mark.parametrize("undelegate", [True, False])
+def test_sc_wallet_selfdestruct(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    value: int,
+    balance: int,
+    violation: bool,
+    pre_delegated: bool,
+    delegate: bool,
+    undelegate: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test reserve balance violations for a delegated EOA whose wallet
+    code SELFDESTRUCTs on behalf of the EOA.
+
+    NOTE: this is different from test_sc_wallet_send_value_with_selfdestruct
+    in that SELFDESTRUCT is not used to send value.
+    """
+    wallet_address = pre.deploy_contract(code=Op.SELFDESTRUCT(Op.ADDRESS))
+
+    if pre_delegated:
+        sender = pre.fund_eoa(balance, delegation=wallet_address)
+    else:
+        sender = pre.fund_eoa(balance)
+
+    authorization_list = []
+    if delegate:
+        authorization_list.append(
+            AuthorizationTuple(
+                address=wallet_address,
+                nonce=sender.nonce + 1,
+                signer=sender,
+            )
+        )
+    if undelegate:
+        authorization_list.append(
+            AuthorizationTuple(
+                address=Address(0),
+                nonce=sender.nonce + (2 if delegate else 1),
+                signer=sender,
+            )
+        )
+
+    contract_address = pre.deploy_contract(
+        code=Op.SSTORE(slot_code_worked, value_code_worked)
+        + Op.CALL(address=sender)
+    )
+
+    tx_1 = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        value=value,
+        sender=sender,
+        authorization_list=authorization_list or None,
+    )
+
+    any_delegation = pre_delegated or delegate or undelegate
+    reverted = violation and any_delegation
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage=storage, balance=value if not reverted else 0
+            )
+        },
+        blocks=[Block(txs=[tx_1])],
+    )
+
+
+@pytest.mark.parametrize(
+    ["value", "balance", "violation"],
+    [
+        pytest.param(0, Spec.RESERVE_BALANCE, False, id="zero_value"),
+        pytest.param(1, Spec.RESERVE_BALANCE, True, id="non_zero_value"),
+        pytest.param(
+            1, Spec.RESERVE_BALANCE + 1, False, id="non_zero_value_good"
+        ),
+    ],
+)
+@pytest.mark.parametrize("sponsor_pre_delegated", [True, False])
+@pytest.mark.parametrize("sponsor_delegated", [True, False])
+@pytest.mark.parametrize(
+    ["sponsor_value", "sponsor_balance", "sponsor_violation"],
+    [
+        pytest.param(0, Spec.RESERVE_BALANCE, False, id="sponsor_zero_value"),
+        pytest.param(
+            1, Spec.RESERVE_BALANCE, True, id="sponsor_non_zero_value"
+        ),
+        pytest.param(
+            1,
+            Spec.RESERVE_BALANCE + 1,
+            False,
+            id="sponsor_non_zero_value_good",
+        ),
+    ],
+)
+@pytest.mark.parametrize("pre_delegated", [True, False])
+def test_sc_wallet_send_value_various_sponsors(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    value: int,
+    balance: int,
+    violation: bool,
+    pre_delegated: bool,
+    sponsor_value: int,
+    sponsor_balance: int,
+    sponsor_violation: bool,
+    sponsor_pre_delegated: bool,
+    sponsor_delegated: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test reserve balance violations for an EOA sending txs with various values
+    using a CALL opcode in a smart contract wallet.
+
+    Includes edge cases where the sponsor (i.e. tx signer) is delegated
+    or not and has various balances, to ensure it isn't the account
+    being checked for reserve balance violation.
+    """
+    contract = Op.SSTORE(slot_code_worked, value_code_worked)
+    contract_address = pre.deploy_contract(contract)
+
+    wallet_address = pre.deploy_contract(
+        code=Op.CALL(address=contract_address, value=value)
+    )
+    if pre_delegated:
+        sender = pre.fund_eoa(balance, delegation=wallet_address)
+        authorization_list = []
+    else:
+        sender = pre.fund_eoa(balance)
+        authorization_list = [
+            AuthorizationTuple(
+                address=wallet_address,
+                nonce=0,
+                signer=sender,
+            )
+        ]
+
+    sponsor = pre.fund_eoa(
+        amount=sponsor_balance,
+        delegation=Address(0x0111) if sponsor_pre_delegated else None,
+    )
+    if sponsor_delegated:
+        authorization_list += [
+            AuthorizationTuple(
+                address=Address(0x0222),
+                nonce=2 if sponsor_pre_delegated else 1,
+                signer=sponsor,
+            )
+        ]
+
+    # An intermediate to take sponsor_value over and NOT forward it
+    # to the sender under test, in order to not impact its balance.
+    caller_address = pre.deploy_contract(code=Op.CALL(address=sender))
+
+    tx_1 = Transaction(
+        gas_limit=generous_gas(fork),
+        to=caller_address,
+        sender=sponsor,
+        value=sponsor_value,
+        authorization_list=authorization_list or None,
+    )
+    reverted = violation or (
+        sponsor_violation and (sponsor_pre_delegated or sponsor_delegated)
+    )
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage=storage, balance=value if not reverted else 0
+            ),
+            caller_address: Account(
+                balance=sponsor_value if not reverted else 0
+            ),
+            sender: Account(balance=balance - (value if not reverted else 0)),
         },
         blocks=[Block(txs=[tx_1])],
     )
@@ -822,8 +1097,9 @@ def test_access_lists(
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)
 
+    access_list_items = None
     if access_lists:
-        access_lists = [
+        access_list_items = [
             AccessList(address=sender, storage_keys=[Hash(0)]),
             AccessList(
                 address=contract_address, storage_keys=[slot_code_worked]
@@ -835,7 +1111,7 @@ def test_access_lists(
         to=contract_address,
         value=value,
         sender=sender,
-        access_list=access_lists or None,
+        access_list=access_list_items,
     )
     reverted = violation and pre_delegated
     storage = {} if reverted else {slot_code_worked: value_code_worked}
@@ -897,7 +1173,7 @@ def test_creation_tx(
         ty=tx_type,
         value=value,
         sender=sender,
-        input=initcode,
+        data=initcode,
     )
     new_address = tx_1.created_contract
 
@@ -1233,7 +1509,7 @@ def test_unrestricted_in_creation_tx_initcode(
         ty=tx_type,
         value=balance if not new_address_pre_funded else 0,
         sender=sender,
-        input=initcode,
+        data=initcode,
     )
     new_address = tx_1.created_contract
 

@@ -2035,7 +2035,7 @@ def test_pointer_resets_an_empty_code_account_with_storage(
     # storage is not deleted
 
     # In MONAD_EIGHT it is impossible for a delegated EOA to use SELFDESTRUCT
-    # targetting anything else than back to itself.
+    # targeting anything else than back to itself.
     suicide_dest = (
         Op.ADDRESS if fork >= MONAD_EIGHT else pre.fund_eoa(amount=0)
     )
