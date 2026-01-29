@@ -280,8 +280,8 @@ def test_nested_call_oom_insufficient_gas(
     inner_contract = Op.MLOAD(Spec.MAX_TX_MEMORY_USAGE)
     inner_address = pre.deploy_contract(inner_contract)
 
-    memory_expansion_gas = (
-        fork.gas_costs().G_MEMORY * Spec.MAX_TX_MEMORY_USAGE // 32
+    memory_expansion_gas = fork.memory_expansion_gas_calculator()(
+        new_bytes=Spec.MAX_TX_MEMORY_USAGE
     )
     insufficient_gas = memory_expansion_gas // 2
     gas_limit = generous_gas(fork)

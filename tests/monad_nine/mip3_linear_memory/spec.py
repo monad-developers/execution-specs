@@ -12,7 +12,7 @@ class ReferenceSpec:
 
 
 ref_spec_3 = ReferenceSpec(
-    "MIPS/MIP-3.md", "fa43faa1bf86ea86a644cd6dfef7c6f2b0b8858e"
+    "MIPS/MIP-3.md", "a70093b2549d935e31accd62e2e784114253fdc2"
 )
 
 

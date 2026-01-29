@@ -80,6 +80,7 @@ BLOB_BASE_COST = Uint(2**13)
 BLOB_SCHEDULE_MAX = U64(9)
 
 MAX_TX_MEMORY_USAGE = 8 * 1024 * 1024
+MEMORY_WORDS_PER_GAS = Uint(2)
 MIN_BLOB_GASPRICE = Uint(1)
 BLOB_BASE_FEE_UPDATE_FRACTION = Uint(5007716)
 
@@ -162,12 +163,8 @@ def calculate_memory_gas_cost(size_in_bytes: Uint) -> Uint:
 
     """
     size_in_words = ceil32(size_in_bytes) // Uint(32)
-    linear_cost = size_in_words * GAS_MEMORY
-    total_gas_cost = linear_cost
-    try:
-        return total_gas_cost
-    except ValueError as e:
-        raise OutOfGasError from e
+    total_gas_cost = size_in_words // MEMORY_WORDS_PER_GAS
+    return total_gas_cost
 
 
 def calculate_gas_extend_memory(

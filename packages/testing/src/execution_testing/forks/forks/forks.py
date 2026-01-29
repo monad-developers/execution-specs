@@ -3408,9 +3408,7 @@ class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
         Return callable that calculates the gas cost of memory expansion for
         the fork.
         """
-        gas_costs = cls.gas_costs(
-            block_number=block_number, timestamp=timestamp
-        )
+        memory_words_per_gas = 2
 
         def fn(*, new_bytes: int, previous_bytes: int = 0) -> int:
             if new_bytes <= previous_bytes:
@@ -3419,7 +3417,7 @@ class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
             previous_words = ceiling_division(previous_bytes, 32)
 
             def c(w: int) -> int:
-                return gas_costs.G_MEMORY * w
+                return w // memory_words_per_gas
 
             return c(new_words) - c(previous_words)
 
