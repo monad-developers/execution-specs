@@ -35,6 +35,7 @@ from ..gas import (
     calculate_blob_gas_price,
     calculate_gas_extend_memory,
     charge_gas,
+    update_memory_high_watermark,
 )
 from ..stack import pop, push
 
@@ -236,9 +237,10 @@ def calldatacopy(evm: Evm) -> None:
         evm.memory, [(memory_start_index, size)]
     )
     charge_gas(evm, GAS_VERY_LOW + copy_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     value = buffer_read(evm.message.data, data_start_index, size)
     memory_write(evm.memory, memory_start_index, value)
 
@@ -294,9 +296,10 @@ def codecopy(evm: Evm) -> None:
         evm.memory, [(memory_start_index, size)]
     )
     charge_gas(evm, GAS_VERY_LOW + copy_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     value = buffer_read(evm.code, code_start_index, size)
     memory_write(evm.memory, memory_start_index, value)
 
@@ -389,9 +392,10 @@ def extcodecopy(evm: Evm) -> None:
         access_gas_cost = GAS_COLD_ACCOUNT_ACCESS
 
     charge_gas(evm, access_gas_cost + copy_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     code = get_account(evm.message.block_env.state, address).code
 
     value = buffer_read(code, code_start_index, size)
@@ -446,10 +450,11 @@ def returndatacopy(evm: Evm) -> None:
         evm.memory, [(memory_start_index, size)]
     )
     charge_gas(evm, GAS_VERY_LOW + copy_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
     if Uint(return_data_start_position) + Uint(size) > ulen(evm.return_data):
         raise OutOfBoundsRead
 
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     value = evm.return_data[
         return_data_start_position : return_data_start_position + size
     ]

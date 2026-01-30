@@ -21,8 +21,8 @@ from ethereum.utils.numeric import ceil32, taylor_exponential
 
 from ..blocks import Header
 from ..transactions import BlobTransaction, Transaction
-from . import Evm
-from .exceptions import OutOfGasError
+from . import Evm, EvmMemory
+from .exceptions import OutOfGasError, RevertOnOOM
 
 GAS_JUMPDEST = Uint(1)
 GAS_BASE = Uint(2)
@@ -78,6 +78,8 @@ BLOB_SCHEDULE_TARGET = U64(6)
 TARGET_BLOB_GAS_PER_BLOCK = GAS_PER_BLOB * BLOB_SCHEDULE_TARGET
 BLOB_BASE_COST = Uint(2**13)
 BLOB_SCHEDULE_MAX = U64(9)
+
+MAX_TX_MEMORY_USAGE = 8 * 1024 * 1024
 MIN_BLOB_GASPRICE = Uint(1)
 BLOB_BASE_FEE_UPDATE_FRACTION = Uint(5007716)
 
@@ -161,8 +163,7 @@ def calculate_memory_gas_cost(size_in_bytes: Uint) -> Uint:
     """
     size_in_words = ceil32(size_in_bytes) // Uint(32)
     linear_cost = size_in_words * GAS_MEMORY
-    quadratic_cost = size_in_words ** Uint(2) // Uint(512)
-    total_gas_cost = linear_cost + quadratic_cost
+    total_gas_cost = linear_cost
     try:
         return total_gas_cost
     except ValueError as e:
@@ -170,7 +171,7 @@ def calculate_memory_gas_cost(size_in_bytes: Uint) -> Uint:
 
 
 def calculate_gas_extend_memory(
-    memory: bytearray, extensions: List[Tuple[U256, U256]]
+    memory: EvmMemory, extensions: List[Tuple[U256, U256]]
 ) -> ExtendMemory:
     """
     Calculates the gas amount to extend memory.
@@ -178,7 +179,7 @@ def calculate_gas_extend_memory(
     Parameters
     ----------
     memory :
-        Memory contents of the EVM.
+        Memory object of the EVM.
     extensions:
         List of extensions to be made to the memory.
         Consists of a tuple of start position and size.
@@ -190,7 +191,7 @@ def calculate_gas_extend_memory(
     """
     size_to_extend = Uint(0)
     to_be_paid = Uint(0)
-    current_size = Uint(len(memory))
+    current_size = Uint(len(memory.data))
     for start_position, size in extensions:
         if size == 0:
             continue
@@ -207,6 +208,31 @@ def calculate_gas_extend_memory(
         current_size = after_size
 
     return ExtendMemory(to_be_paid, size_to_extend)
+
+
+def update_memory_high_watermark(
+    evm: Evm, extend_memory: ExtendMemory
+) -> None:
+    """
+    Update the memory high watermark and check it doesn't exceed
+    MAX_TX_MEMORY_USAGE.
+
+    Parameters
+    ----------
+    evm :
+        The EVM object.
+    extend_memory :
+        The memory extension info from calculate_gas_extend_memory.
+
+    Raises
+    ------
+    RevertOnOOM
+        If the new memory size would exceed MAX_TX_MEMORY_USAGE.
+
+    """
+    evm.memory.high_watermark_bytes += int(extend_memory.expand_by)
+    if evm.memory.high_watermark_bytes > MAX_TX_MEMORY_USAGE:
+        raise RevertOnOOM
 
 
 def calculate_message_call_gas(
@@ -245,11 +271,11 @@ def calculate_message_call_gas(
     """
     call_stipend = Uint(0) if value == 0 else call_stipend
     if gas_left < extra_gas + memory_cost:
-        return MessageCallGas(gas + extra_gas, gas + call_stipend)
+        return MessageCallGas(gas, gas + call_stipend)
 
     gas = min(gas, max_message_call_gas(gas_left - memory_cost - extra_gas))
 
-    return MessageCallGas(gas + extra_gas, gas + call_stipend)
+    return MessageCallGas(gas, gas + call_stipend)
 
 
 def max_message_call_gas(gas: Uint) -> Uint:

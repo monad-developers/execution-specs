@@ -124,7 +124,11 @@ class Eip3155Tracer(EvmTracer):
             refund_counter += parent_evm.refund_counter
             parent_evm = parent_evm.message.parent_evm
 
-        len_memory = len(evm.memory)
+        evm_memory_data = (
+            evm.memory.data if hasattr(evm.memory, "data") else evm.memory
+        )
+
+        len_memory = len(evm_memory_data)
 
         return_data = None
         if isinstance(evm, EvmWithReturnData) and self.trace_return_data:
@@ -132,7 +136,7 @@ class Eip3155Tracer(EvmTracer):
 
         memory = None
         if self.trace_memory and len_memory > 0:
-            memory = "0x" + evm.memory.hex()
+            memory = "0x" + evm_memory_data.hex()
 
         stack = None
         if self.trace_stack:

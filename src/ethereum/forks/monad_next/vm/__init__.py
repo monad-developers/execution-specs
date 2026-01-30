@@ -137,12 +137,22 @@ class Message:
 
 
 @dataclass
+class EvmMemory:
+    """
+    Memory of the EVM.
+    """
+
+    data: bytearray
+    high_watermark_bytes: int
+
+
+@dataclass
 class Evm:
     """The internal state of the virtual machine."""
 
     pc: Uint
     stack: List[U256]
-    memory: bytearray
+    memory: EvmMemory
     code: Bytes
     gas_left: Uint
     valid_jump_destinations: Set[Uint]

@@ -22,6 +22,7 @@ from ..gas import (
     GAS_KECCAK256_WORD,
     calculate_gas_extend_memory,
     charge_gas,
+    update_memory_high_watermark,
 )
 from ..memory import memory_read_bytes
 from ..stack import pop, push
@@ -51,9 +52,10 @@ def keccak(evm: Evm) -> None:
         evm.memory, [(memory_start_index, size)]
     )
     charge_gas(evm, GAS_KECCAK256 + word_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     data = memory_read_bytes(evm.memory, memory_start_index, size)
     hashed = keccak256(data)
 

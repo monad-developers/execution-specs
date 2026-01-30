@@ -23,6 +23,7 @@ from ..gas import (
     GAS_VERY_LOW,
     calculate_gas_extend_memory,
     charge_gas,
+    update_memory_high_watermark,
 )
 from ..memory import memory_read_bytes, memory_write
 from ..stack import pop, push
@@ -50,9 +51,10 @@ def mstore(evm: Evm) -> None:
     )
 
     charge_gas(evm, GAS_VERY_LOW + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     memory_write(evm.memory, start_position, value)
 
     # PROGRAM COUNTER
@@ -81,9 +83,10 @@ def mstore8(evm: Evm) -> None:
     )
 
     charge_gas(evm, GAS_VERY_LOW + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     normalized_bytes_value = Bytes([value & U256(0xFF)])
     memory_write(evm.memory, start_position, normalized_bytes_value)
 
@@ -109,9 +112,10 @@ def mload(evm: Evm) -> None:
         evm.memory, [(start_position, U256(32))]
     )
     charge_gas(evm, GAS_VERY_LOW + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     value = U256.from_be_bytes(
         memory_read_bytes(evm.memory, start_position, U256(32))
     )
@@ -138,7 +142,7 @@ def msize(evm: Evm) -> None:
     charge_gas(evm, GAS_BASE)
 
     # OPERATION
-    push(evm.stack, U256(len(evm.memory)))
+    push(evm.stack, U256(len(evm.memory.data)))
 
     # PROGRAM COUNTER
     evm.pc += Uint(1)
@@ -167,9 +171,10 @@ def mcopy(evm: Evm) -> None:
         evm.memory, [(source, length), (destination, length)]
     )
     charge_gas(evm, GAS_VERY_LOW + copy_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     value = memory_read_bytes(evm.memory, source, length)
     memory_write(evm.memory, destination, value)
 

@@ -18,6 +18,7 @@ from ethereum_types.bytes import Bytes, Bytes0
 from ethereum_types.numeric import U256, Uint, ulen
 
 from ethereum.exceptions import EthereumException
+from ethereum.forks.monad_next.vm.memory import EvmMemory
 from ethereum.trace import (
     EvmStop,
     OpEnd,
@@ -62,6 +63,7 @@ from .exceptions import (
     InvalidOpcode,
     OutOfGasError,
     Revert,
+    RevertOnOOM,
     RevertOnReserveBalance,
     StackDepthLimitError,
 )
@@ -250,10 +252,19 @@ def process_message(message: Message) -> Evm:
     transient_storage = message.tx_env.transient_storage
     code = message.code
     valid_jump_destinations = get_valid_jump_destinations(code)
+
+    parent_high_watermark = (
+        message.parent_evm.memory.high_watermark_bytes
+        if message.parent_evm is not None
+        else 0
+    )
+
     evm = Evm(
         pc=Uint(0),
         stack=[],
-        memory=bytearray(),
+        memory=EvmMemory(
+            data=bytearray(), high_watermark_bytes=parent_high_watermark
+        ),
         code=code,
         gas_left=message.gas,
         valid_jump_destinations=valid_jump_destinations,
@@ -302,6 +313,9 @@ def process_message(message: Message) -> Evm:
         evm.output = b""
         evm.error = error
     except Revert as error:
+        evm_trace(evm, OpException(error))
+        evm.error = error
+    except RevertOnOOM as error:
         evm_trace(evm, OpException(error))
         evm.error = error
 
