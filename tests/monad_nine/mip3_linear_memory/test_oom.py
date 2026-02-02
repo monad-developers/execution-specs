@@ -28,6 +28,7 @@ slot_code_worked = next(_slot)
 slot_call_result = next(_slot)
 slot_inner_worked = next(_slot)
 slot_all_gas_consumed = next(_slot)
+slot_inner_gas_consumed = next(_slot)
 slot_returndata_size_before = next(_slot)
 slot_returndata_size_after = next(_slot)
 slot_outer_memory_preserved = next(_slot)
@@ -214,6 +215,7 @@ def test_nested_call_oom(
     [
         pytest.param(Op.STOP, 1, False, id="success"),
         pytest.param(Op.MLOAD(Spec.MAX_TX_MEMORY_USAGE), 0, False, id="oom"),
+        pytest.param(Op.MLOAD(2**256 - 1), 0, True, id="oog_before_oom"),
         pytest.param(Op.REVERT(0, 0), 0, False, id="revert"),
         pytest.param(Op.INVALID, 0, True, id="invalid"),
     ],
@@ -228,7 +230,7 @@ def test_nested_call_gas_consumption(
 ) -> None:
     """
     Test gas consumption behavior of CALL with different callee outcomes.
-    REVERT should not consume all gas, while INVALID does.
+    OOM should not consume all gas, unlike OOG and INVALID.
     """
     inner_address = pre.deploy_contract(callee_code)
 
@@ -260,58 +262,6 @@ def test_nested_call_gas_consumption(
                     slot_code_worked: value_code_worked,
                     slot_call_result: expected_call_result,
                     slot_all_gas_consumed: 1 if consumes_all_gas else 0,
-                }
-            )
-        },
-        tx=tx,
-    )
-
-
-def test_nested_call_oom_insufficient_gas(
-    state_test: StateTestFiller,
-    pre: Alloc,
-    fork: Fork,
-) -> None:
-    """
-    Test OOM behavior when CALL is given insufficient gas for memory expansion.
-
-    This tests which check comes first: gas availability or memory limit.
-    """
-    inner_contract = Op.MLOAD(Spec.MAX_TX_MEMORY_USAGE)
-    inner_address = pre.deploy_contract(inner_contract)
-
-    memory_expansion_gas = fork.memory_expansion_gas_calculator()(
-        new_bytes=Spec.MAX_TX_MEMORY_USAGE
-    )
-    insufficient_gas = memory_expansion_gas // 2
-    gas_limit = generous_gas(fork)
-
-    outer_contract = (
-        Op.SSTORE(slot_code_worked, value_code_worked)
-        + Op.SSTORE(
-            slot_call_result,
-            Op.CALL(address=inner_address, gas=insufficient_gas),
-        )
-        + Op.SSTORE(
-            slot_all_gas_consumed, Op.LT(Op.GAS, gas_limit - insufficient_gas)
-        )
-    )
-    outer_address = pre.deploy_contract(outer_contract)
-
-    tx = Transaction(
-        gas_limit=gas_limit,
-        to=outer_address,
-        sender=pre.fund_eoa(),
-    )
-
-    state_test(
-        pre=pre,
-        post={
-            outer_address: Account(
-                storage={
-                    slot_code_worked: value_code_worked,
-                    slot_call_result: 0,
-                    slot_all_gas_consumed: 1,
                 }
             )
         },
@@ -452,6 +402,8 @@ def test_all_memory_opcodes_oom(
 ) -> None:
     """
     Test OOM behavior for all memory-allocating opcodes.
+
+    RETURNDATACOPY tested separately.
     """
     # LOG opcodes have high per-byte cost, CREATE opcodes have initcode size
     # limits
@@ -476,6 +428,51 @@ def test_all_memory_opcodes_oom(
         + opcode
         + Op.SSTORE(slot_code_worked, value_code_worked)
     )
+    contract_address = pre.deploy_contract(contract)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    storage = {} if exceed else {slot_code_worked: value_code_worked}
+
+    state_test(
+        pre=pre,
+        post={contract_address: Account(storage=storage)},
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize("exceed", [True, False])
+def test_returndatacopy_oom(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    exceed: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test OOM behavior for RETURNDATACOPY.
+
+    For exceed=False: Call a contract that returns data of the target size,
+    then use RETURNDATACOPY to copy it. This validates no OOM occurs.
+
+    For exceed=True: We cannot create return data of that size because the
+    RETURN opcode would OOM. Instead, skip the CALL and call RETURNDATACOPY
+    directly. RETURNDATACOPY will fail with an out-of-buffer read error
+    (not OOM) because there is no return data to copy from.
+    """
+    size = Spec.MAX_TX_MEMORY_USAGE + (1 if exceed else 0)
+
+    contract = Op.SSTORE(slot_code_worked, value_code_worked)
+
+    if not exceed:
+        returner_address = pre.deploy_contract(Op.RETURN(0, size))
+
+        contract += Op.CALL(address=returner_address)
+    contract += Op.RETURNDATACOPY(0, 0, size)
+
     contract_address = pre.deploy_contract(contract)
 
     tx = Transaction(
@@ -544,6 +541,114 @@ def test_nested_frames_oom(
     state_test(
         pre=pre,
         post={entry_address: Account(storage=storage)},
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize(
+    "chunk_size,expected_successful_calls",
+    [
+        (Spec.MAX_TX_MEMORY_USAGE // 8, 8),
+        (Spec.MAX_TX_MEMORY_USAGE // 4, 4),
+        (Spec.MAX_TX_MEMORY_USAGE // 2, 2),
+    ],
+)
+def test_recursive_frames_oom(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    chunk_size: int,
+    expected_successful_calls: int,
+    fork: Fork,
+) -> None:
+    """
+    Test recursive calls until cumulative memory exceeds limit.
+    """
+    slot_depth_base = 0x100
+    slot_counter = next(_slot)
+
+    code_increment_counter = (
+        Op.TLOAD(slot_counter)
+        + Op.DUP1
+        + Op.TSTORE(slot_counter, Op.PUSH1(1) + Op.ADD)
+    )
+    contract = (
+        Op.SSTORE(Op.ADD(slot_depth_base, code_increment_counter), 1)
+        + Op.MLOAD(chunk_size - 32)
+        + Op.DELEGATECALL(address=Op.ADDRESS)
+    )
+    contract_address = pre.deploy_contract(contract)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    storage = {
+        slot_depth_base + d: 1 for d in range(expected_successful_calls)
+    }
+
+    state_test(
+        pre=pre,
+        post={contract_address: Account(storage=storage)},
+        tx=tx,
+    )
+
+
+def test_inner_frame_incremental_memory_allocation(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+) -> None:
+    """
+    Test repeated calls to inner contract with increasing memory allocation.
+
+    Tests memory recovery after OOM and successful inner call releases memory.
+
+    The outer frame allocates 32 bytes for calldata (MSTORE). The inner
+    contract computes: offset = target - 64, then MLOAD(offset) which
+    allocates (offset + 32) bytes. Total = 32 + (offset + 32) = target.
+    """
+    inner_contract = Op.MLOAD(Op.CALLDATALOAD(0))
+    inner_address = pre.deploy_contract(inner_contract)
+
+    sizes = [
+        Spec.MAX_TX_MEMORY_USAGE,
+        Spec.MAX_TX_MEMORY_USAGE // 4,
+        Spec.MAX_TX_MEMORY_USAGE // 2,
+        Spec.MAX_TX_MEMORY_USAGE // 2,
+        Spec.MAX_TX_MEMORY_USAGE - 32,
+        Spec.MAX_TX_MEMORY_USAGE,
+        Spec.MAX_TX_MEMORY_USAGE + 32,
+        2 * Spec.MAX_TX_MEMORY_USAGE,
+    ]
+
+    outer = Op.SSTORE(slot_code_worked, value_code_worked)
+    for size in sizes:
+        outer = (
+            # pre-allocate for MSIZE to work
+            Op.MSTORE(0, 0)
+            # store size to allocate in the inner frame, minus
+            # size of MLOAD allocation, minus current allocation
+            + Op.MSTORE(0, Op.SUB(size - 32, Op.MSIZE))
+            + Op.SSTORE(size, Op.CALL(address=inner_address, args_size=32))
+        ) + outer
+
+    outer_address = pre.deploy_contract(outer)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=outer_address,
+        sender=pre.fund_eoa(),
+    )
+
+    storage = {slot_code_worked: value_code_worked}
+    for size in sizes:
+        storage[size] = 1 if size <= Spec.MAX_TX_MEMORY_USAGE else 0
+
+    state_test(
+        pre=pre,
+        post={outer_address: Account(storage=storage)},
         tx=tx,
     )
 
@@ -785,6 +890,60 @@ def test_oom_clears_returndata_create(
     )
 
 
+@pytest.mark.parametrize("exceed", [True, False])
+@pytest.mark.with_all_create_opcodes
+def test_create_return_oom(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    exceed: bool,
+    create_opcode: Op,
+    fork: Fork,
+) -> None:
+    """
+    Test OOM in CREATE's RETURN phase (not in initcode execution).
+
+    Factory allocates some memory, then initcode tries to RETURN large data.
+    The RETURN itself causes OOM, not the initcode execution.
+    """
+    factory_alloc = Spec.MAX_TX_MEMORY_USAGE
+
+    return_size = 32 if exceed else 0
+
+    initcode = Op.RETURN(0, return_size)
+    initcode_bytes = bytes(initcode) + b"\x00" * (32 - (len(initcode) % 32))
+
+    factory = (
+        Op.MLOAD(factory_alloc - 32)
+        + Op.MSTORE(0, Op.PUSH32(initcode_bytes))
+        + Op.SSTORE(slot_call_result, create_opcode(size=len(initcode)))
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    factory_address = pre.deploy_contract(factory)
+    new_contract_address = compute_create_address(
+        address=factory_address,
+        nonce=1,
+        initcode=initcode,
+        opcode=create_opcode,
+    )
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=factory_address,
+        sender=pre.fund_eoa(),
+    )
+
+    storage = {
+        slot_code_worked: value_code_worked,
+        slot_call_result: 0 if exceed else new_contract_address,
+    }
+
+    state_test(
+        pre=pre,
+        post={factory_address: Account(storage=storage)},
+        tx=tx,
+    )
+
+
 @pytest.mark.parametrize(
     "outer_alloc_size,inner_alloc_size",
     [
@@ -949,222 +1108,378 @@ def test_memory_word_rounding_at_limit(
 
 
 @pytest.mark.parametrize("exceed", [True, False])
+@pytest.mark.parametrize("trigger_oog", [True, False])
 @pytest.mark.parametrize(
-    "scenario",
-    [
-        pytest.param("static_violation"),
-        pytest.param("oog_value_transfer"),
-        pytest.param("oog_access_cost"),
-        pytest.param("insufficient_balance"),
-    ],
+    "gas_cost_type",
+    ["account_create", "value_transfer", "access_cost", "memory_expansion"],
 )
-def test_oom_check_ordering_in_call(
+def test_charge_gas_before_oom_check(
     state_test: StateTestFiller,
     pre: Alloc,
-    scenario: str,
+    gas_cost_type: str,
     exceed: bool,
+    trigger_oog: bool,
     fork: Fork,
 ) -> None:
     """
-    Test OOM check placement relative to other CALL checks.
+    Test that charge_gas happens BEFORE OOM check in CALL opcode.
 
-    CALL check order in system.py:
-    1. charge_gas (memory extension + access cost + value transfer cost)
-    2. OOM check (update_memory_high_watermark)
-    3. Static call violation check (WriteInStaticContext)
-    4. Balance check (returns 0, refunds gas)
+    Sets up an inner CALL that will OOG if trigger_oog=True (due to various
+    gas costs), with a return buffer that causes OOM if exceed=True.
 
-    Each scenario triggers a specific check to verify ordering relative to OOM.
-    The exceed parameter controls whether the memory access would cause OOM.
-
-    NOTE: for checking the order of checks wrt. memory expansion _gas cost_
-    refert to test_oom_deep.py, as it includes testing against previous fork.
+    If charge_gas runs before OOM check, OOG happens regardless of exceed.
     """
     gas_limit = generous_gas(fork)
     gas_costs = fork.gas_costs()
 
+    if gas_cost_type == "account_create":
+        target = pre.fund_eoa(amount=0 if trigger_oog else 1)
+        call_value = 1
+        inner_offset = 32
+        inner_gas = (
+            7 * gas_costs.G_VERY_LOW
+            + gas_costs.G_WARM_ACCOUNT_ACCESS
+            + gas_costs.G_CALL_VALUE
+            + gas_costs.G_NEW_ACCOUNT
+            + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
+            - 1
+        )
+        warm_target = True
+    elif gas_cost_type == "value_transfer":
+        target = pre.fund_eoa(amount=1)
+        call_value = 1 if trigger_oog else 0
+        inner_offset = 32
+        inner_gas = (
+            7 * gas_costs.G_VERY_LOW
+            + gas_costs.G_WARM_ACCOUNT_ACCESS
+            + gas_costs.G_CALL_VALUE
+            + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
+            - 1
+        )
+        warm_target = True
+    elif gas_cost_type == "access_cost":
+        target = pre.empty_account()
+        call_value = 0
+        inner_offset = 32
+        inner_gas = (
+            7 * gas_costs.G_VERY_LOW
+            + gas_costs.G_COLD_ACCOUNT_ACCESS
+            + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
+            - 1
+        )
+        warm_target = not trigger_oog
+    elif gas_cost_type == "memory_expansion":
+        target = pre.fund_eoa(amount=1)
+        call_value = 0
+        inner_offset = 1024 * 1024 if trigger_oog else 32
+        inner_gas = (
+            7
+            + gas_costs.G_VERY_LOW
+            + gas_costs.G_WARM_ACCOUNT_ACCESS
+            + fork.memory_expansion_gas_calculator()(new_bytes=1024 * 1024)
+            - 1
+        )
+        warm_target = True
+    else:
+        raise Exception(f"Unknown scenario: {gas_cost_type}")
+
+    # ret_size=inner_offset is allocating extra to cause OOM if exceed.
+    inner_contract = Op.CALL(
+        gas=0, address=target, value=call_value, ret_size=inner_offset
+    )
+    inner_address = pre.deploy_contract(inner_contract)
+
+    offset = (
+        Spec.MAX_TX_MEMORY_USAGE
+        if exceed
+        else Spec.MAX_TX_MEMORY_USAGE - inner_offset
+    )
+    mem_gas, mem_result = 0, 32
+
+    outer_contract = Op.MLOAD(offset - inner_offset) + Op.POP(
+        Op.BALANCE(inner_address)
+    )
+    if warm_target:
+        outer_contract += Op.POP(Op.BALANCE(target))
+
+    outer_contract += (
+        # use MSTORE to avoid expensive SSTOREs in the test
+        Op.MSTORE(mem_gas, Op.GAS)
+        + Op.MSTORE(
+            mem_result, Op.DELEGATECALL(gas=inner_gas, address=inner_address)
+        )
+        + Op.SSTORE(
+            slot_inner_gas_consumed,
+            Op.LT(
+                inner_gas
+                + gas_costs.G_WARM_ACCOUNT_ACCESS
+                + gas_costs.G_VERY_LOW * 8
+                + gas_costs.G_COPY,
+                Op.SUB(Op.MLOAD(mem_gas), Op.GAS),
+            ),
+        )
+        + Op.SSTORE(slot_call_result, Op.MLOAD(mem_result))
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    outer_address = pre.deploy_contract(outer_contract, balance=10**18)
+
+    state_test(
+        pre=pre,
+        post={
+            outer_address: Account(
+                storage={
+                    slot_code_worked: value_code_worked,
+                    slot_call_result: 0 if exceed or trigger_oog else 1,
+                    slot_inner_gas_consumed: 1 if trigger_oog else 0,
+                }
+            )
+        },
+        tx=Transaction(
+            gas_limit=gas_limit, to=outer_address, sender=pre.fund_eoa()
+        ),
+    )
+
+
+@pytest.mark.parametrize("exceed", [True, False])
+@pytest.mark.parametrize("static_violation", [True, False])
+def test_static_check_after_oom_check(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    exceed: bool,
+    static_violation: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test that static call violation check happens AFTER OOM check.
+
+    If OOM check runs before static check, OOM happens first when exceed=True.
+    """
+    gas_limit = generous_gas(fork)
     offset = (
         Spec.MAX_TX_MEMORY_USAGE if exceed else Spec.MAX_TX_MEMORY_USAGE - 32
     )
+    gas_threshold = gas_limit // 64
+    warm_account = pre.empty_account()
 
-    if scenario == "static_violation":
-        # Test: static check happens AFTER OOM check in CALL opcode.
-        # Setup: Inner does CALL with value (static violation) with return
-        # buffer that may or may not OOM.
-        gas_threshold = gas_limit // 64
+    # ret_size=32 is allocating the extra 32 bytes to cause OOM if exceed.
+    inner_contract = Op.CALL(
+        address=warm_account, value=1 if static_violation else 0, ret_size=32
+    )
+    inner_address = pre.deploy_contract(inner_contract, balance=1)
 
-        inner_contract = Op.CALL(
-            address=pre.empty_account(),
-            value=1,
-            ret_offset=0,
-            ret_size=32,
-        )
-        inner_address = pre.deploy_contract(inner_contract, balance=10**18)
+    outer_contract = (
+        Op.MLOAD(offset - 32)
+        + Op.POP(Op.BALANCE(warm_account))
+        + Op.POP(Op.BALANCE(inner_address))
+        + Op.SSTORE(slot_call_result, 123)
+        + Op.SSTORE(slot_all_gas_consumed, 123)
+        + Op.SSTORE(slot_call_result, Op.STATICCALL(address=inner_address))
+        + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    outer_address = pre.deploy_contract(outer_contract)
 
-        outer_contract = (
-            # Allocate almost the entire memory, so next allocation of 32 bytes
-            # OOMs if exceed is True.
-            Op.MLOAD(offset - 32)
-            + Op.SSTORE(slot_code_worked, value_code_worked)
-            + Op.SSTORE(slot_call_result, 123)
-            + Op.SSTORE(slot_all_gas_consumed, 123)
-            + Op.SSTORE(slot_call_result, Op.STATICCALL(address=inner_address))
-            + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
-        )
-        outer_address = pre.deploy_contract(outer_contract)
-
-        post = {
+    state_test(
+        pre=pre,
+        post={
             outer_address: Account(
                 storage={
                     slot_code_worked: value_code_worked,
-                    slot_call_result: 0,
-                    # OOM check runs first:
-                    slot_all_gas_consumed: 0 if exceed else 1,
+                    slot_call_result: 0 if exceed or static_violation else 1,
+                    slot_all_gas_consumed: 1
+                    if static_violation and not exceed
+                    else 0,
                 }
             )
-        }
+        },
+        tx=Transaction(
+            gas_limit=gas_limit, to=outer_address, sender=pre.fund_eoa()
+        ),
+    )
 
-    elif scenario == "oog_value_transfer":
-        # Test: charge_gas (for value transfer cost) happens BEFORE OOM check.
-        warm_account = pre.empty_account()
-        inner_gas = (
-            gas_costs.G_WARM_ACCOUNT_ACCESS + gas_costs.G_CALL_VALUE - 10
-        )
-        gas_threshold = gas_limit - inner_gas
 
-        inner_contract = Op.MSTORE(
-            0,
-            Op.CALL(
-                gas=0,
-                address=warm_account,
-                value=1,
-                ret_offset=0,
-                ret_size=32,
-            ),
-        ) + Op.RETURN(0, 32)
-        inner_address = pre.deploy_contract(inner_contract)
+@pytest.mark.parametrize("exceed", [True, False])
+@pytest.mark.parametrize("out_of_bounds", [True, False])
+def test_returndatacopy_check_after_oom_check(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    exceed: bool,
+    out_of_bounds: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test that returndatacopy out-of-bounds check happens AFTER OOM check.
 
-        outer_contract = (
-            # Allocate almost the entire memory, so next allocation of 32 bytes
-            # OOMs if exceed is True.
-            Op.MLOAD(offset - 32)
-            + Op.BALANCE(warm_account)
-            + Op.SSTORE(slot_code_worked, value_code_worked)
-            + Op.SSTORE(slot_call_result, 123)
-            + Op.SSTORE(slot_all_gas_consumed, 123)
-            + Op.DELEGATECALL(
-                gas=inner_gas,
-                address=inner_address,
-            )
-            + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
-            + Op.RETURNDATACOPY(0, 0, Op.RETURNDATASIZE)
-            + Op.SSTORE(slot_call_result, Op.MLOAD(0))
-        )
-        outer_address = pre.deploy_contract(outer_contract, balance=10**18)
+    OOM happens first when exceed=True.
+    """
+    gas_limit = generous_gas(fork)
+    returner_size = 64
+    offset = (
+        Spec.MAX_TX_MEMORY_USAGE - returner_size
+        if exceed
+        else Spec.MAX_TX_MEMORY_USAGE - returner_size - 32
+    )
+    gas_threshold = gas_limit // 64
+    pre.empty_account()
 
-        post = {
+    returner_address = pre.deploy_contract(Op.RETURN(0, returner_size))
+
+    # ret_size=32 is allocating the extra 32 bytes to cause OOM if exceed.
+    inner_contract = Op.CALL(
+        address=Address(0x0111) if out_of_bounds else returner_address
+    )
+    copy_offset = 32
+    assert offset + returner_size <= Spec.MAX_TX_MEMORY_USAGE
+    assert exceed == (
+        offset + copy_offset + returner_size > Spec.MAX_TX_MEMORY_USAGE
+    )
+    inner_contract += Op.RETURNDATACOPY(copy_offset, 0, returner_size)
+    inner_address = pre.deploy_contract(inner_contract)
+
+    outer_contract = (
+        Op.MLOAD(offset - 32)
+        + Op.SSTORE(slot_call_result, 123)
+        + Op.SSTORE(slot_all_gas_consumed, 123)
+        + Op.SSTORE(slot_call_result, Op.CALL(address=inner_address))
+        + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    outer_address = pre.deploy_contract(outer_contract)
+
+    state_test(
+        pre=pre,
+        post={
             outer_address: Account(
                 storage={
                     slot_code_worked: value_code_worked,
-                    slot_call_result: 0,
-                    # oog check comes first so regardless of OOM:
-                    slot_all_gas_consumed: 1,
+                    slot_call_result: 0 if exceed or out_of_bounds else 1,
+                    slot_all_gas_consumed: 1
+                    if out_of_bounds and not exceed
+                    else 0,
                 }
             )
-        }
+        },
+        tx=Transaction(
+            gas_limit=gas_limit, to=outer_address, sender=pre.fund_eoa()
+        ),
+    )
 
-    elif scenario == "oog_access_cost":
-        # Test: charge_gas (for cold access cost) happens BEFORE OOM check.
-        # Setup: CALL to cold address with contract with memory access.
-        # Result: With exceed=True, callee OOMs. With exceed=False, succeeds.
-        cold_account = pre.empty_account()
-        inner_gas = gas_costs.G_COLD_ACCOUNT_ACCESS - 10
-        gas_threshold = gas_limit - inner_gas
 
-        inner_contract = Op.MSTORE(
-            0,
-            Op.CALL(
-                gas=0,
-                address=cold_account,
-                ret_offset=0,
-                ret_size=32,
-            ),
-        ) + Op.RETURN(0, 32)
-        inner_address = pre.deploy_contract(inner_contract)
+@pytest.mark.parametrize("exceed", [True, False])
+@pytest.mark.parametrize("insufficient_balance", [True, False])
+def test_balance_check_after_oom_check(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    exceed: bool,
+    insufficient_balance: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test that balance check happens AFTER OOM check.
 
-        outer_contract = (
-            # Allocate almost the entire memory, so next allocation of 32 bytes
-            # OOMs if exceed is True.
-            Op.MLOAD(offset - 32)
-            + Op.SSTORE(slot_code_worked, value_code_worked)
-            + Op.SSTORE(slot_call_result, 123)
-            + Op.SSTORE(slot_all_gas_consumed, 123)
-            + Op.DELEGATECALL(
-                gas=inner_gas,
-                address=inner_address,
-            )
-            + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
-            + Op.RETURNDATACOPY(0, 0, Op.RETURNDATASIZE)
-            + Op.SSTORE(slot_call_result, Op.MLOAD(0))
-        )
-        outer_address = pre.deploy_contract(outer_contract, balance=10**18)
+    If OOM check runs before balance check, OOM happens first when exceed=True.
+    """
+    gas_limit = generous_gas(fork)
+    offset = (
+        Spec.MAX_TX_MEMORY_USAGE if exceed else Spec.MAX_TX_MEMORY_USAGE - 32
+    )
+    gas_threshold = gas_limit // 64
 
-        post = {
+    warm_account = pre.empty_account()
+    # ret_size=32 is allocating the extra 32 bytes to cause OOM if exceed.
+    inner_contract = Op.CALL(
+        gas=0,
+        address=warm_account,
+        value=1,
+        ret_size=32,
+    )
+    inner_address = pre.deploy_contract(inner_contract)
+
+    outer_contract = (
+        Op.MLOAD(offset - 32)
+        + Op.POP(Op.BALANCE(warm_account))
+        + Op.POP(Op.BALANCE(inner_address))
+        + Op.SSTORE(slot_call_result, 123)
+        + Op.SSTORE(slot_all_gas_consumed, 123)
+        + Op.SSTORE(slot_call_result, Op.DELEGATECALL(address=inner_address))
+        + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    outer_address = pre.deploy_contract(
+        outer_contract, balance=0 if insufficient_balance else 1
+    )
+
+    state_test(
+        pre=pre,
+        post={
             outer_address: Account(
                 storage={
                     slot_code_worked: value_code_worked,
-                    slot_call_result: 0,
-                    # oog check comes first so regardless of OOM:
-                    slot_all_gas_consumed: 1,
-                }
-            )
-        }
-
-    else:  # insufficient_balance
-        # Test: balance check happens AFTER OOM check.
-        # Setup: CALL with value > sender balance, ret_offset may cause OOM.
-        # With exceed=True, OOM check fails first (before balance check).
-        # With exceed=False, OOM check passes, balance check fails.
-        warm_account = pre.empty_account()
-        gas_threshold = gas_limit // 64
-
-        inner_contract = Op.MSTORE(
-            0,
-            Op.CALL(
-                gas=0,
-                address=warm_account,
-                value=1,
-                ret_offset=0,
-                ret_size=32,
-            ),
-        ) + Op.RETURN(0, 32)
-        inner_address = pre.deploy_contract(inner_contract)
-
-        outer_contract = (
-            # Allocate almost the entire memory, so next allocation of 32 bytes
-            # OOMs if exceed is True.
-            Op.MLOAD(offset - 32)
-            + Op.BALANCE(warm_account)
-            + Op.SSTORE(slot_code_worked, value_code_worked)
-            + Op.SSTORE(slot_call_result, 123)
-            + Op.SSTORE(slot_all_gas_consumed, 123)
-            + Op.DELEGATECALL(address=inner_address)
-            + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
-            + Op.RETURNDATACOPY(0, 0, Op.RETURNDATASIZE)
-            + Op.SSTORE(slot_call_result, Op.MLOAD(0))
-        )
-        outer_address = pre.deploy_contract(outer_contract, balance=0)
-
-        post = {
-            outer_address: Account(
-                storage={
-                    slot_code_worked: value_code_worked,
-                    slot_call_result: 0,
+                    # outer call fails first if OOM, otherwise outer call ok
+                    slot_call_result: 0 if exceed else 1,
                     # in either case not all gas is consumed
                     slot_all_gas_consumed: 0,
                 }
             )
-        }
+        },
+        tx=Transaction(
+            gas_limit=gas_limit, to=outer_address, sender=pre.fund_eoa()
+        ),
+    )
+
+
+@pytest.mark.parametrize("exceed", [True, False])
+@pytest.mark.parametrize(
+    "log_opcode",
+    [
+        Op.LOG0,
+        Op.LOG1,
+        Op.LOG2,
+        Op.LOG3,
+        Op.LOG4,
+    ],
+)
+def test_oom_check_ordering_static_log(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    log_opcode: Op,
+    exceed: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test OOM check placement relative to static mode violation from LOGn.
+
+    LOGn opcodes are not allowed in static context. This test verifies that
+    the OOM check runs before the static mode violation check.
+    With exceed=True, OOM occurs first and prevents reaching the LOG check.
+    With exceed=False, OOM passes and LOG triggers static violation.
+    """
+    gas_limit = generous_gas(fork)
+    gas_threshold = gas_limit // 64
+
+    # Size for the LOG operation's memory access
+    log_size = 32
+
+    # Outer allocates memory, leaving just enough room (or not) for inner
+    if exceed:
+        outer_alloc = Spec.MAX_TX_MEMORY_USAGE - log_size + 1
+    else:
+        outer_alloc = Spec.MAX_TX_MEMORY_USAGE - log_size - 32
+
+    inner_contract = (
+        prepare_stack_memory_opcode(log_opcode, log_size) + log_opcode
+    )
+    inner_address = pre.deploy_contract(inner_contract)
+
+    outer_contract = (
+        Op.MLOAD(outer_alloc - 32)
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+        + Op.SSTORE(slot_call_result, 123)
+        + Op.SSTORE(slot_all_gas_consumed, 123)
+        + Op.SSTORE(slot_call_result, Op.STATICCALL(address=inner_address))
+        + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
+    )
+    outer_address = pre.deploy_contract(outer_contract)
 
     tx = Transaction(
         gas_limit=gas_limit,
@@ -1174,6 +1489,286 @@ def test_oom_check_ordering_in_call(
 
     state_test(
         pre=pre,
-        post=post,
+        post={
+            outer_address: Account(
+                storage={
+                    slot_code_worked: value_code_worked,
+                    slot_call_result: 0,
+                    slot_all_gas_consumed: 0 if exceed else 1,
+                }
+            )
+        },
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize("exceed", [True, False])
+@pytest.mark.with_all_create_opcodes
+def test_oom_check_ordering_static_create(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    create_opcode: Op,
+    exceed: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test OOM check placement relative to static mode violation from CREATE.
+
+    CREATE/CREATE2 opcodes are not allowed in static context. This test
+    verifies that the OOM check runs before the static mode violation check.
+    With exceed=True, OOM occurs first and prevents reaching the CREATE check.
+    With exceed=False, OOM passes and CREATE triggers static violation.
+    """
+    gas_limit = generous_gas(fork)
+    gas_threshold = gas_limit // 64
+    size = 32
+
+    # Outer allocates memory, leaving just enough room (or not) for inner
+    if exceed:
+        outer_alloc = Spec.MAX_TX_MEMORY_USAGE - size + 1
+    else:
+        outer_alloc = Spec.MAX_TX_MEMORY_USAGE - size - 32
+
+    if create_opcode == Op.CREATE:
+        prepare_stack = Op.PUSH32(size) + Op.PUSH0 + Op.PUSH0
+    elif create_opcode == Op.CREATE2:
+        prepare_stack = Op.PUSH0 + Op.PUSH32(size) + Op.PUSH0 + Op.PUSH0
+
+    inner_contract = prepare_stack + create_opcode
+    inner_address = pre.deploy_contract(inner_contract)
+
+    outer_contract = (
+        Op.MLOAD(outer_alloc - 32)
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+        + Op.SSTORE(slot_call_result, 123)
+        + Op.SSTORE(slot_all_gas_consumed, 123)
+        + Op.SSTORE(slot_call_result, Op.STATICCALL(address=inner_address))
+        + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
+    )
+    outer_address = pre.deploy_contract(outer_contract)
+
+    tx = Transaction(
+        gas_limit=gas_limit,
+        to=outer_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            outer_address: Account(
+                storage={
+                    slot_code_worked: value_code_worked,
+                    slot_call_result: 0,
+                    slot_all_gas_consumed: 0 if exceed else 1,
+                }
+            )
+        },
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize(
+    "opcode",
+    [
+        Op.CALLDATACOPY(0, 0, 0),
+        Op.CODECOPY(0, 0, 0),
+        Op.MCOPY(0, 0, 0),
+        Op.SHA3(0, 0),
+        Op.LOG0(0, 0),
+    ],
+)
+def test_zero_length_at_boundary(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    opcode: Opcode,
+    fork: Fork,
+) -> None:
+    """
+    Test that zero-length memory operations don't allocate memory.
+
+    Allocates to MAX, then performs zero-length operation which should
+    NOT cause OOM.
+    """
+    offset = Spec.MAX_TX_MEMORY_USAGE - 32
+
+    contract = (
+        Op.MLOAD(offset)
+        + opcode
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    contract_address = pre.deploy_contract(contract)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage={slot_code_worked: value_code_worked}
+            )
+        },
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize_by_fork(
+    "precompile_address", lambda fork: fork.precompiles()
+)
+@pytest.mark.parametrize("exceed", [True, False])
+def test_precompile_memory_at_limit(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    precompile_address: int,
+    exceed: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test precompile calls with memory at limit.
+    """
+    ret_size = 64
+
+    if exceed:
+        inner_alloc = Spec.MAX_TX_MEMORY_USAGE - ret_size + 32
+    else:
+        inner_alloc = Spec.MAX_TX_MEMORY_USAGE - ret_size
+
+    inner_contract = Op.MLOAD(inner_alloc - 32) + Op.CALL(
+        gas=Op.GAS,
+        address=precompile_address,
+        args_offset=0,
+        args_size=inner_alloc,
+        ret_offset=inner_alloc,
+        ret_size=ret_size,
+    )
+    inner_address = pre.deploy_contract(inner_contract)
+
+    outer_contract = Op.SSTORE(
+        slot_code_worked, value_code_worked
+    ) + Op.SSTORE(slot_call_result, Op.CALL(address=inner_address))
+    outer_address = pre.deploy_contract(outer_contract)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=outer_address,
+        sender=pre.fund_eoa(),
+    )
+
+    storage = {
+        slot_code_worked: value_code_worked,
+        slot_call_result: 0 if exceed else 1,
+    }
+
+    state_test(
+        pre=pre,
+        post={outer_address: Account(storage=storage)},
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize("forward", [True, False])
+@pytest.mark.parametrize("exceed", [True, False])
+def test_mcopy_overlap_at_boundary(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    forward: bool,
+    exceed: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test MCOPY with overlapping regions near memory limit.
+
+    Tests both forward (dest > src) and backward (src > dest) copies
+    with overlapping ranges at the memory boundary.
+    """
+    size = 64
+    if forward:
+        if exceed:
+            src = Spec.MAX_TX_MEMORY_USAGE - size - 16
+            dest = Spec.MAX_TX_MEMORY_USAGE - 32
+        else:
+            src = Spec.MAX_TX_MEMORY_USAGE - size - 64
+            dest = Spec.MAX_TX_MEMORY_USAGE - size - 32
+        # forward & overlaps & ooms when exceed
+        assert (
+            src < dest
+            and src + size > src
+            and exceed == (dest + size > Spec.MAX_TX_MEMORY_USAGE)
+        )
+    else:
+        if exceed:
+            dest = Spec.MAX_TX_MEMORY_USAGE - size - 16
+            src = Spec.MAX_TX_MEMORY_USAGE - 32
+        else:
+            dest = Spec.MAX_TX_MEMORY_USAGE - size - 64
+            src = Spec.MAX_TX_MEMORY_USAGE - size - 32
+        # backward & overlaps & ooms when exceed
+        assert (
+            dest < src
+            and dest + size > src
+            and exceed == (src + size > Spec.MAX_TX_MEMORY_USAGE)
+        )
+
+    contract = Op.MCOPY(dest, src, size) + Op.SSTORE(
+        slot_code_worked, value_code_worked
+    )
+    contract_address = pre.deploy_contract(contract)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    storage = {} if exceed else {slot_code_worked: value_code_worked}
+
+    state_test(
+        pre=pre,
+        post={contract_address: Account(storage=storage)},
+        tx=tx,
+    )
+
+
+def test_memory_access_without_allocation(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+) -> None:
+    """
+    Test that memory allocation doesn't decrease or increase
+    when it is accessed.
+    """
+    inner_address = pre.deploy_contract(Op.MLOAD(0))
+
+    outer_contract = (
+        Op.MLOAD(Spec.MAX_TX_MEMORY_USAGE - 32)
+        + Op.MLOAD(0)
+        + Op.MLOAD(32)
+        + Op.MLOAD(Spec.MAX_TX_MEMORY_USAGE - 32)
+        + Op.SSTORE(slot_call_result, Op.CALL(address=inner_address))
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    outer_address = pre.deploy_contract(outer_contract)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=outer_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            outer_address: Account(
+                storage={
+                    slot_code_worked: value_code_worked,
+                    slot_call_result: 0,
+                }
+            ),
+        },
         tx=tx,
     )

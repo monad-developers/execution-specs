@@ -11,6 +11,8 @@ from execution_testing.vm import Opcode
 
 from .spec import Spec
 
+COLD_ACCESS_TARGET_ADDRESS = 0x1234567890ABCDEF1234567890ABCDEF12345678
+
 
 def prepare_stack_memory_opcode(opcode: Opcode, size: int) -> Bytecode:
     """Prepare valid stack for memory-allocating opcode."""
@@ -22,15 +24,15 @@ def prepare_stack_memory_opcode(opcode: Opcode, size: int) -> Bytecode:
         return Op.PUSH32(size) + Op.PUSH0 + Op.PUSH0
     elif opcode == Op.EXTCODECOPY:
         # stack: address, destOffset, offset, size
-        address = 0x1234567890ABCDEF1234567890ABCDEF12345678
-        return Op.PUSH32(size) + Op.PUSH0 + Op.PUSH0 + Op.PUSH20(address)
+        return (
+            Op.PUSH32(size)
+            + Op.PUSH0
+            + Op.PUSH0
+            + Op.PUSH20(COLD_ACCESS_TARGET_ADDRESS)
+        )
     elif opcode == Op.MCOPY:
         # stack: srcOffset, destOffset, size
         return Op.PUSH32(size) + Op.PUSH0 + Op.PUSH0
-    # FIXME: this goes out of bounds, no way to setup return buffer easily
-    # elif opcode == Op.RETURNDATACOPY:
-    #     # stack: destOffset, offset, size
-    #     return Op.PUSH32(size) + Op.PUSH0 + Op.PUSH0
     elif opcode == Op.SHA3:
         # stack: offset, size
         return Op.PUSH32(size) + Op.PUSH0
@@ -72,48 +74,44 @@ def prepare_stack_memory_opcode(opcode: Opcode, size: int) -> Bytecode:
         return Op.PUSH32(offset)
     elif opcode == Op.CALL:
         # stack: gas, address, value, argsOffset, argsSize, retOffset, retSize
-        address = 0x1234567890ABCDEF1234567890ABCDEF12345678
         return (
             Op.PUSH32(size)
             + Op.PUSH0  # retSize, retOffset
             + Op.PUSH0
             + Op.PUSH0  # argsSize, argsOffset
             + Op.PUSH0  # value
-            + Op.PUSH20(address)
+            + Op.PUSH20(COLD_ACCESS_TARGET_ADDRESS)
             + Op.GAS  # use all available gas
         )
     elif opcode == Op.CALLCODE:
         # stack: gas, address, value, argsOffset, argsSize, retOffset, retSize
-        address = 0x1234567890ABCDEF1234567890ABCDEF12345678
         return (
             Op.PUSH32(size)
             + Op.PUSH0  # retSize, retOffset
             + Op.PUSH0
             + Op.PUSH0  # argsSize, argsOffset
             + Op.PUSH0  # value
-            + Op.PUSH20(address)
+            + Op.PUSH20(COLD_ACCESS_TARGET_ADDRESS)
             + Op.GAS  # use all available gas
         )
     elif opcode == Op.DELEGATECALL:
         # stack: gas, address, argsOffset, argsSize, retOffset, retSize
-        address = 0x1234567890ABCDEF1234567890ABCDEF12345678
         return (
             Op.PUSH32(size)
             + Op.PUSH0  # retSize, retOffset
             + Op.PUSH0
             + Op.PUSH0  # argsSize, argsOffset
-            + Op.PUSH20(address)
+            + Op.PUSH20(COLD_ACCESS_TARGET_ADDRESS)
             + Op.GAS  # use all available gas
         )
     elif opcode == Op.STATICCALL:
         # stack: gas, address, argsOffset, argsSize, retOffset, retSize
-        address = 0x1234567890ABCDEF1234567890ABCDEF12345678
         return (
             Op.PUSH32(size)
             + Op.PUSH0  # retSize, retOffset
             + Op.PUSH0
             + Op.PUSH0  # argsSize, argsOffset
-            + Op.PUSH20(address)
+            + Op.PUSH20(COLD_ACCESS_TARGET_ADDRESS)
             + Op.GAS  # use all available gas
         )
     else:
