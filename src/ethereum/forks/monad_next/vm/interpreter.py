@@ -63,7 +63,6 @@ from .exceptions import (
     InvalidOpcode,
     OutOfGasError,
     Revert,
-    RevertOnOOM,
     RevertOnReserveBalance,
     StackDepthLimitError,
 )
@@ -313,9 +312,6 @@ def process_message(message: Message) -> Evm:
         evm.output = b""
         evm.error = error
     except Revert as error:
-        evm_trace(evm, OpException(error))
-        evm.error = error
-    except RevertOnOOM as error:
         evm_trace(evm, OpException(error))
         evm.error = error
 

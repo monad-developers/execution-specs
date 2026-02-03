@@ -214,7 +214,7 @@ def test_nested_call_oom(
     "callee_code,expected_call_result,consumes_all_gas",
     [
         pytest.param(Op.STOP, 1, False, id="success"),
-        pytest.param(Op.MLOAD(Spec.MAX_TX_MEMORY_USAGE), 0, False, id="oom"),
+        pytest.param(Op.MLOAD(Spec.MAX_TX_MEMORY_USAGE), 0, True, id="oom"),
         pytest.param(Op.MLOAD(2**256 - 1), 0, True, id="oog_before_oom"),
         pytest.param(Op.REVERT(0, 0), 0, False, id="revert"),
         pytest.param(Op.INVALID, 0, True, id="invalid"),
@@ -230,7 +230,9 @@ def test_nested_call_gas_consumption(
 ) -> None:
     """
     Test gas consumption behavior of CALL with different callee outcomes.
-    OOM should not consume all gas, unlike OOG and INVALID.
+    OOM should consume all gas, like OOG and INVALID.
+
+    NOTE: OOM is indisinguishable from OOG
     """
     inner_address = pre.deploy_contract(callee_code)
 
@@ -631,7 +633,14 @@ def test_inner_frame_incremental_memory_allocation(
             # store size to allocate in the inner frame, minus
             # size of MLOAD allocation, minus current allocation
             + Op.MSTORE(0, Op.SUB(size - 32, Op.MSIZE))
-            + Op.SSTORE(size, Op.CALL(address=inner_address, args_size=32))
+            + Op.SSTORE(
+                size,
+                Op.CALL(
+                    gas=Op.DIV(Op.GAS, len(sizes)),
+                    address=inner_address,
+                    args_size=32,
+                ),
+            )
         ) + outer
 
     outer_address = pre.deploy_contract(outer)
@@ -1128,6 +1137,8 @@ def test_charge_gas_before_oom_check(
     gas costs), with a return buffer that causes OOM if exceed=True.
 
     If charge_gas runs before OOM check, OOG happens regardless of exceed.
+
+    NOTE: OOM is indisinguishable from OOG
     """
     gas_limit = generous_gas(fork)
     gas_costs = fork.gas_costs()
@@ -1230,7 +1241,8 @@ def test_charge_gas_before_oom_check(
                 storage={
                     slot_code_worked: value_code_worked,
                     slot_call_result: 0 if exceed or trigger_oog else 1,
-                    slot_inner_gas_consumed: 1 if trigger_oog else 0,
+                    # OOM indistinguishable from OOG
+                    slot_inner_gas_consumed: 1 if exceed or trigger_oog else 0,
                 }
             )
         },
@@ -1253,6 +1265,8 @@ def test_static_check_after_oom_check(
     Test that static call violation check happens AFTER OOM check.
 
     If OOM check runs before static check, OOM happens first when exceed=True.
+
+    NOTE: OOM is indisinguishable from OOG
     """
     gas_limit = generous_gas(fork)
     offset = (
@@ -1286,8 +1300,9 @@ def test_static_check_after_oom_check(
                 storage={
                     slot_code_worked: value_code_worked,
                     slot_call_result: 0 if exceed or static_violation else 1,
+                    # OOM indistinguishable from OOG
                     slot_all_gas_consumed: 1
-                    if static_violation and not exceed
+                    if exceed or static_violation
                     else 0,
                 }
             )
@@ -1311,6 +1326,8 @@ def test_returndatacopy_check_after_oom_check(
     Test that returndatacopy out-of-bounds check happens AFTER OOM check.
 
     OOM happens first when exceed=True.
+
+    NOTE: OOM is indisinguishable from OOG
     """
     gas_limit = generous_gas(fork)
     returner_size = 64
@@ -1353,9 +1370,8 @@ def test_returndatacopy_check_after_oom_check(
                 storage={
                     slot_code_worked: value_code_worked,
                     slot_call_result: 0 if exceed or out_of_bounds else 1,
-                    slot_all_gas_consumed: 1
-                    if out_of_bounds and not exceed
-                    else 0,
+                    # OOM indistinguishable from OOG
+                    slot_all_gas_consumed: 1 if exceed or out_of_bounds else 0,
                 }
             )
         },
@@ -1418,7 +1434,7 @@ def test_balance_check_after_oom_check(
                     # outer call fails first if OOM, otherwise outer call ok
                     slot_call_result: 0 if exceed else 1,
                     # in either case not all gas is consumed
-                    slot_all_gas_consumed: 0,
+                    slot_all_gas_consumed: 1 if exceed else 0,
                 }
             )
         },
@@ -1453,6 +1469,8 @@ def test_oom_check_ordering_static_log(
     the OOM check runs before the static mode violation check.
     With exceed=True, OOM occurs first and prevents reaching the LOG check.
     With exceed=False, OOM passes and LOG triggers static violation.
+
+    NOTE: OOM is indisinguishable from OOG
     """
     gas_limit = generous_gas(fork)
     gas_threshold = gas_limit // 64
@@ -1494,7 +1512,8 @@ def test_oom_check_ordering_static_log(
                 storage={
                     slot_code_worked: value_code_worked,
                     slot_call_result: 0,
-                    slot_all_gas_consumed: 0 if exceed else 1,
+                    # OOM indistinguishable from OOG
+                    slot_all_gas_consumed: 1,
                 }
             )
         },
@@ -1518,6 +1537,8 @@ def test_oom_check_ordering_static_create(
     verifies that the OOM check runs before the static mode violation check.
     With exceed=True, OOM occurs first and prevents reaching the CREATE check.
     With exceed=False, OOM passes and CREATE triggers static violation.
+
+    NOTE: OOM is indisinguishable from OOG
     """
     gas_limit = generous_gas(fork)
     gas_threshold = gas_limit // 64
@@ -1560,7 +1581,8 @@ def test_oom_check_ordering_static_create(
                 storage={
                     slot_code_worked: value_code_worked,
                     slot_call_result: 0,
-                    slot_all_gas_consumed: 0 if exceed else 1,
+                    # OOM indistinguishable from OOG
+                    slot_all_gas_consumed: 1,
                 }
             )
         },

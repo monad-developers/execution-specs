@@ -22,7 +22,7 @@ from ethereum.utils.numeric import ceil32, taylor_exponential
 from ..blocks import Header
 from ..transactions import BlobTransaction, Transaction
 from . import Evm, EvmMemory
-from .exceptions import OutOfGasError, RevertOnOOM
+from .exceptions import OutOfGasError
 
 GAS_JUMPDEST = Uint(1)
 GAS_BASE = Uint(2)
@@ -223,13 +223,13 @@ def update_memory_high_watermark(
 
     Raises
     ------
-    RevertOnOOM
+    OutOfGasError
         If the new memory size would exceed MAX_TX_MEMORY_USAGE.
 
     """
     evm.memory.high_watermark_bytes += int(extend_memory.expand_by)
     if evm.memory.high_watermark_bytes > MAX_TX_MEMORY_USAGE:
-        raise RevertOnOOM
+        raise OutOfGasError
 
 
 def calculate_message_call_gas(

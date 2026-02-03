@@ -142,7 +142,6 @@ def memory_sizes(
     yield pytest.param(0x2000, id="above_quadratic_threshold_copy")
     if fork >= MONAD_NEXT:
         yield pytest.param(Spec.MAX_TX_MEMORY_USAGE, id="max")
-        yield pytest.param(Spec.MAX_TX_MEMORY_USAGE + 32, id="exceed")
 
 
 def memory_copy_opcodes_with_size(
@@ -167,10 +166,7 @@ def memory_copy_opcodes_with_size(
 
     for opcode, warm_gas, cold_gas in memory_copy_opcodes(fork):
         for size_param in memory_sizes(fork):
-            if opcode in exclude_max_opcodes and size_param.id in [
-                "max",
-                "exceed",
-            ]:
+            if opcode in exclude_max_opcodes and size_param.id == "max":
                 continue
             yield pytest.param(
                 opcode,
@@ -453,83 +449,4 @@ def test_consecutive_expansions(
         tear_down_code=Op.STOP,
         cold_gas=total_gas,
         warm_gas=total_gas,
-    )
-
-
-@pytest.mark.valid_from("MONAD_NEXT")
-@pytest.mark.parametrize(
-    "opcode",
-    [Op.EXTCODECOPY, Op.CALL, Op.DELEGATECALL, Op.STATICCALL, Op.CALLCODE],
-)
-@pytest.mark.parametrize_by_fork(
-    "size",
-    lambda fork: (
-        p
-        for p in memory_sizes(fork)
-        if p.values[0] >= Spec.MAX_TX_MEMORY_USAGE
-    ),
-)
-@pytest.mark.parametrize(
-    "initial_memory",
-    [bytes(range(0x00, 0x100)), bytes()],
-    ids=["from_existent_memory", "from_empty_memory"],
-)
-def test_oom_account_stays_cold(
-    state_test: StateTestFiller,
-    pre: Alloc,
-    opcode: Opcode,
-    fork: Fork,
-    size: int,
-    initial_memory: bytes,
-) -> None:
-    """
-    Test that OOM reverts account warming for cold access opcodes.
-
-    For "max" size (no OOM): account warms, warm_gas < cold_gas
-    For "exceed" size (OOM): account stays cold, warm_gas = cold_gas
-    """
-    gas_costs = fork.gas_costs()
-    cost_memory_bytes = fork.memory_expansion_gas_calculator()
-
-    memory_expansion_cost = cost_memory_bytes(
-        new_bytes=size,
-        previous_bytes=len(initial_memory),
-    )
-
-    if opcode == Op.EXTCODECOPY:
-        dynamic_gas_cost = gas_costs.G_COPY * ((size + 31) // 32)
-    else:
-        dynamic_gas_cost = 0
-
-    cold_gas = (
-        gas_costs.G_COLD_ACCOUNT_ACCESS
-        + dynamic_gas_cost
-        + memory_expansion_cost
-    )
-
-    # For OOM (exceed), account stays cold so warm_gas = cold_gas
-    # For no OOM (max), account warms so warm_gas uses warm access cost
-    if size > Spec.MAX_TX_MEMORY_USAGE:
-        warm_gas = cold_gas
-    else:
-        warm_gas = (
-            gas_costs.G_WARM_ACCOUNT_ACCESS
-            + dynamic_gas_cost
-            + memory_expansion_cost
-        )
-
-    setup_code = Op.CALLDATACOPY(
-        0x00, 0x00, len(initial_memory)
-    ) + prepare_stack_memory_opcode(opcode, size)
-
-    gas_test(
-        fork=fork,
-        state_test=state_test,
-        pre=pre,
-        setup_code=setup_code,
-        subject_code=opcode,
-        tear_down_code=Op.STOP,
-        cold_gas=cold_gas,
-        warm_gas=warm_gas,
-        out_of_gas_testing=False,
     )

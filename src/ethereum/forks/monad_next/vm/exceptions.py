@@ -32,17 +32,6 @@ class Revert(EthereumException):
     pass
 
 
-class RevertOnOOM(EthereumException):
-    """
-    Raised when transaction memory limit is exceeded.
-
-    Unlike other EVM exceptions this does not result in the consumption of all
-    gas.
-    """
-
-    pass
-
-
 class RevertOnReserveBalance(EthereumException):
     """
     Raised when reserve balance is violated by a transaction.
