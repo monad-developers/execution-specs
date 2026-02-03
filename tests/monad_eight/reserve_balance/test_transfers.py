@@ -21,7 +21,11 @@ from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.helpers import compute_create_address
 from execution_testing.tools.tools_code.generators import Initcode
 
-from .helpers import generous_gas
+from .helpers import (
+    Stage1Balance,
+    StageBalance,
+    generous_gas,
+)
 from .spec import Spec, ref_spec_7702
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7702.git_path
@@ -196,6 +200,18 @@ value_balance_violation_param_list = [
         2**256 - 1,
         False,
         id="well_above_reserve_maxed_balance",
+    ),
+    pytest.param(
+        0,
+        2**256 - 1,
+        False,
+        id="zero_maxed_balance",
+    ),
+    pytest.param(
+        1,
+        2**256 - 1,
+        False,
+        id="one_maxed_balance",
     ),
     pytest.param(
         2**256 - 1 - TX_FEE,
@@ -1532,4 +1548,84 @@ def test_unrestricted_in_creation_tx_initcode(
             else None,
         },
         blocks=[Block(txs=txs)],
+    )
+
+
+@pytest.mark.parametrize("stage1", Stage1Balance)
+@pytest.mark.parametrize("stage2", StageBalance)
+@pytest.mark.parametrize("stage3", StageBalance)
+def test_two_step_balance_change(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    stage1: Stage1Balance,
+    stage2: StageBalance,
+    stage3: StageBalance,
+) -> None:
+    """
+    Test reserve balance rules when a delegated account's balance changes
+    in 2 steps.
+
+    The test verifies that a transaction reverts if and only if:
+    A) The balance decreased from Stage 1 to Stage 3 (final < initial)
+    B) The balance at Stage 3 is below reserve balance
+
+    Both conditions must be true for the transaction to revert.
+    """
+    balance1 = stage1.compute_balance()
+    balance2 = stage2.compute_balance([balance1])
+    balance3 = stage3.compute_balance([balance1, balance2])
+
+    delta1 = balance2 - balance1
+    delta2 = balance3 - balance2
+
+    sink = Address(0x5111)
+
+    wallet_code = Op.CALL(address=sink, value=Op.CALLDATALOAD(0))
+    wallet_address = pre.deploy_contract(code=wallet_code)
+
+    sender = pre.fund_eoa(balance1, delegation=wallet_address)
+
+    contract_code = Op.SSTORE(slot_code_worked, value_code_worked)
+
+    if delta1 <= 0:
+        contract_code += Op.MSTORE(0, -delta1)
+        contract_code += Op.CALL(address=sender, args_size=32)
+    elif delta1 > 0:
+        funder1 = pre.deploy_contract(
+            code=Op.SELFDESTRUCT(sender),
+            balance=delta1,
+        )
+        contract_code += Op.CALL(address=funder1)
+
+    if delta2 <= 0:
+        contract_code += Op.MSTORE(0, -delta2)
+        contract_code += Op.CALL(address=sender, args_size=32)
+    elif delta2 > 0:
+        funder2 = pre.deploy_contract(
+            code=Op.SELFDESTRUCT(sender),
+            balance=delta2,
+        )
+        contract_code += Op.CALL(address=funder2)
+
+    contract_address = pre.deploy_contract(contract_code)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=sender,
+    )
+
+    balance_decreased = balance3 < balance1
+    final_below_reserve = balance3 < Spec.RESERVE_BALANCE
+
+    if balance_decreased and final_below_reserve:
+        storage = {}
+    else:
+        storage = {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={contract_address: Account(storage=storage)},
+        blocks=[Block(txs=[tx])],
     )
