@@ -41,9 +41,8 @@ from execution_testing.test_types import (
     compute_deterministic_create2_address,
 )
 from execution_testing.test_types import Alloc as BaseAlloc
-from execution_testing.test_types.eof.v1 import Container
 from execution_testing.tools import Initcode
-from execution_testing.vm import Bytecode, EVMCodeType, Op
+from execution_testing.vm import Bytecode, Op
 
 from .contracts import (
     check_deterministic_factory_deployment,
@@ -112,15 +111,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=randint(0, 2**256),
         type=int,
         help="The start private key from which tests will deploy EOAs.",
-    )
-    pre_alloc_group.addoption(
-        "--evm-code-type",
-        action="store",
-        dest="evm_code_type",
-        default=None,
-        type=EVMCodeType,
-        choices=list(EVMCodeType),
-        help="Type of EVM code to deploy in each test by default.",
     )
     pre_alloc_group.addoption(
         "--skip-cleanup",
@@ -193,7 +183,7 @@ def execute_required_contracts(
     session_temp_folder: Path,
 ) -> None:
     """
-    Deploy required contracts for the execute command:
+    Deploy required contracts for the execute command.
 
     - Deterministic deployment proxy
     """
@@ -202,6 +192,7 @@ def execute_required_contracts(
         logger.info(
             "Checking if deterministic factory contract is already deployed"
         )
+        tx_index = 0
         if (
             check_deterministic_factory_deployment(
                 eth_rpc=eth_rpc, fork=session_fork
@@ -209,10 +200,11 @@ def execute_required_contracts(
             is None
         ):
             try:
-                deploy_deterministic_factory_contract(
+                tx_index = deploy_deterministic_factory_contract(
                     eth_rpc=eth_rpc,
                     seed_key=session_worker_key,
                     gas_price=sender_funding_transactions_gas_price,
+                    tx_index=tx_index,
                 )
             except Exception as e:
                 raise RuntimeError(
@@ -225,9 +217,10 @@ def execute_required_contracts(
 
 class PendingTransaction(Transaction):
     """
-    Custom transaction class that defines a transaction that is yet to be sent.
-    The value is allowed to be `None` to allow for the value to be set until the
-    transaction is sent.
+    Custom transaction class that defines a transaction yet to be sent.
+
+    The value is allowed to be `None` to allow for the value to be set until
+    the transaction is sent.
     """
 
     value: HexNumber | None = None  # type: ignore
@@ -240,11 +233,10 @@ class Alloc(BaseAlloc):
     _sender: EOA = PrivateAttr()
     _eth_rpc: EthRPC = PrivateAttr()
     _pending_txs: List[PendingTransaction] = PrivateAttr(default_factory=list)
-    _deployed_contracts: List[Tuple[Address, Bytes | Bytecode | Container]] = (
-        PrivateAttr(default_factory=list)
+    _deployed_contracts: List[Tuple[Address, Bytes | Bytecode]] = PrivateAttr(
+        default_factory=list
     )
     _funded_eoa: List[EOA] = PrivateAttr(default_factory=list)
-    _evm_code_type: EVMCodeType | None = PrivateAttr(None)
     _chain_id: int = PrivateAttr()
     _node_id: str = PrivateAttr("")
     _address_stubs: AddressStubs = PrivateAttr()
@@ -257,7 +249,6 @@ class Alloc(BaseAlloc):
         eth_rpc: EthRPC,
         eoa_iterator: Iterator[EOA],
         chain_id: int,
-        evm_code_type: EVMCodeType | None = None,
         node_id: str = "",
         address_stubs: AddressStubs | None = None,
         **kwargs: Any,
@@ -268,7 +259,6 @@ class Alloc(BaseAlloc):
         self._sender = sender
         self._eth_rpc = eth_rpc
         self._eoa_iterator = eoa_iterator
-        self._evm_code_type = evm_code_type
         self._chain_id = chain_id
         self._node_id = node_id
         self._address_stubs = address_stubs or AddressStubs(root={})
@@ -283,20 +273,8 @@ class Alloc(BaseAlloc):
             "Tests are not allowed to set pre-alloc items in execute mode"
         )
 
-    def code_pre_processor(
-        self,
-        code: Bytecode | Container,
-        *,
-        evm_code_type: EVMCodeType | None,
-    ) -> Bytecode | Container:
+    def code_pre_processor(self, code: Bytecode) -> Bytecode:
         """Pre-processes the code before setting it."""
-        if evm_code_type is None:
-            evm_code_type = self._evm_code_type
-        if evm_code_type == EVMCodeType.EOF_V1:
-            if not isinstance(code, Container):
-                if isinstance(code, Bytecode) and not code.terminating:
-                    return Container.Code(code + Op.STOP)
-                return Container.Code(code)
         return code
 
     def _add_pending_tx(
@@ -338,6 +316,7 @@ class Alloc(BaseAlloc):
         Deploy a contract to the allocation at a deterministic location
         using a deterministic deployment proxy.
         """
+        del storage
         gas_costs = self._fork.gas_costs()
         memory_expansion_gas_calculator = (
             self._fork.memory_expansion_gas_calculator()
@@ -365,7 +344,8 @@ class Alloc(BaseAlloc):
                 f"Current: {chain_code}"
             )
             logger.info(
-                f"Contract already deployed at {contract_address} (label={label})"
+                f"Contract already deployed at {contract_address} "
+                f"(label={label})"
             )
         else:
             # Assert the deployment contract is already on chain
@@ -401,7 +381,8 @@ class Alloc(BaseAlloc):
             tx_gas_limit_cap = self._fork.transaction_gas_limit_cap()
             if tx_gas_limit_cap and deploy_gas_limit > tx_gas_limit_cap:
                 raise ValueError(
-                    f"deterministic deploy gas limit exceeds the transaction gas limit cap: {deploy_gas_limit} > {tx_gas_limit_cap}"
+                    f"deterministic deploy gas limit exceeds the transaction "
+                    f"gas limit cap: {deploy_gas_limit} > {tx_gas_limit_cap}"
                 )
             deploy_tx = self._add_pending_tx(
                 action="deterministic_deploy_contract",
@@ -411,10 +392,13 @@ class Alloc(BaseAlloc):
                 gas_limit=deploy_gas_limit,
                 value=0,
             )
+            code_size = len(deploy_code)
+            initcode_size = len(initcode)
             logger.info(
                 f"Contract deployment tx created (label={label}): "
                 f"tx_nonce={deploy_tx.nonce}, gas_limit={deploy_gas_limit}, "
-                f"code_size={len(deploy_code)} bytes, initcode_size={len(initcode)} bytes"
+                f"code_size={code_size} bytes, initcode_size={initcode_size} "
+                "bytes"
             )
 
             logger.debug(
@@ -447,7 +431,6 @@ class Alloc(BaseAlloc):
         balance: NumberConvertible = 0,
         nonce: NumberConvertible = 1,
         address: Address | None = None,
-        evm_code_type: EVMCodeType | None = None,
         label: str | None = None,
         stub: str | None = None,
     ) -> Address:
@@ -484,9 +467,10 @@ class Alloc(BaseAlloc):
                 )
             balance = self._eth_rpc.get_balance(contract_address)
             nonce = self._eth_rpc.get_transaction_count(contract_address)
+            bal_eth = balance / 10**18
             logger.debug(
-                f"Stub contract {contract_address}: balance={balance / 10**18:.18f} ETH, "
-                f"nonce={nonce}, code_size={len(code)} bytes"
+                f"Stub contract {contract_address}: balance={bal_eth:.18f} "
+                f"ETH, nonce={nonce}, code_size={len(code)} bytes"
             )
             super().__setitem__(
                 contract_address,
@@ -511,10 +495,10 @@ class Alloc(BaseAlloc):
             )
             deploy_gas_limit += len(storage.root) * 22_600
 
-        assert isinstance(code, Bytecode) or isinstance(code, Container), (
+        assert isinstance(code, Bytecode), (
             f"incompatible code type: {type(code)}"
         )
-        code = self.code_pre_processor(code, evm_code_type=evm_code_type)
+        code = self.code_pre_processor(code)
 
         max_code_size = self._fork.max_code_size()
         if len(code) > max_code_size:
@@ -522,25 +506,18 @@ class Alloc(BaseAlloc):
 
         deploy_gas_limit += len(code) * gas_costs.G_CODE_DEPOSIT_BYTE
 
-        prepared_initcode: Bytecode | Container
-
-        if evm_code_type == EVMCodeType.EOF_V1:
-            assert isinstance(code, Container)
-            prepared_initcode = Container.Init(
-                deploy_container=code, initcode_prefix=initcode_prefix
-            )
-        else:
-            prepared_initcode = Initcode(
-                deploy_code=code, initcode_prefix=initcode_prefix
-            )
-            deploy_gas_limit += memory_expansion_gas_calculator(
-                new_bytes=len(bytes(prepared_initcode))
-            )
+        prepared_initcode = Initcode(
+            deploy_code=code, initcode_prefix=initcode_prefix
+        )
+        deploy_gas_limit += memory_expansion_gas_calculator(
+            new_bytes=len(bytes(prepared_initcode))
+        )
 
         max_initcode_size = self._fork.max_initcode_size()
-        if len(prepared_initcode) > max_initcode_size:
+        initcode_len = len(prepared_initcode)
+        if initcode_len > max_initcode_size:
             raise ValueError(
-                f"initcode too large {len(prepared_initcode)} > {max_initcode_size}"
+                f"initcode too large {initcode_len} > {max_initcode_size}"
             )
 
         deploy_gas_limit += calldata_gas_calculator(data=prepared_initcode)
@@ -549,7 +526,8 @@ class Alloc(BaseAlloc):
         tx_gas_limit_cap = self._fork.transaction_gas_limit_cap()
         if tx_gas_limit_cap and deploy_gas_limit > tx_gas_limit_cap:
             raise ValueError(
-                f"deploy gas limit exceeds the transaction gas limit cap: {deploy_gas_limit} > {tx_gas_limit_cap}"
+                f"deploy gas limit exceeds the transaction gas limit cap: "
+                f"{deploy_gas_limit} > {tx_gas_limit_cap}"
             )
 
         deploy_tx = self._add_pending_tx(
@@ -560,11 +538,15 @@ class Alloc(BaseAlloc):
             value=balance,
             gas_limit=deploy_gas_limit,
         )
+        code_sz = len(code)
+        init_sz = len(prepared_initcode)
+        bal_eth = Number(balance) / 10**18
+        slots = len(storage.root)
         logger.info(
             f"Contract deployment tx created (label={label}): "
             f"tx_nonce={deploy_tx.nonce}, gas_limit={deploy_gas_limit}, "
-            f"code_size={len(code)} bytes, initcode_size={len(prepared_initcode)} bytes, "
-            f"balance={Number(balance) / 10**18:.18f} ETH, storage_slots={len(storage.root)}"
+            f"code_size={code_sz} bytes, initcode_size={init_sz} bytes, "
+            f"balance={bal_eth:.18f} ETH, storage_slots={slots}"
         )
 
         contract_address = deploy_tx.created_contract
@@ -622,7 +604,8 @@ class Alloc(BaseAlloc):
                 if not isinstance(storage, Storage):
                     storage = Storage.model_validate(storage)
                 logger.debug(
-                    f"Deploying storage contract for EOA {eoa} with {len(storage)} storage slots"
+                    f"Deploying storage contract for EOA {eoa} "
+                    f"with {len(storage)} storage slots"
                 )
                 sstore_address = self.deploy_contract(
                     code=(
@@ -634,7 +617,8 @@ class Alloc(BaseAlloc):
                     )
                 )
                 logger.debug(
-                    f"Storage contract deployed at {sstore_address} for EOA {eoa}"
+                    f"Storage contract deployed at {sstore_address} "
+                    f"for EOA {eoa}"
                 )
 
                 self._add_pending_tx(
@@ -749,10 +733,12 @@ class Alloc(BaseAlloc):
 
         if minimum_balance:
             if current_balance >= fund_amount:
+                cur_eth = current_balance / 10**18
+                min_eth = fund_amount / 10**18
                 logger.info(
-                    f"Skipping funding for address {address} (label={address.label}): "
-                    f"current balance {current_balance / 10**18:.18f} ETH >= "
-                    f"minimum {fund_amount / 10**18:.18f} ETH"
+                    f"Skipping funding for address {address} "
+                    f"(label={address.label}): current balance "
+                    f"{cur_eth:.18f} ETH >= minimum {min_eth:.18f} ETH"
                 )
                 if address in self:
                     account = self[address]
@@ -763,9 +749,10 @@ class Alloc(BaseAlloc):
                         address, Account(balance=current_balance)
                     )
                 return
+            fund_eth = fund_amount / 10**18
             logger.debug(
-                f"Funding address to minimum balance {address} (label={address.label}): "
-                f"{fund_amount / 10**18:.18f} ETH"
+                f"Funding address to minimum balance {address} "
+                f"(label={address.label}): {fund_eth:.18f} ETH"
             )
             self._add_pending_tx(
                 action="fund_address",
@@ -775,9 +762,10 @@ class Alloc(BaseAlloc):
             )
             new_balance = fund_amount
         else:
+            fund_eth = fund_amount / 10**18
             logger.debug(
                 f"Funding address {address} (label={address.label}): "
-                f"{fund_amount / 10**18:.18f} ETH"
+                f"{fund_eth:.18f} ETH"
             )
             self._add_pending_tx(
                 action="fund_address",
@@ -791,9 +779,11 @@ class Alloc(BaseAlloc):
             account = self[address]
             if account is not None:
                 account.balance = ZeroPaddedHexNumber(new_balance)
+                cur_eth = current_balance / 10**18
+                new_eth = new_balance / 10**18
                 logger.debug(
                     f"Updated balance for existing address {address}: "
-                    f"{current_balance / 10**18:.18f} ETH -> {new_balance / 10**18:.18f} ETH"
+                    f"{cur_eth:.18f} ETH -> {new_eth:.18f} ETH"
                 )
             else:
                 super().__setitem__(address, Account(balance=new_balance))
@@ -845,27 +835,30 @@ class Alloc(BaseAlloc):
         max_fee_per_blob_gas: int,
     ) -> Tuple[int, int]:
         """
-        Calculate the minimum balance required by the sender to send all pending
-        transactions.
+        Calculate the minimum balance required by the sender to send all
+        pending transactions.
         """
         minimum_balance = 0
         gas_consumption = 0
         for tx in self._pending_txs:
             if tx.value is None:
-                # WARN: This currently fails if there's an account with `pre.fund_eoa()` that
-                # never sends a transaction during the test.
+                # WARN: This currently fails if there's an account with
+                # `pre.fund_eoa()` that never sends a transaction during test.
                 if tx.to not in sender_balances:
                     error_message = (
                         "Sender balance must be set before sending:"
                         f"\nTransaction: {tx.model_dump_json(indent=2)}"
                     )
                     if tx.metadata is not None:
-                        error_message += f"\nMetadata: {tx.metadata.model_dump_json(indent=2)}"
+                        metadata_json = tx.metadata.model_dump_json(indent=2)
+                        error_message += f"\nMetadata: {metadata_json}"
                     logger.error(error_message)
                     raise ValueError(error_message)
                 sender_balance = sender_balances[tx.to]
+                bal_eth = sender_balance / 10**18
                 logger.info(
-                    f"Deferred EOA balance for {tx.to} set to {sender_balance / 10**18:.18f} ETH"
+                    f"Deferred EOA balance for {tx.to} set to "
+                    f"{bal_eth:.18f} ETH"
                 )
                 tx.value = HexNumber(sender_balance)
             tx.set_gas_price(
@@ -887,12 +880,12 @@ class Alloc(BaseAlloc):
         )
         transaction_batches: List[List[PendingTransaction]] = []
         last_tx_batch: List[PendingTransaction] = []
-        MAX_TXS_PER_BATCH = 100
+        max_txs_per_batch = 100
         for tx in self._pending_txs:
             assert tx.value is not None, (
                 "Transaction value must be set before sending them to the RPC."
             )
-            if len(last_tx_batch) >= MAX_TXS_PER_BATCH:
+            if len(last_tx_batch) >= max_txs_per_batch:
                 transaction_batches.append(last_tx_batch)
                 last_tx_batch = []
             last_tx_batch.append(tx)
@@ -903,16 +896,13 @@ class Alloc(BaseAlloc):
         for tx_batch in transaction_batches:
             txs = [tx.with_signature_and_sender() for tx in tx_batch]
             tx_hashes = self._eth_rpc.send_transactions(txs)
+            hash_strs = [str(h) for h in tx_hashes[:5]]
+            n_hashes = len(tx_hashes)
+            extra = f" and {n_hashes - 5} more" if n_hashes > 5 else ""
+            logger.info(f"Sent {n_hashes} transactions: {hash_strs}{extra}")
             logger.info(
-                f"Sent {len(tx_hashes)} transactions: {[str(h) for h in tx_hashes[:5]]}"
-                + (
-                    f" and {len(tx_hashes) - 5} more"
-                    if len(tx_hashes) > 5
-                    else ""
-                )
-            )
-            logger.info(
-                f"Waiting for {len(tx_batch)} transactions to be included in blocks"
+                f"Waiting for {len(tx_batch)} transactions to be included "
+                "in blocks"
             )
             responses += self._eth_rpc.wait_for_transactions(tx_batch)
             logger.info(
@@ -923,27 +913,12 @@ class Alloc(BaseAlloc):
         return responses
 
 
-@pytest.fixture(autouse=True)
-def evm_code_type(request: pytest.FixtureRequest) -> EVMCodeType:
-    """Return default EVM code type for all tests (LEGACY)."""
-    parameter_evm_code_type = request.config.getoption("evm_code_type")
-    if parameter_evm_code_type is not None:
-        assert type(parameter_evm_code_type) is EVMCodeType, (
-            "Invalid EVM code type"
-        )
-        logger.info(f"Using EVM code type: {parameter_evm_code_type}")
-        return parameter_evm_code_type
-    logger.debug(f"Using default EVM code type: {EVMCodeType.LEGACY}")
-    return EVMCodeType.LEGACY
-
-
 @pytest.fixture(autouse=True, scope="function")
 def pre(
     fork: Fork,
     worker_key: EOA,
     eoa_iterator: Iterator[EOA],
     eth_rpc: EthRPC,
-    evm_code_type: EVMCodeType,
     chain_config: ChainConfig,
     address_stubs: AddressStubs | None,
     skip_cleanup: bool,
@@ -962,15 +937,13 @@ def pre(
     # Prepare the pre-alloc
     logger.debug(
         f"Initializing pre-alloc for test {request.node.nodeid} "
-        f"(fork={actual_fork}, chain_id={chain_config.chain_id}, "
-        f"evm_code_type={evm_code_type})"
+        f"(fork={actual_fork}, chain_id={chain_config.chain_id})"
     )
     pre = Alloc(
         fork=actual_fork,
         sender=worker_key,
         eth_rpc=eth_rpc,
         eoa_iterator=eoa_iterator,
-        evm_code_type=evm_code_type,
         chain_id=chain_config.chain_id,
         node_id=request.node.nodeid,
         address_stubs=address_stubs,
@@ -999,18 +972,23 @@ def pre(
         refund_gas_limit = 21_000
         tx_cost = refund_gas_limit * max_fee_per_gas
         if remaining_balance < tx_cost:
+            rem_eth = remaining_balance / 10**18
+            cost_eth = tx_cost / 10**18
             logger.debug(
                 f"Skipping refund for EOA {eoa} (label={eoa.label}): "
-                f"insufficient balance {remaining_balance / 10**18:.18f} ETH < "
-                f"transaction cost {tx_cost / 10**18:.18f} ETH"
+                f"insufficient balance {rem_eth:.18f} ETH < "
+                f"transaction cost {cost_eth:.18f} ETH"
             )
             skipped_refunds += 1
             continue
         refund_value = remaining_balance - tx_cost
+        ref_eth = refund_value / 10**18
+        rem_eth = remaining_balance / 10**18
+        cost_eth = tx_cost / 10**18
         logger.debug(
             f"Preparing refund transaction for EOA {eoa} (label={eoa.label}): "
-            f"{refund_value / 10**18:.18f} ETH (remaining: {remaining_balance / 10**18:.18f} ETH, "
-            f"cost: {tx_cost / 10**18:.18f} ETH)"
+            f"{ref_eth:.18f} ETH (remaining: {rem_eth:.18f} ETH, "
+            f"cost: {cost_eth:.18f} ETH)"
         )
         refund_tx = Transaction(
             sender=eoa,

@@ -5,7 +5,6 @@ Set EOA account code.
 from typing import Optional, Tuple
 
 from ethereum_rlp import rlp
-from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U64, U256, Uint
 
 from ethereum.crypto.elliptic_curve import SECP256K1N, secp256k1_recover
@@ -13,7 +12,18 @@ from ethereum.crypto.hash import keccak256
 from ethereum.exceptions import InvalidBlock, InvalidSignatureError
 
 from ..fork_types import Address, Authorization
-from ..state import account_exists, get_account, increment_nonce, set_code
+from ..state import (
+    account_exists,
+    get_account,
+    increment_nonce,
+    set_authority_code,
+)
+from ..state_tracker import (
+    capture_pre_code,
+    track_address,
+    track_code_change,
+    track_nonce_change,
+)
 from ..utils.hexadecimal import hex_to_address
 from ..vm.gas import GAS_COLD_ACCOUNT_ACCESS, GAS_WARM_ACCESS
 from . import Evm, Message
@@ -114,39 +124,41 @@ def recover_authority(authorization: Authorization) -> Address:
     return Address(keccak256(public_key)[12:32])
 
 
-def access_delegation(
+def calculate_delegation_cost(
     evm: Evm, address: Address
-) -> Tuple[bool, Address, Bytes, Uint]:
+) -> Tuple[bool, Address, Uint]:
     """
-    Get the delegation address, code, and the cost of access from the address.
+    Get the delegation address and the cost of access from the address.
 
     Parameters
     ----------
     evm : `Evm`
         The execution frame.
     address : `Address`
-        The address to get the delegation from.
+        The address to check for delegation.
 
     Returns
     -------
-    delegation : `Tuple[bool, Address, Bytes, Uint]`
-        The delegation address, code, and access gas cost.
+    delegation : `Tuple[bool, Address, Uint]`
+        The delegation address and access gas cost.
 
     """
     state = evm.message.block_env.state
+
     code = get_account(state, address).code
+    track_address(evm.state_changes, address)
+
     if not is_valid_delegation(code):
-        return False, address, code, Uint(0)
+        return False, address, Uint(0)
 
-    address = Address(code[EOA_DELEGATION_MARKER_LENGTH:])
-    if address in evm.accessed_addresses:
-        access_gas_cost = GAS_WARM_ACCESS
+    delegated_address = Address(code[EOA_DELEGATION_MARKER_LENGTH:])
+
+    if delegated_address in evm.accessed_addresses:
+        delegation_gas_cost = GAS_WARM_ACCESS
     else:
-        evm.accessed_addresses.add(address)
-        access_gas_cost = GAS_COLD_ACCOUNT_ACCESS
-    code = get_account(state, address).code
+        delegation_gas_cost = GAS_COLD_ACCOUNT_ACCESS
 
-    return True, address, code, access_gas_cost
+    return True, delegated_address, delegation_gas_cost
 
 
 def set_delegation(message: Message) -> U256:
@@ -157,8 +169,6 @@ def set_delegation(message: Message) -> U256:
     ----------
     message :
         Transaction specific items.
-    env :
-        External items required for EVM execution.
 
     Returns
     -------
@@ -184,6 +194,7 @@ def set_delegation(message: Message) -> U256:
 
         authority_account = get_account(state, authority)
         authority_code = authority_account.code
+        track_address(message.tx_env.state_changes, authority)
 
         if authority_code and not is_valid_delegation(authority_code):
             continue
@@ -199,9 +210,20 @@ def set_delegation(message: Message) -> U256:
             code_to_set = b""
         else:
             code_to_set = EOA_DELEGATION_MARKER + auth.address
-        set_code(state, authority, code_to_set)
+
+        tx_frame = message.tx_env.state_changes
+        # EIP-7928: Capture pre-code before any changes
+        capture_pre_code(tx_frame, authority, authority_code)
+
+        set_authority_code(state, authority, code_to_set)
+
+        if authority_code != code_to_set:
+            # Track code change if different from current
+            track_code_change(tx_frame, authority, code_to_set)
 
         increment_nonce(state, authority)
+        nonce_after = get_account(state, authority).nonce
+        track_nonce_change(tx_frame, authority, U64(nonce_after))
 
     if message.code_address is None:
         raise InvalidBlock("Invalid type 4 transaction: no target")

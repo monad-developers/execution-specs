@@ -17,7 +17,7 @@ There is a distinction between an account that does not exist and
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple
 
 from ethereum_types.bytes import Bytes, Bytes32
 from ethereum_types.frozen import modify
@@ -25,6 +25,9 @@ from ethereum_types.numeric import U256, Uint
 
 from .fork_types import EMPTY_ACCOUNT, Account, Address, Root
 from .trie import EMPTY_TRIE_ROOT, Trie, copy_trie, root, trie_get, trie_set
+
+if TYPE_CHECKING:
+    from .vm import BlockEnvironment  # noqa: F401
 
 
 @dataclass
@@ -400,7 +403,7 @@ def account_exists(state: State, address: Address) -> bool:
 
 def account_has_code_or_nonce(state: State, address: Address) -> bool:
     """
-    Checks if an account has non zero nonce or non empty code.
+    Checks if an account has non-zero nonce or non-empty code.
 
     Parameters
     ----------
@@ -412,7 +415,7 @@ def account_has_code_or_nonce(state: State, address: Address) -> bool:
     Returns
     -------
     has_code_or_nonce : `bool`
-        True if the account has non zero nonce or non empty code,
+        True if the account has non-zero nonce or non-empty code,
         False otherwise.
 
     """
@@ -438,6 +441,34 @@ def account_has_storage(state: State, address: Address) -> bool:
 
     """
     return address in state._storage_tries
+
+
+def account_exists_and_is_empty(state: State, address: Address) -> bool:
+    """
+    Checks if an account exists and has zero nonce, empty code and zero
+    balance.
+
+    Parameters
+    ----------
+    state:
+        The state
+    address:
+        Address of the account that needs to be checked.
+
+    Returns
+    -------
+    exists_and_is_empty : `bool`
+        True if an account exists and has zero nonce, empty code and zero
+        balance, False otherwise.
+
+    """
+    account = get_account_optional(state, address)
+    return (
+        account is not None
+        and account.nonce == Uint(0)
+        and account.code == b""
+        and account.balance == 0
+    )
 
 
 def is_account_alive(state: State, address: Address) -> bool:
@@ -469,16 +500,7 @@ def modify_state(
     exists and has zero nonce, empty code, and zero balance, it is destroyed.
     """
     set_account(state, address, modify(get_account(state, address), f))
-
-    account = get_account_optional(state, address)
-    account_exists_and_is_empty = (
-        account is not None
-        and account.nonce == Uint(0)
-        and account.code == b""
-        and account.balance == 0
-    )
-
-    if account_exists_and_is_empty:
+    if account_exists_and_is_empty(state, address):
         destroy_account(state, address)
 
 
@@ -490,6 +512,18 @@ def move_ether(
 ) -> None:
     """
     Move funds between accounts.
+
+    Parameters
+    ----------
+    state:
+        The current state.
+    sender_address:
+        Address of the sender.
+    recipient_address:
+        Address of the recipient.
+    amount:
+        The amount to transfer.
+
     """
 
     def reduce_sender_balance(sender: Account) -> None:
@@ -514,10 +548,10 @@ def set_account_balance(state: State, address: Address, amount: U256) -> None:
         The current state.
 
     address:
-        Address of the account whose nonce needs to be incremented.
+        Address of the account whose balance needs to be set.
 
     amount:
-        The amount that needs to set in balance.
+        The amount that needs to be set in the balance.
 
     """
 
@@ -557,10 +591,36 @@ def set_code(state: State, address: Address, code: Bytes) -> None:
         The current state.
 
     address:
-        Address of the account whose code needs to be update.
+        Address of the account whose code needs to be updated.
 
     code:
         The bytecode that needs to be set.
+
+    """
+
+    def write_code(sender: Account) -> None:
+        sender.code = code
+
+    modify_state(state, address, write_code)
+
+
+def set_authority_code(state: State, address: Address, code: Bytes) -> None:
+    """
+    Sets authority account code for EIP-7702 delegation.
+
+    This function is used specifically for setting authority code within
+    EIP-7702 Set Code Transactions.
+
+    Parameters
+    ----------
+    state:
+        The current state.
+
+    address:
+        Address of the authority account whose code needs to be set.
+
+    code:
+        The delegation designation bytecode to set.
 
     """
 
