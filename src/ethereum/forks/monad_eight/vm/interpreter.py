@@ -337,8 +337,7 @@ def process_message(message: Message) -> Evm:
                         and not is_exception
                     ):
                         rollback_transaction(state, transient_storage)
-                        error = RevertOnReserveBalance()
-                        evm.error = error
+                        evm.error = RevertOnReserveBalance()
                         return evm
                         # cannot do this because it fails the entire tx
                         # raise RevertOnReserveBalance
