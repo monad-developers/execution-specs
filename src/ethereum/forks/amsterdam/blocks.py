@@ -152,7 +152,7 @@ class Header:
 
     number: Uint
     """
-    Block number, (height) in the chain.
+    Block number (height) in the chain.
     """
 
     gas_limit: Uint
@@ -242,6 +242,18 @@ class Header:
     [SHA2-256]: https://en.wikipedia.org/wiki/SHA-2
     """
 
+    block_access_list_hash: Hash32
+    """
+    [`keccak256`] hash of the Block Access List containing all accounts and
+    storage locations accessed during block execution. Introduced in
+    [EIP-7928]. See [`compute_block_access_list_hash`][cbalh] for more
+    details.
+
+    [`keccak256`]: ref:ethereum.crypto.hash.keccak256
+    [EIP-7928]: https://eips.ethereum.org/EIPS/eip-7928
+    [cbalh]: ref:ethereum.forks.amsterdam.block_access_lists.rlp_utils.compute_block_access_list_hash
+    """  # noqa: E501
+
 
 @slotted_freezable
 @dataclass
@@ -272,7 +284,7 @@ class Block:
     header: Header
     """
     The block header containing metadata and cryptographic commitments. Refer
-    [headers] for more details on the fields included in the header.
+    to [headers] for more details on the fields included in the header.
 
     [headers]: ref:ethereum.forks.amsterdam.blocks.Header
     """

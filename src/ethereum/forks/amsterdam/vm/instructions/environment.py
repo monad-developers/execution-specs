@@ -17,8 +17,10 @@ from ethereum_types.numeric import U256, Uint, ulen
 from ethereum.crypto.hash import keccak256
 from ethereum.utils.numeric import ceil32
 
+# track_address_access removed - now using state_changes.track_address()
 from ...fork_types import EMPTY_ACCOUNT
 from ...state import get_account
+from ...state_tracker import track_address
 from ...utils.address import to_address_masked
 from ...vm.memory import buffer_read, memory_write
 from .. import Evm
@@ -76,15 +78,18 @@ def balance(evm: Evm) -> None:
     address = to_address_masked(pop(evm.stack))
 
     # GAS
-    if address in evm.accessed_addresses:
-        charge_gas(evm, GAS_WARM_ACCESS)
-    else:
+    is_cold_access = address not in evm.accessed_addresses
+    gas_cost = GAS_COLD_ACCOUNT_ACCESS if is_cold_access else GAS_WARM_ACCESS
+    if is_cold_access:
         evm.accessed_addresses.add(address)
-        charge_gas(evm, GAS_COLD_ACCOUNT_ACCESS)
+
+    charge_gas(evm, gas_cost)
 
     # OPERATION
     # Non-existent accounts default to EMPTY_ACCOUNT, which has balance 0.
-    balance = get_account(evm.message.block_env.state, address).balance
+    state = evm.message.block_env.state
+    balance = get_account(state, address).balance
+    track_address(evm.state_changes, address)
 
     push(evm.stack, balance)
 
@@ -341,16 +346,19 @@ def extcodesize(evm: Evm) -> None:
     address = to_address_masked(pop(evm.stack))
 
     # GAS
-    if address in evm.accessed_addresses:
-        access_gas_cost = GAS_WARM_ACCESS
-    else:
+    is_cold_access = address not in evm.accessed_addresses
+    access_gas_cost = (
+        GAS_COLD_ACCOUNT_ACCESS if is_cold_access else GAS_WARM_ACCESS
+    )
+    if is_cold_access:
         evm.accessed_addresses.add(address)
-        access_gas_cost = GAS_COLD_ACCOUNT_ACCESS
 
     charge_gas(evm, access_gas_cost)
 
     # OPERATION
-    code = get_account(evm.message.block_env.state, address).code
+    state = evm.message.block_env.state
+    code = get_account(state, address).code
+    track_address(evm.state_changes, address)
 
     codesize = U256(len(code))
     push(evm.stack, codesize)
@@ -382,17 +390,22 @@ def extcodecopy(evm: Evm) -> None:
         evm.memory, [(memory_start_index, size)]
     )
 
-    if address in evm.accessed_addresses:
-        access_gas_cost = GAS_WARM_ACCESS
-    else:
-        evm.accessed_addresses.add(address)
-        access_gas_cost = GAS_COLD_ACCOUNT_ACCESS
+    is_cold_access = address not in evm.accessed_addresses
+    access_gas_cost = (
+        GAS_COLD_ACCOUNT_ACCESS if is_cold_access else GAS_WARM_ACCESS
+    )
+    total_gas_cost = access_gas_cost + copy_gas_cost + extend_memory.cost
 
-    charge_gas(evm, access_gas_cost + copy_gas_cost + extend_memory.cost)
+    if is_cold_access:
+        evm.accessed_addresses.add(address)
+
+    charge_gas(evm, total_gas_cost)
 
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
-    code = get_account(evm.message.block_env.state, address).code
+    state = evm.message.block_env.state
+    code = get_account(state, address).code
+    track_address(evm.state_changes, address)
 
     value = buffer_read(code, code_start_index, size)
     memory_write(evm.memory, memory_start_index, value)
@@ -426,7 +439,7 @@ def returndatasize(evm: Evm) -> None:
 
 def returndatacopy(evm: Evm) -> None:
     """
-    Copies data from the return data buffer code to memory.
+    Copies data from the return data buffer to memory.
 
     Parameters
     ----------
@@ -473,16 +486,19 @@ def extcodehash(evm: Evm) -> None:
     address = to_address_masked(pop(evm.stack))
 
     # GAS
-    if address in evm.accessed_addresses:
-        access_gas_cost = GAS_WARM_ACCESS
-    else:
+    is_cold_access = address not in evm.accessed_addresses
+    access_gas_cost = (
+        GAS_COLD_ACCOUNT_ACCESS if is_cold_access else GAS_WARM_ACCESS
+    )
+    if is_cold_access:
         evm.accessed_addresses.add(address)
-        access_gas_cost = GAS_COLD_ACCOUNT_ACCESS
 
     charge_gas(evm, access_gas_cost)
 
     # OPERATION
-    account = get_account(evm.message.block_env.state, address)
+    state = evm.message.block_env.state
+    account = get_account(state, address)
+    track_address(evm.state_changes, address)
 
     if account == EMPTY_ACCOUNT:
         codehash = U256(0)

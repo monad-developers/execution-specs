@@ -118,6 +118,23 @@ class MessageCallGas:
     sub_call: Uint
 
 
+def check_gas(evm: Evm, amount: Uint) -> None:
+    """
+    Checks if `amount` gas is available without charging it.
+    Raises OutOfGasError if insufficient gas.
+
+    Parameters
+    ----------
+    evm :
+        The current EVM.
+    amount :
+        The amount of gas to check.
+
+    """
+    if evm.gas_left < amount:
+        raise OutOfGasError
+
+
 def charge_gas(evm: Evm, amount: Uint) -> None:
     """
     Subtracts `amount` from `evm.gas_left`.
@@ -232,7 +249,7 @@ def calculate_message_call_gas(
         account inside a message call.
     call_stipend :
         The amount of stipend provided to a message call to execute code while
-        transferring value(ETH).
+        transferring value (ETH).
 
     Returns
     -------
@@ -288,7 +305,7 @@ def init_code_cost(init_code_length: Uint) -> Uint:
 
 def calculate_excess_blob_gas(parent_header: Header) -> U64:
     """
-    Calculated the excess blob gas for the current block based
+    Calculates the excess blob gas for the current block based
     on the gas used in the parent block.
 
     Parameters

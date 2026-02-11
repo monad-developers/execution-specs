@@ -8,6 +8,7 @@ from .forks import (
     BPO4,
     MONAD_EIGHT,
     MONAD_NEXT,
+    Amsterdam,
     Berlin,
     Cancun,
     London,
@@ -55,14 +56,14 @@ class PragueToOsakaAtTime15k(Prague):
 
 
 @transition_fork(to_fork=MONAD_EIGHT, at_timestamp=15_000)
-class PragueToMONAD_EIGHTAtTime15k(Prague):
+class PragueToMONAD_EIGHTAtTime15k(Prague):  # noqa: N801
     """Prague to MONAD_EIGHT transition at Timestamp 15k."""
 
     pass
 
 
 @transition_fork(to_fork=MONAD_NEXT, at_timestamp=15_000)
-class MONAD_EIGHTToMONAD_NEXTAtTime15k(MONAD_EIGHT):
+class MONAD_EIGHTToMONAD_NEXTAtTime15k(MONAD_EIGHT):  # noqa: N801
     """Prague to MONAD_NEXT transition at Timestamp 15k."""
 
     pass
@@ -78,6 +79,17 @@ class OsakaToBPO1AtTime15k(Osaka):
 @transition_fork(to_fork=BPO2, at_timestamp=15_000)
 class BPO1ToBPO2AtTime15k(BPO1):
     """BPO1 to BPO2 transition at Timestamp 15k."""
+
+    pass
+
+
+@transition_fork(to_fork=Amsterdam, at_timestamp=15_000)
+class BPO2ToAmsterdamAtTime15k(BPO2):
+    """BPO2 to Amsterdam transition at Timestamp 15k."""
+
+    # TODO: We may need to adjust which BPO Amsterdam inherits from as the
+    #  related Amsterdam specs change over time, and before Amsterdam is
+    #  live on mainnet.
 
     pass
 

@@ -360,8 +360,9 @@ def generate_system_contract_error_test(
                 # storage, we need to add some NO-OP (JUMPDEST) to the code
                 # that each consume 1 gas.
                 assert gas_costs.G_JUMPDEST == 1, (
-                    f"JUMPDEST gas cost should be 1, but got {gas_costs.G_JUMPDEST}. "
-                    "Generator `generate_system_contract_error_test` needs to be updated."
+                    "JUMPDEST gas cost should be 1, but got "
+                    f"{gas_costs.G_JUMPDEST}. Generator "
+                    "`generate_system_contract_error_test` needs updating."
                 )
                 modified_system_contract_code += sum(
                     Op.JUMPDEST
@@ -446,8 +447,9 @@ def gas_test(
     pre: Alloc,
     setup_code: Bytecode,
     subject_code: Bytecode,
+    subject_code_warm: Bytecode | None = None,
     tear_down_code: Bytecode | None = None,
-    cold_gas: int,
+    cold_gas: int | None = None,
     warm_gas: int | None = None,
     subject_address: Address | None = None,
     subject_balance: int = 0,
@@ -457,7 +459,7 @@ def gas_test(
     tx_gas: int | None = None,
 ) -> None:
     """
-    Create State Test to check the gas cost of a sequence of EOF code.
+    Create State Test to check the gas cost of a sequence of code.
 
     `setup_code` and `tear_down_code` are called multiple times during the
     test, and MUST NOT have any side-effects which persist across message
@@ -468,8 +470,14 @@ def gas_test(
             "Gas tests before Berlin are not supported due to CALL gas changes"
         )
 
+    if cold_gas is None:
+        cold_gas = subject_code.gas_cost(fork)
+
     if warm_gas is None:
-        warm_gas = cold_gas
+        if subject_code_warm is not None:
+            warm_gas = subject_code_warm.gas_cost(fork)
+        else:
+            warm_gas = cold_gas
 
     sender = pre.fund_eoa()
     if tear_down_code is None:
@@ -484,14 +492,14 @@ def gas_test(
     # 2 times GAS, POP, CALL, 6 times PUSH1 - instructions charged for at every
     # gas run
     gas_costs = fork.gas_costs()
-    OPCODE_GAS_COST = gas_costs.G_BASE
-    OPCODE_POP_COST = gas_costs.G_BASE
-    OPCODE_PUSH_COST = gas_costs.G_VERY_LOW
+    opcode_gas_cost = gas_costs.G_BASE
+    opcode_pop_cost = gas_costs.G_BASE
+    opcode_push_cost = gas_costs.G_VERY_LOW
     gas_single_gas_run = (
-        2 * OPCODE_GAS_COST
-        + OPCODE_POP_COST
+        2 * opcode_gas_cost
+        + opcode_pop_cost
         + gas_costs.G_WARM_ACCOUNT_ACCESS
-        + 6 * OPCODE_PUSH_COST
+        + 6 * opcode_push_cost
     )
     address_legacy_harness = pre.deploy_contract(
         code=(

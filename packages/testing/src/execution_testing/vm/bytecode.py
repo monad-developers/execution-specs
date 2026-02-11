@@ -1,6 +1,6 @@
 """Ethereum Virtual Machine bytecode primitives and utilities."""
 
-from typing import Any, Self, SupportsBytes
+from typing import Any, List, Self, SupportsBytes, Type
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core.core_schema import (
@@ -10,6 +10,8 @@ from pydantic_core.core_schema import (
 )
 
 from execution_testing.base_types import Bytes, Hash
+
+from .bases import ForkOpcodeInterface, OpcodeBase
 
 
 class Bytecode:
@@ -38,6 +40,7 @@ class Bytecode:
     min_stack_height: int
 
     terminating: bool
+    opcode_list: List[OpcodeBase]
 
     def __new__(
         cls,
@@ -49,8 +52,11 @@ class Bytecode:
         min_stack_height: int | None = None,
         terminating: bool = False,
         name: str = "",
+        opcode_list: List[OpcodeBase] | None = None,
     ) -> Self:
         """Create new opcode instance."""
+        if opcode_list is None:
+            opcode_list = []
         if bytes_or_byte_code_base is None:
             instance = super().__new__(cls)
             instance._bytes_ = b""
@@ -60,6 +66,7 @@ class Bytecode:
             instance.max_stack_height = 0
             instance.terminating = False
             instance._name_ = name
+            instance.opcode_list = opcode_list
             return instance
 
         if isinstance(bytes_or_byte_code_base, Bytecode):
@@ -72,6 +79,7 @@ class Bytecode:
             obj.min_stack_height = bytes_or_byte_code_base.min_stack_height
             obj.max_stack_height = bytes_or_byte_code_base.max_stack_height
             obj.terminating = bytes_or_byte_code_base.terminating
+            obj.opcode_list = bytes_or_byte_code_base.opcode_list[:]
             obj._name_ = bytes_or_byte_code_base._name_
             return obj
 
@@ -93,6 +101,7 @@ class Bytecode:
             else:
                 obj.max_stack_height = max_stack_height
             obj.terminating = terminating
+            obj.opcode_list = opcode_list
             obj._name_ = name
             return obj
 
@@ -215,6 +224,7 @@ class Bytecode:
             min_stack_height=c_min,
             max_stack_height=c_max,
             terminating=other.terminating,
+            opcode_list=self.opcode_list + other.opcode_list,
         )
 
     def __radd__(self, other: "Bytecode | int | None") -> "Bytecode":
@@ -252,6 +262,38 @@ class Bytecode:
     def keccak256(self) -> Hash:
         """Return the keccak256 hash of the opcode byte representation."""
         return Bytes(self._bytes_).keccak256()
+
+    def gas_cost(
+        self,
+        fork: Type[ForkOpcodeInterface],
+        *,
+        block_number: int = 0,
+        timestamp: int = 0,
+    ) -> int:
+        """Use a fork object to calculate the gas used by this bytecode."""
+        opcode_gas_calculator = fork.opcode_gas_calculator(
+            block_number=block_number, timestamp=timestamp
+        )
+        total_gas = 0
+        for opcode in self.opcode_list:
+            total_gas += opcode_gas_calculator(opcode)
+        return total_gas
+
+    def refund(
+        self,
+        fork: Type[ForkOpcodeInterface],
+        *,
+        block_number: int = 0,
+        timestamp: int = 0,
+    ) -> int:
+        """Use a fork object to calculate the gas refund from this bytecode."""
+        opcode_refund_calculator = fork.opcode_refund_calculator(
+            block_number=block_number, timestamp=timestamp
+        )
+        total_refund = 0
+        for opcode in self.opcode_list:
+            total_refund += opcode_refund_calculator(opcode)
+        return total_refund
 
     @classmethod
     def __get_pydantic_core_schema__(
