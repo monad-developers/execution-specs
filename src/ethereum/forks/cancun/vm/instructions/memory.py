@@ -93,7 +93,7 @@ def mstore8(evm: Evm) -> None:
 
 def mload(evm: Evm) -> None:
     """
-    Loads a word from memory.
+    Load word from memory.
 
     Parameters
     ----------
@@ -123,7 +123,7 @@ def mload(evm: Evm) -> None:
 
 def msize(evm: Evm) -> None:
     """
-    Pushes the size of active memory in bytes onto the stack.
+    Push the size of active memory in bytes onto the stack.
 
     Parameters
     ----------
@@ -146,7 +146,7 @@ def msize(evm: Evm) -> None:
 
 def mcopy(evm: Evm) -> None:
     """
-    Copies the bytes in memory from one location to another.
+    Copy the bytes in memory from one location to another.
 
     Parameters
     ----------

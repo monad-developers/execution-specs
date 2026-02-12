@@ -13,6 +13,7 @@ from execution_testing import (
     Bytecode,
     Environment,
 )
+from execution_testing.forks import Frontier, Homestead
 from execution_testing import Op
 from execution_testing import (
     StateTestFiller,
@@ -75,7 +76,7 @@ def test_swap(
         sender=pre.fund_eoa(),
         to=contract_address,
         gas_limit=500_000,
-        protected=fork.supports_protected_txs(),
+        protected=False if fork in [Frontier, Homestead] else True,
     )
 
     # Calculate expected storage values after SWAP and storage operations
@@ -145,7 +146,7 @@ def test_stack_underflow(
         sender=pre.fund_eoa(),
         to=contract,
         gas_limit=500_000,
-        protected=fork.supports_protected_txs(),
+        protected=False if fork in [Frontier, Homestead] else True,
     )
 
     # Define the expected post-state.

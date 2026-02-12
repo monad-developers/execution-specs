@@ -27,7 +27,7 @@ from pydantic import (
 )
 
 from execution_testing.base_types import Alloc
-from execution_testing.cli.pytest_commands.plugins.consume.simulators.helpers.ruleset import (  # noqa: E501
+from execution_testing.cli.pytest_commands.plugins.consume.simulators.helpers.ruleset import (
     ruleset,
 )
 from execution_testing.fixtures import (
@@ -36,7 +36,7 @@ from execution_testing.fixtures import (
 )
 from execution_testing.fixtures.blockchain import FixtureHeader
 from execution_testing.fixtures.file import Fixtures
-from execution_testing.fixtures.pre_alloc_groups import PreAllocGroupBuilder
+from execution_testing.fixtures.pre_alloc_groups import PreAllocGroup
 from execution_testing.forks import Fork
 
 
@@ -130,8 +130,6 @@ def extract_client_files(
 
 
 class GenesisState(BaseModel):
-    """Model representing genesis state for configuration extraction."""
-
     header: FixtureHeader
     alloc: Alloc
     chain_id: int = Field(exclude=True)
@@ -141,7 +139,6 @@ class GenesisState(BaseModel):
     def serialize_model(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, object]:
-        """Serialize the genesis state model to a dictionary."""
         serialized = handler(self)
         output = serialized["header"]
         output["alloc"] = {
@@ -176,9 +173,8 @@ class GenesisState(BaseModel):
             pass
 
         try:
-            # Load as builder format and compute genesis on-demand
-            builder = PreAllocGroupBuilder.model_validate_json(fixture_bytes)
-            pre_alloc_group = builder.build()
+            # Try to load pre-allocation group
+            pre_alloc_group = PreAllocGroup.model_validate_json(fixture_bytes)
             return cls(
                 header=pre_alloc_group.genesis,
                 alloc=pre_alloc_group.pre,
@@ -193,7 +189,9 @@ class GenesisState(BaseModel):
         )
 
     def get_client_environment(self) -> dict:
-        """Get the env vars to start a client with a fixture."""
+        """
+        Get the environment variables for starting a client with the given fixture.
+        """
         if self.fork not in ruleset:
             raise ValueError(f"Fork '{self.fork}' not found in hive ruleset")
 
@@ -201,8 +199,7 @@ class GenesisState(BaseModel):
             "HIVE_CHAIN_ID": str(self.chain_id),
             "HIVE_FORK_DAO_VOTE": "1",
             "HIVE_NODETYPE": "full",
-            # Using RPC port for liveness check
-            "HIVE_CHECK_LIVE_PORT": "8545",
+            "HIVE_CHECK_LIVE_PORT": "8545",  # Using RPC port for liveness check
             **{k: f"{v:d}" for k, v in ruleset[self.fork].items()},
         }
 
@@ -327,16 +324,14 @@ def extract_config(
 
                 if len(new_containers) != 1:
                     click.echo(
-                        f"Expected exactly 1 new container, found "
-                        f"{len(new_containers)}",
+                        f"Expected exactly 1 new container, found {len(new_containers)}",
                         err=True,
                     )
                     sys.exit(1)
 
                 container_id = new_containers.pop()
                 click.echo(
-                    f"Client started successfully "
-                    f"(Container ID: {container_id})"
+                    f"Client started successfully (Container ID: {container_id})"
                 )
 
                 # Optionally list files in container

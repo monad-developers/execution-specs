@@ -9,6 +9,8 @@ from .exception_mapper import (
 from .exceptions import (
     BlockException,
     BlockExceptionInstanceOrList,
+    EOFException,
+    EOFExceptionInstanceOrList,
     ExceptionBase,
     ExceptionInstanceOrList,
     TransactionException,
@@ -19,6 +21,8 @@ from .exceptions import (
 __all__ = [
     "BlockException",
     "BlockExceptionInstanceOrList",
+    "EOFException",
+    "EOFExceptionInstanceOrList",
     "ExceptionBase",
     "EngineAPIError",
     "ExceptionMapper",

@@ -21,11 +21,9 @@ from ethereum_types.numeric import U64, U256, Uint
 from ethereum.crypto.hash import Hash32
 from ethereum.exceptions import EthereumException
 
-from ..block_access_lists.rlp_types import BlockAccessList
 from ..blocks import Log, Receipt, Withdrawal
 from ..fork_types import Address, Authorization, VersionedHash
 from ..state import State, TransientStorage
-from ..state_tracker import StateChanges, merge_on_failure, merge_on_success
 from ..transactions import LegacyTransaction
 from ..trie import Trie
 
@@ -49,7 +47,6 @@ class BlockEnvironment:
     prev_randao: Bytes32
     excess_blob_gas: U64
     parent_beacon_block_root: Hash32
-    state_changes: StateChanges
 
 
 @dataclass
@@ -66,7 +63,7 @@ class BlockOutput:
     receipts_trie : `ethereum.fork_types.Root`
         Trie root of all the receipts in the block.
     receipt_keys :
-        Keys of all the receipts in the block.
+        Key of all the receipts in the block.
     block_logs : `Bloom`
         Logs bloom of all the logs included in all the transactions of the
         block.
@@ -76,8 +73,6 @@ class BlockOutput:
         Total blob gas used in the block.
     requests : `Bytes`
         Hash of all the requests in the block.
-    block_access_list: `BlockAccessList`
-        The block access list for the block.
     """
 
     block_gas_used: Uint = Uint(0)
@@ -94,7 +89,6 @@ class BlockOutput:
     )
     blob_gas_used: U64 = U64(0)
     requests: List[Bytes] = field(default_factory=list)
-    block_access_list: BlockAccessList = field(default_factory=list)
 
 
 @dataclass
@@ -113,7 +107,6 @@ class TransactionEnvironment:
     authorizations: Tuple[Authorization, ...]
     index_in_block: Optional[Uint]
     tx_hash: Optional[Hash32]
-    state_changes: "StateChanges" = field(default_factory=StateChanges)
 
 
 @dataclass
@@ -139,8 +132,6 @@ class Message:
     accessed_storage_keys: Set[Tuple[Address, Bytes32]]
     disable_precompiles: bool
     parent_evm: Optional["Evm"]
-    is_create: bool
-    state_changes: "StateChanges" = field(default_factory=StateChanges)
 
 
 @dataclass
@@ -163,7 +154,6 @@ class Evm:
     error: Optional[EthereumException]
     accessed_addresses: Set[Address]
     accessed_storage_keys: Set[Tuple[Address, Bytes32]]
-    state_changes: StateChanges
 
 
 def incorporate_child_on_success(evm: Evm, child_evm: Evm) -> None:
@@ -185,8 +175,6 @@ def incorporate_child_on_success(evm: Evm, child_evm: Evm) -> None:
     evm.accessed_addresses.update(child_evm.accessed_addresses)
     evm.accessed_storage_keys.update(child_evm.accessed_storage_keys)
 
-    merge_on_success(child_evm.state_changes)
-
 
 def incorporate_child_on_error(evm: Evm, child_evm: Evm) -> None:
     """
@@ -201,5 +189,3 @@ def incorporate_child_on_error(evm: Evm, child_evm: Evm) -> None:
 
     """
     evm.gas_left += child_evm.gas_left
-
-    merge_on_failure(child_evm.state_changes)

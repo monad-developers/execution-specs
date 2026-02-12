@@ -914,7 +914,6 @@ pytestmark = pytest.mark.valid_from("Prague")
         ),
     ],
 )
-@pytest.mark.slow()
 @pytest.mark.pre_alloc_group(
     "deposit_requests",
     reason="Tests standard deposit request functionality with system contract",

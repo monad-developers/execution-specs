@@ -33,8 +33,7 @@ def fixture_format_discriminator(v: Any) -> str | None:
         info_dict = v.info
     if info_dict is None:
         raise ValueError(
-            "Fixture does not have an info field, "
-            f"cannot determine fixture format: {v}"
+            f"Fixture does not have an info field, cannot determine fixture format: {v}"
         )
     fixture_format = info_dict.get("fixture-format")
     if not fixture_format:

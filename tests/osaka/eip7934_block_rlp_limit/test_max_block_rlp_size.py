@@ -27,6 +27,7 @@ from execution_testing.base_types import (
 )
 from execution_testing.fixtures.blockchain import (
     FixtureBlockBase,
+    FixtureHeader,
     FixtureWithdrawal,
 )
 
@@ -45,10 +46,7 @@ pytestmark = [
 
 
 HEADER_TIMESTAMP = 123456789
-EXTRA_DATA_AT_LIMIT = b"\x00" * 15
-# Max size adjustment extra_data can absorb
-# reserves 1 byte so delta=-1 tests stay valid
-EXTRA_DATA_TOLERANCE = len(EXTRA_DATA_AT_LIMIT) - 1
+EXTRA_DATA_AT_LIMIT = b"\x00\x00\x00"
 BLOCK_GAS_LIMIT = 100_000_000
 
 
@@ -73,22 +71,43 @@ def block_errors() -> List[BlockException]:
     return [BlockException.RLP_BLOCK_LIMIT_EXCEEDED]
 
 
+def create_test_header(gas_used: int) -> FixtureHeader:
+    """Create a standard test header for RLP size calculations."""
+    return FixtureHeader(
+        difficulty="0x0",
+        number="0x1",
+        gas_limit=hex(BLOCK_GAS_LIMIT),
+        timestamp=hex(HEADER_TIMESTAMP),
+        fee_recipient="0x" + "00" * 20,
+        parent_hash="0x" + "00" * 32,
+        ommers_hash="0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+        state_root="0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        transactions_trie="0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        receipts_root="0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        logs_bloom="0x" + "00" * 256,
+        gas_used=hex(gas_used),
+        extra_data=EXTRA_DATA_AT_LIMIT.hex(),
+        prev_randao="0x" + "00" * 32,
+        nonce="0x0000000000000042",
+        base_fee_per_gas="0x0",
+        withdrawals_root="0x" + "00" * 32,
+        blob_gas_used="0x0",
+        excess_blob_gas="0x0",
+        parent_beacon_block_root="0x" + "00" * 32,
+        requests_hash="0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    )
+
+
 def get_block_rlp_size(
-    fork: Fork,
     transactions: List[Transaction],
+    gas_used: int,
     withdrawals: List[Withdrawal] | None = None,
 ) -> int:
     """
     Calculate the RLP size of a block with given transactions
     and withdrawals.
     """
-    header = fork.build_default_block_header(
-        block_number=1,
-        timestamp=HEADER_TIMESTAMP,
-    )
-    header.gas_limit = ZeroPaddedHexNumber(BLOCK_GAS_LIMIT)
-    header.extra_data = Bytes(EXTRA_DATA_AT_LIMIT)
-
+    header = create_test_header(gas_used)
     total_gas = sum((tx.gas_limit or 21000) for tx in transactions)
     header.gas_used = ZeroPaddedHexNumber(total_gas)
 
@@ -133,10 +152,6 @@ def exact_size_transactions(
     The calculation uses caching to avoid recalculating the same block rlp for
     each fork. Calculate the block and fill with real sender for testing.
 
-    Due to RLP encoding boundaries, certain exact block sizes may be
-    unachievable (±1 byte). The returned extra_data_len compensates for
-    any gap so the final block hits the exact target.
-
     Args:
         sender: The sender account
         block_size_limit: The target block RLP size limit
@@ -147,11 +162,6 @@ def exact_size_transactions(
         specific_transaction_to_include: If provided, this transaction will
             be included
         withdrawals: Optional list of withdrawals to include in the block
-
-    Returns:
-        Tuple of (transactions, extra_data_len) where extra_data_len is
-        the number of extra_data bytes needed to hit the exact target
-        block size.
 
     """
     log_contract = None
@@ -181,7 +191,7 @@ def exact_size_transactions(
 
     if not specific_transaction_to_include and not withdrawals:
         # use cached version when possible for performance
-        transactions, extra_data_len = _exact_size_transactions_cached(
+        transactions, gas_used = _exact_size_transactions_cached(
             block_size_limit,
             fork,
             gas_limit,
@@ -191,7 +201,7 @@ def exact_size_transactions(
     else:
         # Direct calculation, no cache, since `Transaction` / `Withdrawal`
         # are not hashable
-        transactions, extra_data_len = _exact_size_transactions_impl(
+        transactions, gas_used = _exact_size_transactions_impl(
             block_size_limit,
             fork,
             gas_limit,
@@ -201,7 +211,7 @@ def exact_size_transactions(
             withdrawals=withdrawals,
         )
 
-    return transactions, extra_data_len
+    return transactions, gas_used
 
 
 @lru_cache(maxsize=128)
@@ -215,12 +225,6 @@ def _exact_size_transactions_cached(
     """
     Generate transactions that fill a block to exactly the RLP size limit.
     Abstracted with hashable arguments for caching block calculations.
-
-    Returns:
-        Tuple of (transactions, extra_data_len) where extra_data_len is
-        the number of extra_data bytes needed to hit the exact target
-        block size.
-
     """
     return _exact_size_transactions_impl(
         block_size_limit,
@@ -319,7 +323,7 @@ def _exact_size_transactions_impl(
         total_gas_used += last_tx.gas_limit
 
     current_size = get_block_rlp_size(
-        fork, transactions, withdrawals=withdrawals
+        transactions, gas_used=total_gas_used, withdrawals=withdrawals
     )
     remaining_bytes = block_size_limit - current_size
     remaining_gas = block_gas_limit - total_gas_used
@@ -336,8 +340,8 @@ def _exact_size_transactions_impl(
         )
 
         empty_block_size = get_block_rlp_size(
-            fork,
             transactions + [empty_tx],
+            gas_used=total_gas_used + empty_tx.gas_limit,
             withdrawals=withdrawals,
         )
         empty_contribution = empty_block_size - current_size
@@ -357,24 +361,78 @@ def _exact_size_transactions_impl(
                 gas_limit=target_gas,
                 data=target_calldata,
             )
-            transactions.append(test_tx)
+
+            test_size = get_block_rlp_size(
+                transactions + [test_tx],
+                gas_used=total_gas_used + target_gas,
+                withdrawals=withdrawals,
+            )
+
+            if test_size == block_size_limit:
+                # if exact match, use the transaction
+                transactions.append(test_tx)
+            else:
+                # search for the best adjustment
+                diff = block_size_limit - test_size
+                best_diff = abs(diff)
+
+                search_range = min(abs(diff) + 50, 1000)
+
+                for adjustment in range(-search_range, search_range + 1):
+                    adjusted_size = estimated_calldata + adjustment
+                    if adjusted_size < 0:
+                        continue
+
+                    adjusted_calldata = b"\x00" * adjusted_size
+                    adjusted_gas = calculator(calldata=adjusted_calldata)
+
+                    if adjusted_gas <= remaining_gas:
+                        adjusted_tx = Transaction(
+                            sender=sender,
+                            nonce=nonce,
+                            max_fee_per_gas=10**11,
+                            max_priority_fee_per_gas=10**11,
+                            gas_limit=adjusted_gas,
+                            data=adjusted_calldata,
+                        )
+
+                        adjusted_test_size = get_block_rlp_size(
+                            transactions + [adjusted_tx],
+                            gas_used=total_gas_used + adjusted_gas,
+                            withdrawals=withdrawals,
+                        )
+
+                        if adjusted_test_size == block_size_limit:
+                            # exact match
+                            transactions.append(adjusted_tx)
+                            break
+
+                        adjusted_diff = abs(
+                            block_size_limit - adjusted_test_size
+                        )
+                        if adjusted_diff < best_diff:
+                            best_diff = adjusted_diff
+                else:
+                    raise RuntimeError(
+                        "Failed to find a transaction that matches "
+                        "the target size."
+                    )
         else:
             transactions.append(empty_tx)
 
     final_size = get_block_rlp_size(
-        fork,
         transactions,
+        gas_used=sum(tx.gas_limit for tx in transactions),
         withdrawals=withdrawals,
     )
-    # Compute the extra_data length that compensates for any size gap.
-    size_diff = final_size - block_size_limit
-    assert abs(size_diff) <= EXTRA_DATA_TOLERANCE, (
+    final_gas = sum(tx.gas_limit for tx in transactions)
+
+    assert final_size == block_size_limit, (
         f"Size mismatch: got {final_size}, "
         f"expected {block_size_limit} "
-        f"({size_diff} bytes diff, exceeds ±{EXTRA_DATA_TOLERANCE} tolerance)"
+        f"({final_size - block_size_limit} bytes diff)"
     )
-    extra_data_len = len(EXTRA_DATA_AT_LIMIT) - size_diff
-    return transactions, extra_data_len
+    return transactions, final_gas
 
 
 @EIPChecklist.BlockLevelConstraint.Test.Boundary.Under()
@@ -410,12 +468,18 @@ def test_block_at_rlp_size_limit_boundary(
     - At the limit, the block is valid
     - At the limit + 1 byte, the block is invalid
     """
-    transactions, extra_data_len = exact_size_transactions(
+    transactions, gas_used = exact_size_transactions(
         sender,
         block_size_limit,
         fork,
         pre,
         env.gas_limit,
+    )
+    block_rlp_size = get_block_rlp_size(transactions, gas_used=gas_used)
+    assert block_rlp_size == block_size_limit, (
+        f"Block RLP size {block_rlp_size} does not exactly match "
+        f"limit {block_size_limit}, difference: "
+        f"{block_rlp_size - block_size_limit} bytes"
     )
 
     block = Block(
@@ -425,8 +489,12 @@ def test_block_at_rlp_size_limit_boundary(
         else None,
     )
 
-    target_extra_data_len = max(extra_data_len + delta, 0)
-    block.extra_data = Bytes(b"\x00" * target_extra_data_len)
+    if delta < 0:
+        block.extra_data = Bytes(EXTRA_DATA_AT_LIMIT[: -abs(delta)])
+    elif delta == 0:
+        block.extra_data = Bytes(EXTRA_DATA_AT_LIMIT)
+    else:  # delta > 0
+        block.extra_data = Bytes(EXTRA_DATA_AT_LIMIT + b"\x00" * delta)
 
     block.timestamp = ZeroPaddedHexNumber(HEADER_TIMESTAMP)
     blockchain_test(
@@ -452,7 +520,7 @@ def test_block_rlp_size_at_limit_with_all_typed_transactions(
     typed_transaction: Transaction,
 ) -> None:
     """Test the block RLP size limit with all transaction types."""
-    transactions, extra_data_len = exact_size_transactions(
+    transactions, gas_used = exact_size_transactions(
         sender,
         block_size_limit,
         fork,
@@ -460,9 +528,15 @@ def test_block_rlp_size_at_limit_with_all_typed_transactions(
         env.gas_limit,
         specific_transaction_to_include=typed_transaction,
     )
+    block_rlp_size = get_block_rlp_size(transactions, gas_used=gas_used)
+    assert block_rlp_size == block_size_limit, (
+        f"Block RLP size {block_rlp_size} does not exactly match limit "
+        f"{block_size_limit}, difference: {block_rlp_size - block_size_limit} "
+        "bytes"
+    )
 
     block = Block(txs=transactions)
-    block.extra_data = Bytes(b"\x00" * extra_data_len)
+    block.extra_data = Bytes(EXTRA_DATA_AT_LIMIT)
     block.timestamp = ZeroPaddedHexNumber(HEADER_TIMESTAMP)
 
     blockchain_test(
@@ -489,7 +563,7 @@ def test_block_at_rlp_limit_with_logs(
     Test that a block at the RLP size limit is valid even when transactions
     emit logs.
     """
-    transactions, extra_data_len = exact_size_transactions(
+    transactions, gas_used = exact_size_transactions(
         sender,
         block_size_limit,
         fork,
@@ -498,8 +572,15 @@ def test_block_at_rlp_limit_with_logs(
         emit_logs=True,
     )
 
+    block_rlp_size = get_block_rlp_size(transactions, gas_used=gas_used)
+    assert block_rlp_size == block_size_limit, (
+        f"Block RLP size {block_rlp_size} does not exactly match limit "
+        f"{block_size_limit}, difference: {block_rlp_size - block_size_limit} "
+        "bytes"
+    )
+
     block = Block(txs=transactions)
-    block.extra_data = Bytes(b"\x00" * extra_data_len)
+    block.extra_data = Bytes(EXTRA_DATA_AT_LIMIT)
     block.timestamp = ZeroPaddedHexNumber(HEADER_TIMESTAMP)
 
     blockchain_test(
@@ -541,7 +622,7 @@ def test_block_at_rlp_limit_with_withdrawals(
         ),
     ]
 
-    transactions, extra_data_len = exact_size_transactions(
+    transactions, gas_used = exact_size_transactions(
         sender,
         block_size_limit,
         fork,
@@ -550,10 +631,19 @@ def test_block_at_rlp_limit_with_withdrawals(
         withdrawals=withdrawals,
     )
 
+    block_rlp_size = get_block_rlp_size(
+        transactions, gas_used=gas_used, withdrawals=withdrawals
+    )
+    assert block_rlp_size == block_size_limit, (
+        f"Block RLP size {block_rlp_size} does not exactly match limit "
+        f"{block_size_limit}, difference: {block_rlp_size - block_size_limit} "
+        "bytes"
+    )
+
     block = Block(
         txs=transactions,
         withdrawals=withdrawals,
-        extra_data=Bytes(b"\x00" * extra_data_len),
+        extra_data=Bytes(EXTRA_DATA_AT_LIMIT),
         timestamp=ZeroPaddedHexNumber(HEADER_TIMESTAMP),
     )
 
@@ -596,7 +686,7 @@ def test_fork_transition_block_rlp_limit(
     sender_before_fork = pre.fund_eoa()
     sender_at_fork = pre.fund_eoa()
 
-    transactions_before, extra_data_len_before = exact_size_transactions(
+    transactions_before, gas_used_before = exact_size_transactions(
         sender_before_fork,
         block_size_limit,
         fork,
@@ -604,7 +694,7 @@ def test_fork_transition_block_rlp_limit(
         env.gas_limit,
     )
 
-    transactions_at_fork, extra_data_len_at_fork = exact_size_transactions(
+    transactions_at_fork, gas_used_at_fork = exact_size_transactions(
         sender_at_fork,
         block_size_limit,
         fork,
@@ -612,13 +702,23 @@ def test_fork_transition_block_rlp_limit(
         env.gas_limit,
     )
 
-    # HEADER_TIMESTAMP (123456789) used in calculation takes 4 bytes in RLP
-    # encoding. Transition timestamps (14_999 and 15_000) take 2 bytes.
-    # Add the difference to extra_data to keep block at the limit.
-    timestamp_byte_savings = 2
+    for fork_block_rlp_size in [
+        get_block_rlp_size(transactions_before, gas_used=gas_used_before),
+        get_block_rlp_size(transactions_at_fork, gas_used=gas_used_at_fork),
+    ]:
+        assert fork_block_rlp_size == block_size_limit, (
+            f"Block RLP size {fork_block_rlp_size} does not exactly match "
+            f"limit {block_size_limit}, difference: "
+            f"{fork_block_rlp_size - block_size_limit} bytes"
+        )
 
-    extra_data_before = extra_data_len_before + timestamp_byte_savings
-    extra_data_at_fork = extra_data_len_at_fork + timestamp_byte_savings
+    # HEADER_TIMESTAMP (123456789) used in calculation takes 4 bytes in RLP
+    # encoding. Transition timestamps (14_999 and 15_000) take 2 bytes
+    # Re-define `_extradata_at_limit` accounting for this difference
+    timestamp_byte_savings = 2
+    _extradata_at_limit = EXTRA_DATA_AT_LIMIT + (
+        b"\x00" * timestamp_byte_savings
+    )
 
     blocks = [
         # before fork, block at limit +1 should be accepted
@@ -626,7 +726,7 @@ def test_fork_transition_block_rlp_limit(
             timestamp=14_999,
             txs=transactions_before,
             # +1 to exceed limit
-            extra_data=Bytes(b"\x00" * (extra_data_before + 1)),
+            extra_data=Bytes(_extradata_at_limit + b"\x00"),
         )
     ]
 
@@ -637,7 +737,7 @@ def test_fork_transition_block_rlp_limit(
                 timestamp=15_000,
                 txs=transactions_at_fork,
                 # +1 to exceed limit, should be rejected
-                extra_data=Bytes(b"\x00" * (extra_data_at_fork + 1)),
+                extra_data=Bytes(_extradata_at_limit + b"\x00"),
                 exception=BlockException.RLP_BLOCK_LIMIT_EXCEEDED,
             )
         )
@@ -647,7 +747,7 @@ def test_fork_transition_block_rlp_limit(
                 timestamp=15_000,
                 txs=transactions_at_fork,
                 # exact limit should be accepted
-                extra_data=Bytes(b"\x00" * extra_data_at_fork),
+                extra_data=Bytes(EXTRA_DATA_AT_LIMIT),
             )
         )
 

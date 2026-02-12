@@ -40,22 +40,13 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
-    BalAccountExpectation,
-    BalBalanceChange,
-    BalStorageChange,
-    BalStorageSlot,
-    BlockAccessListExpectation,
     Bytecode,
     Environment,
     Op,
     StateTestFiller,
     Transaction,
 )
-from execution_testing.forks.forks.forks import (
-    Berlin,
-    Byzantium,
-    Homestead,
-)
+from execution_testing.forks.forks.forks import Berlin, Byzantium, Homestead
 from execution_testing.forks.helpers import Fork
 
 
@@ -80,42 +71,33 @@ def sufficient_gas(
     Calculate the sufficient gas for the nested call opcode with positive
     value transfer.
     """
-    gas_costs = fork.gas_costs()
-
+    # memory_exp_cost is zero for our case.
     cost = 0
 
     if fork >= Berlin:
-        cost += gas_costs.G_COLD_ACCOUNT_ACCESS
+        cost += fork.gas_costs().G_COLD_ACCOUNT_ACCESS
     elif Byzantium <= fork < Berlin:
-        cost += 700  # Pre-Berlin warm call cost
+        cost += 700  # call
     elif fork == Homestead:
-        cost += 40  # Homestead call cost
+        cost += 40  # call
         cost += 1  # mandatory callee gas allowance
     else:
         raise Exception("Only forks Homestead and >=Byzantium supported")
 
     is_value_call = callee_opcode in [Op.CALL, Op.CALLCODE]
     if is_value_call:
-        cost += gas_costs.G_CALL_VALUE
+        cost += 9000  # positive_value_cost
 
     if callee_opcode == Op.CALL:
-        cost += gas_costs.G_NEW_ACCOUNT
+        cost += 25000  # empty_account_cost
 
-    sufficient = callee_init_stack_gas + cost
+    cost += callee_init_stack_gas
 
-    return sufficient
-
-
-@pytest.fixture
-def empty_account(pre: Alloc) -> Address:
-    """A guaranteed-to-be-empty account."""
-    return pre.empty_account()
+    return cost
 
 
 @pytest.fixture
-def callee_code(
-    callee_opcode: Op, fork: Fork, empty_account: Address
-) -> Bytecode:
+def callee_code(pre: Alloc, callee_opcode: Op, fork: Fork) -> Bytecode:
     """
     Code called by the caller contract:
       PUSH1 0x00 * 4
@@ -137,7 +119,7 @@ def callee_code(
     return callee_opcode(
         unchecked=False,
         gas=1 if fork < Byzantium else Op.GAS,
-        address=empty_account,
+        address=pre.empty_account(),
         args_offset=0,
         args_size=0,
         ret_offset=0,
@@ -200,7 +182,7 @@ def caller_tx(sender: EOA, caller_address: Address, fork: Fork) -> Transaction:
         value=1,
         gas_limit=500_000,
         sender=sender,
-        protected=fork.supports_protected_txs(),
+        protected=fork >= Byzantium,
     )
 
 
@@ -215,73 +197,6 @@ def post(  # noqa: D103
     }
 
 
-@pytest.fixture
-def expected_block_access_list(
-    fork: Fork,
-    caller_address: Address,
-    callee_address: Address,
-    callee_opcode: Bytecode,
-    empty_account: Account,
-    gas_shortage: int,
-) -> None | BlockAccessListExpectation:
-    """The expected block access list for >=Amsterdam cases."""
-    if fork.header_bal_hash_required():
-        if callee_opcode == Op.CALL:
-            if gas_shortage:
-                # call runs OOG after state access due to `is_account_alive` in
-                # `create_gas_cost` check
-                empty_account_expectation = BalAccountExpectation.empty()
-            else:
-                empty_account_expectation = BalAccountExpectation(
-                    balance_changes=[
-                        BalBalanceChange(block_access_index=1, post_balance=1)
-                    ]
-                )
-        else:
-            if gas_shortage:
-                # runs OOG before accessing empty acct (not read)
-                empty_account_expectation = None
-            else:
-                # if successful, only read is recorded
-                empty_account_expectation = BalAccountExpectation.empty()
-
-        return BlockAccessListExpectation(
-            account_expectations={
-                empty_account: empty_account_expectation,
-                caller_address: BalAccountExpectation(
-                    balance_changes=[
-                        BalBalanceChange(block_access_index=1, post_balance=4)
-                    ],
-                    storage_reads=[0] if gas_shortage else [],
-                    storage_changes=[
-                        BalStorageSlot(
-                            slot=0x00,
-                            slot_changes=[
-                                BalStorageChange(
-                                    block_access_index=1, post_value=1
-                                ),
-                            ],
-                        ),
-                    ]
-                    if not gas_shortage
-                    else [],
-                ),
-                callee_address: BalAccountExpectation(
-                    balance_changes=(
-                        [
-                            BalBalanceChange(
-                                block_access_index=1, post_balance=2
-                            )
-                        ]
-                        if not gas_shortage and callee_opcode == Op.CALL
-                        else []
-                    ),
-                ),
-            }
-        )
-    return None
-
-
 @pytest.mark.parametrize(
     "callee_opcode", [Op.CALL, Op.CALLCODE, Op.DELEGATECALL, Op.STATICCALL]
 )
@@ -292,19 +207,12 @@ def test_value_transfer_gas_calculation(
     pre: Alloc,
     caller_tx: Transaction,
     post: Dict[str, Account],
-    expected_block_access_list: BlockAccessListExpectation,
 ) -> None:
     """
     Tests the nested CALL/CALLCODE/DELEGATECALL/STATICCALL opcode gas
     consumption with a positive value transfer.
     """
-    state_test(
-        env=Environment(),
-        pre=pre,
-        post=post,
-        tx=caller_tx,
-        expected_block_access_list=expected_block_access_list,
-    )
+    state_test(env=Environment(), pre=pre, post=post, tx=caller_tx)
 
 
 @pytest.mark.parametrize(

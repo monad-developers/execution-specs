@@ -6,15 +6,10 @@ and that modifies pytest hooks in order to fill test specs for all tests
 and writes the generated fixtures to file.
 """
 
-import atexit
 import configparser
 import datetime
-import gc
 import json
 import os
-import signal
-import sys
-import time
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,14 +29,12 @@ from execution_testing.base_types import (
     ReferenceSpec,
 )
 from execution_testing.cli.gen_index import (
-    merge_partial_indexes,
+    generate_fixtures_index,
 )
 from execution_testing.client_clis import TransitionTool
 from execution_testing.client_clis.clis.geth import FixtureConsumerTool
 from execution_testing.fixtures import (
     BaseFixture,
-    BlockchainEngineFixture,
-    BlockchainFixture,
     FixtureCollector,
     FixtureConsumer,
     FixtureFillingPhase,
@@ -50,13 +43,7 @@ from execution_testing.fixtures import (
     PreAllocGroupBuilder,
     PreAllocGroupBuilders,
     PreAllocGroups,
-    StateFixture,
     TestInfo,
-    merge_partial_fixture_files,
-)
-from execution_testing.fixtures.pre_alloc_groups import (
-    _get_worker_id,
-    merge_partial_group_files,
 )
 from execution_testing.forks import (
     Fork,
@@ -82,47 +69,6 @@ from ..spec_version_checker.spec_version_checker import (
     get_ref_spec_from_module,
 )
 from .fixture_output import FixtureOutput
-
-# Fixture output dir for keyboard interrupt cleanup (set in pytest_configure).
-# Used by _merge_on_exit to merge partial JSONL files on Ctrl+C or SIGTERM.
-_fixture_output_dir: Path | None = None
-_atexit_registered: bool = False
-_interrupt_count: int = 0
-_original_sigint_handler: Any = None
-_original_sigterm_handler: Any = None
-
-
-def _termination_handler(signum: int, frame: Any) -> None:
-    """Handle SIGINT/SIGTERM gracefully during test filling."""
-    del frame
-    global _interrupt_count
-    global _original_sigint_handler, _original_sigterm_handler
-    _interrupt_count += 1
-
-    if _interrupt_count == 1:
-        # First interrupt: restore original handlers and re-raise
-        if _original_sigint_handler is not None:
-            signal.signal(signal.SIGINT, _original_sigint_handler)
-        if _original_sigterm_handler is not None:
-            signal.signal(signal.SIGTERM, _original_sigterm_handler)
-        if signum == signal.SIGTERM:
-            raise SystemExit(128 + signum)
-        raise KeyboardInterrupt
-    # Subsequent interrupts: ignore and print message
-    print("\nMerging fixtures, please wait...", flush=True)
-
-
-def _merge_on_exit() -> None:
-    """Atexit handler to merge partial JSONL files. Ignores signals."""
-    global _fixture_output_dir
-    if _fixture_output_dir is not None:
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        merge_partial_fixture_files(_fixture_output_dir)
-        # Also merge index if partial indexes exist
-        meta_dir = _fixture_output_dir / ".meta"
-        if meta_dir.exists() and any(meta_dir.glob("partial_index*.jsonl")):
-            merge_partial_indexes(_fixture_output_dir, quiet_mode=True)
 
 
 @dataclass(kw_only=True)
@@ -377,10 +323,9 @@ class FillingSession:
                 self.fixture_output.pre_alloc_groups_folder_path / hash_key
             )
             raise ValueError(
-                f"Pre-allocation hash {hash_key} not found in "
-                f"pre-allocation groups. Please check the file at: "
-                f"{pre_alloc_path}. Make sure phase 1 "
-                "(--generate-pre-alloc-groups) was run before phase 2."
+                f"Pre-allocation hash {hash_key} not found in pre-allocation groups. "
+                f"Please check the pre-allocation groups file at: {pre_alloc_path}. "
+                "Make sure phase 1 (--generate-pre-alloc-groups) was run before phase 2."
             )
 
         return self.pre_alloc_groups[hash_key]
@@ -410,17 +355,13 @@ class FillingSession:
         self.pre_alloc_group_builders.root[hash_key] = group_builder
 
     def save_pre_alloc_groups(self) -> None:
-        """Save pre-allocation groups to disk as partial files."""
+        """Save pre-allocation groups to disk."""
         if self.pre_alloc_group_builders is None:
             return
 
         pre_alloc_folder = self.fixture_output.pre_alloc_groups_folder_path
         pre_alloc_folder.mkdir(parents=True, exist_ok=True)
-        # Pass worker_id so each worker writes its own partial files
-        # (no lock contention). Master merges them after all workers finish.
-        self.pre_alloc_group_builders.to_folder(
-            pre_alloc_folder, worker_id=_get_worker_id()
-        )
+        self.pre_alloc_group_builders.to_folder(pre_alloc_folder)
 
 
 def calculate_post_state_diff(
@@ -502,8 +443,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         type=Path,
         default=None,
         help=(
-            "Path to an evm executable (or name of an executable in the "
-            "PATH) that provides `t8n`. Default: `ethereum-spec-evm-resolver`."
+            "Path to an evm executable (or name of an executable in the PATH) that provides `t8n`."
+            " Default: `ethereum-spec-evm-resolver`."
         ),
     )
     evm_group.addoption(
@@ -513,8 +454,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         type=str,
         default=None,
         help=(
-            "[INTERNAL USE ONLY] URL of the t8n server to use. Used by "
-            "framework tests/ci; not intended for regular CLI use."
+            "[INTERNAL USE ONLY] URL of the t8n server to use. Used by framework tests/ci; not "
+            "intended for regular CLI use."
         ),
     )
     evm_group.addoption(
@@ -530,7 +471,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         dest="evm_collect_traces",
         default=None,
-        help="Collect traces of execution info from the transition tool.",
+        help="Collect traces of the execution information from the transition tool.",
     )
     evm_group.addoption(
         "--verify-fixtures",
@@ -538,12 +479,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="verify_fixtures",
         default=False,
         help=(
-            "Verify generated fixture JSON files using geth's evm "
-            "blocktest command. By default, the same evm binary as for "
-            "the t8n tool is used. A different (geth) evm binary may be "
-            "specified via --verify-fixtures-bin, this must be specified "
-            "if filling with a non-geth t8n tool that does not support "
-            "blocktest."
+            "Verify generated fixture JSON files using geth's evm blocktest command. "
+            "By default, the same evm binary as for the t8n tool is used. A different (geth) evm "
+            "binary may be specified via --verify-fixtures-bin, this must be specified if filling "
+            "with a non-geth t8n tool that does not support blocktest."
         ),
     )
     evm_group.addoption(
@@ -576,13 +515,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         type=Path,
         default=Path(default_output_directory()),
         help=(
-            "Directory path to store the generated test fixtures. "
-            "Must be empty if it exists. If the specified path ends in "
-            "'.tar.gz', then the specified tarball is additionally "
-            "created (the fixtures are still written to the specified "
-            "path without the '.tar.gz' suffix). Tarball output "
-            "automatically enables --generate-all-formats. Can be "
-            f"deleted. Default: '{default_output_directory()}'."
+            "Directory path to store the generated test fixtures. Must be empty if it exists. "
+            "If the specified path ends in '.tar.gz', then the specified tarball is additionally "
+            "created (the fixtures are still written to the specified path without the '.tar.gz' "
+            f"suffix). Tarball output automatically enables --generate-all-formats. "
+            f"Can be deleted. Default: '{default_output_directory()}'."
         ),
     )
     test_group.addoption(
@@ -598,9 +535,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="single_fixture_per_file",
         default=False,
         help=(
-            "Don't group fixtures in JSON files by test function; write "
-            "each fixture to its own file. This can be used to increase "
-            "the granularity of --verify-fixtures."
+            "Don't group fixtures in JSON files by test function; write each fixture to its own "
+            "file. This can be used to increase the granularity of --verify-fixtures."
         ),
     )
     test_group.addoption(
@@ -635,9 +571,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=EnvironmentDefaults.gas_limit,
         type=int,
         help=(
-            "Default gas limit ceiling for blocks and tests that attempt "
-            f"to consume an entire block's gas. "
-            f"(Default: {EnvironmentDefaults.gas_limit})"
+            "Default gas limit used ceiling used for blocks and tests that attempt to "
+            f"consume an entire block's gas. (Default: {EnvironmentDefaults.gas_limit})"
         ),
     )
     test_group.addoption(
@@ -660,9 +595,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="generate_all_formats",
         default=False,
         help=(
-            "Generate all fixture formats including BlockchainEngineX. "
-            "Enables two-phase execution: Phase 1 generates pre-allocation "
-            "groups, phase 2 generates all supported fixture formats."
+            "Generate all fixture formats including BlockchainEngineXFixture. "
+            "This enables two-phase execution: Phase 1 generates pre-allocation groups, "
+            "phase 2 generates all supported fixture formats."
         ),
     )
 
@@ -676,9 +611,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="optimize_gas",
         default=False,
         help=(
-            "Attempt to optimize gas used in every transaction for filled "
-            "tests, then print the minimum gas at which the test still "
-            "produces a correct post state and the exact same trace."
+            "Attempt to optimize the gas used in every transaction for the filled tests, "
+            "then print the minimum amount of gas at which the test still produces a correct "
+            "post state and the exact same trace."
         ),
     )
     optimize_gas_group.addoption(
@@ -699,8 +634,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         type=int,
         help=(
-            "Maximum gas limit for gas optimization, if reached the search "
-            "will stop and fail for that test. Requires `--optimize-gas`."
+            "Maximum gas limit for gas optimization, if reached the search will stop and "
+            "fail for that given test. Requires `--optimize-gas`."
         ),
     )
     optimize_gas_group.addoption(
@@ -709,9 +644,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="optimize_gas_post_processing",
         default=False,
         help=(
-            "Post process traces during gas optimization to account for "
-            "opcodes that put the current gas in the stack, in order to "
-            "remove remaining-gas from the comparison."
+            "Post process the traces during gas optimization in order to Account for "
+            "opcodes that put the current gas in the stack, in order to remove "
+            "remaining-gas from the comparison."
         ),
     )
 
@@ -772,22 +707,6 @@ def pytest_configure(config: pytest.Config) -> None:
     except ValueError as e:
         pytest.exit(str(e), returncode=pytest.ExitCode.USAGE_ERROR)
 
-    # Register atexit/signal handlers for cleanup (master only, not workers).
-    global _fixture_output_dir, _atexit_registered
-    global _original_sigint_handler, _original_sigterm_handler
-    is_xdist_worker = hasattr(config, "workerinput")
-    if not config.fixture_output.is_stdout:  # type: ignore[attr-defined]
-        _fixture_output_dir = config.fixture_output.directory  # type: ignore[attr-defined]
-        if not _atexit_registered and not is_xdist_worker:
-            atexit.register(_merge_on_exit)
-            _original_sigint_handler = signal.signal(
-                signal.SIGINT, _termination_handler
-            )
-            _original_sigterm_handler = signal.signal(
-                signal.SIGTERM, _termination_handler
-            )
-            _atexit_registered = True
-
     if (
         not config.getoption("disable_html")
         and config.getoption("htmlpath") is None
@@ -845,8 +764,8 @@ def pytest_configure(config: pytest.Config) -> None:
         and not t8n.supports_xdist
     ):
         pytest.exit(
-            f"The {t8n.__class__.__name__} t8n tool does not work well "
-            "with the xdist plugin; use -n=0.",
+            f"The {t8n.__class__.__name__} t8n tool does not work well with the xdist plugin;"
+            "use -n=0.",
             returncode=pytest.ExitCode.USAGE_ERROR,
         )
     config.t8n = t8n  # type: ignore[attr-defined]
@@ -931,35 +850,26 @@ def pytest_terminal_summary(
         session_instance: FillingSession = config.filling_session  # type: ignore[attr-defined]
         if session_instance.phase_manager.is_pre_alloc_generation:
             # Generate summary stats
-            # For xdist, count files and accounts without fully loading groups
-            # (avoids expensive state_root computation just for summary stats)
+            pre_alloc_groups: PreAllocGroups
             if config.pluginmanager.hasplugin("xdist"):
-                pre_alloc_folder = (
-                    config.fixture_output.pre_alloc_groups_folder_path  # type: ignore[attr-defined]
+                # Load pre-allocation groups from disk
+                pre_alloc_groups = PreAllocGroups.from_folder(
+                    config.fixture_output.pre_alloc_groups_folder_path,  # type: ignore[attr-defined]
+                    lazy_load=False,
                 )
-                group_files = list(pre_alloc_folder.glob("*.json"))
-                total_groups = len(group_files)
-                # Count accounts by loading as builder (no genesis computation)
-                total_accounts = 0
-                for group_file in group_files:
-                    builder = PreAllocGroupBuilder.model_validate_json(
-                        group_file.read_text()
-                    )
-                    total_accounts += builder.get_pre_account_count()
             else:
-                assert session_instance.pre_alloc_group_builders is not None
-                total_groups = len(
-                    session_instance.pre_alloc_group_builders.root
-                )
-                total_accounts = sum(
-                    builder.get_pre_account_count()
-                    for builder in session_instance.pre_alloc_group_builders.root.values()  # noqa: E501
-                )
+                assert session_instance.pre_alloc_groups is not None
+                pre_alloc_groups = session_instance.pre_alloc_groups
+
+            total_groups = len(pre_alloc_groups.root)
+            total_accounts = sum(
+                group.pre_account_count for group in pre_alloc_groups.values()
+            )
 
             terminalreporter.write_sep(
                 "=",
-                f" Phase 1 Complete: Generated {total_groups} pre-alloc "
-                f"groups ({total_accounts} total accounts) ",
+                f" Phase 1 Complete: Generated {total_groups} pre-allocation groups "
+                f"({total_accounts} total accounts) ",
                 bold=True,
                 green=True,
             )
@@ -971,8 +881,8 @@ def pytest_terminal_summary(
             terminalreporter.write_sep(
                 "=",
                 (
-                    f" No tests executed - the test fixtures in "
-                    f'"{output_dir}" may now be executed against a client '
+                    f' No tests executed - the test fixtures in "{output_dir}" may now be '
+                    "executed against a client "
                 ),
                 bold=True,
                 yellow=True,
@@ -988,8 +898,7 @@ def pytest_html_results_table_header(cells: Any) -> None:
     """Customize the table headers of the HTML report table."""
     cells.insert(
         3,
-        '<th class="sortable" data-column-type="fixturePath">'
-        "JSON Fixture File</th>",
+        '<th class="sortable" data-column-type="fixturePath">JSON Fixture File</th>',
     )
     cells.insert(
         4,
@@ -1009,10 +918,7 @@ def pytest_html_results_table_row(report: Any, cells: Any) -> None:
         ):
             fixture_path_absolute = user_props["fixture_path_absolute"]
             fixture_path_relative = user_props["fixture_path_relative"]
-            fixture_path_link = (
-                f'<a href="{fixture_path_absolute}" target="_blank">'
-                f"{fixture_path_relative}</a>"
-            )
+            fixture_path_link = f'<a href="{fixture_path_absolute}" target="_blank">{fixture_path_relative}</a>'
             cells.insert(3, f"<td>{fixture_path_link}</td>")
         elif report.failed:
             cells.insert(3, "<td>Fixture unavailable</td>")
@@ -1020,18 +926,14 @@ def pytest_html_results_table_row(report: Any, cells: Any) -> None:
             if user_props["evm_dump_dir"] is None:
                 cells.insert(
                     4,
-                    "<td>For t8n debug info use "
-                    "<code>--evm-dump-dir=path --traces</code></td>",
+                    "<td>For t8n debug info use <code>--evm-dump-dir=path --traces</code></td>",
                 )
             else:
                 evm_dump_dir = user_props.get("evm_dump_dir")
                 if evm_dump_dir == "N/A":
                     evm_dump_entry = "N/A"
                 else:
-                    evm_dump_entry = (
-                        f'<a href="{evm_dump_dir}" target="_blank">'
-                        f"{evm_dump_dir}</a>"
-                    )
+                    evm_dump_entry = f'<a href="{evm_dump_dir}" target="_blank">{evm_dump_dir}</a>'
                 cells.insert(4, f"<td>{evm_dump_entry}</td>")
     del cells[-1]  # Remove the "Links" column
 
@@ -1072,6 +974,7 @@ def pytest_runtest_makereport(
                     ("evm_dump_dir", item.config.evm_dump_dir)
                 )
             else:
+                # not yet for EOF
                 report.user_properties.append(("evm_dump_dir", "N/A"))
 
 
@@ -1101,12 +1004,11 @@ def t8n(
     """Return configured transition tool."""
     t8n: TransitionTool = request.config.t8n  # type: ignore
     if not t8n.exception_mapper.reliable:
-        t8n_name = t8n.__class__.__name__
         warnings.warn(
-            f"The t8n tool being used to fill tests ({t8n_name}) "
-            "does not provide reliable exception messages. This may lead to "
-            "false positives when writing tests and extra care should be "
-            "taken when writing tests that produce exceptions.",
+            f"The t8n tool that is currently being used to fill tests ({t8n.__class__.__name__}) "
+            "does not provide reliable exception messages. This may lead to false positives when "
+            "writing tests and extra care should be taken when writing tests that produce "
+            "exceptions.",
             stacklevel=2,
         )
     yield t8n
@@ -1148,11 +1050,7 @@ def evm_fixture_verification(
         verify_fixtures_bin = evm_bin
         reused_evm_bin = True
     if not verify_fixtures_bin:
-        pytest.exit(
-            "--verify-fixtures requires --evm-bin or --verify-fixtures-bin "
-            "to be specified.",
-            returncode=pytest.ExitCode.USAGE_ERROR,
-        )
+        return
     try:
         evm_fixture_verification = FixtureConsumerTool.from_binary_path(
             binary_path=Path(verify_fixtures_bin),
@@ -1161,18 +1059,16 @@ def evm_fixture_verification(
     except Exception:
         if reused_evm_bin:
             pytest.exit(
-                "The binary specified in --evm-bin could not be recognized "
-                "as a known FixtureConsumerTool. Either remove "
-                "--verify-fixtures or set --verify-fixtures-bin to a known "
-                "fixture consumer binary.",
+                "The binary specified in --evm-bin could not be recognized as a known "
+                "FixtureConsumerTool. Either remove --verify-fixtures or set "
+                "--verify-fixtures-bin to a known fixture consumer binary.",
                 returncode=pytest.ExitCode.USAGE_ERROR,
             )
         else:
             pytest.exit(
-                "Specified binary in --verify-fixtures-bin could not be "
-                "recognized as a known FixtureConsumerTool. Please see "
-                "`GethFixtureConsumer` for an example of how a new fixture "
-                "consumer can be defined.",
+                "Specified binary in --verify-fixtures-bin could not be recognized as a known "
+                "FixtureConsumerTool. Please see `GethFixtureConsumer` for an example "
+                "of how a new fixture consumer can be defined.",
                 returncode=pytest.ExitCode.USAGE_ERROR,
             )
     yield evm_fixture_verification
@@ -1243,8 +1139,7 @@ def create_properties_file(
             config[key.lower()] = val
         else:
             warnings.warn(
-                f"Fixtures ini file: Skipping metadata key {key} "
-                f"with value {val}.",
+                f"Fixtures ini file: Skipping metadata key {key} with value {val}.",
                 stacklevel=2,
             )
     config["environment"] = environment_properties
@@ -1343,19 +1238,11 @@ def fixture_collector(
         single_fixture_per_file=fixture_output.single_fixture_per_file,
         filler_path=filler_path,
         base_dump_dir=base_dump_dir,
-        generate_index=request.config.getoption("generate_index"),
     )
     yield fixture_collector
-    try:
-        # dump_fixtures() only needed for stdout mode
-        fixture_collector.dump_fixtures()
-        # Verify fixtures for stdout mode only (files are in memory).
-        # For file mode, verification happens at session finish after merge.
-        if do_fixture_verification and fixture_output.is_stdout:
-            fixture_collector.verify_fixture_files(evm_fixture_verification)
-    finally:
-        # Always close streaming file handles, even on error
-        fixture_collector.close_streaming_files()
+    fixture_collector.dump_fixtures()
+    if do_fixture_verification:
+        fixture_collector.verify_fixture_files(evm_fixture_verification)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -1407,10 +1294,7 @@ def fixture_source_url(
             test_module_relative_path,
             branch_or_commit_or_tag=commit_hash_or_tag,
         )
-        github_url += (
-            f" called via `{request.node.originalname}()` "
-            f"in {test_module_github_url}"
-        )
+        github_url += f" called via `{request.node.originalname}()` in {test_module_github_url}"
     return github_url
 
 
@@ -1455,7 +1339,6 @@ def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
         When parametrize, indirect must be used along with the fixture format
         as value.
         """
-        del fixed_opcode_count
         if hasattr(request.node, "fixture_format"):
             fixture_format = request.node.fixture_format
         else:
@@ -1703,78 +1586,6 @@ def pytest_collection_modifyitems(
     for i in reversed(items_for_removal):
         items.pop(i)
 
-    # Schedule slow-marked tests first (Longest Processing Time First).
-    # Workers each grab the next test from the queue, so slow tests get
-    # distributed across workers and finish before the fast-test tail.
-    slow_items = []
-    normal_items = []
-    for item in items:
-        if item.get_closest_marker("slow") is not None:
-            slow_items.append(item)
-        else:
-            normal_items.append(item)
-    if slow_items:
-        items[:] = slow_items + normal_items
-
-
-def _verify_fixtures_post_merge(
-    config: pytest.Config, output_dir: Path
-) -> None:
-    """
-    Verify fixtures after merge if verification is enabled.
-
-    Called from pytest_sessionfinish after partial files are merged into
-    final JSON fixtures. Runs evm statetest/blocktest on each fixture.
-    """
-    if not config.getoption("verify_fixtures"):
-        return
-
-    # Get the verification binary (same logic as evm_fixture_verification)
-    verify_fixtures_bin = config.getoption("verify_fixtures_bin")
-    if not verify_fixtures_bin:
-        verify_fixtures_bin = config.getoption("evm_bin")
-    if not verify_fixtures_bin:
-        return
-
-    try:
-        evm_verification = FixtureConsumerTool.from_binary_path(
-            binary_path=Path(verify_fixtures_bin),
-            trace=getattr(config, "collect_traces", False),
-        )
-    except Exception:
-        # Binary not recognized, skip verification (error already shown
-        # during fixture setup if --verify-fixtures was used)
-        return
-
-    # Map directory names to fixture format classes
-    dir_to_format: dict[str, type[BaseFixture]] = {
-        StateFixture.output_base_dir_name(): StateFixture,
-        BlockchainFixture.output_base_dir_name(): BlockchainFixture,
-        BlockchainEngineFixture.output_base_dir_name(): (
-            BlockchainEngineFixture
-        ),
-    }
-
-    # Find all JSON fixture files and verify them
-    for json_file in output_dir.rglob("*.json"):
-        # Determine fixture format from top-level directory
-        relative_path = json_file.relative_to(output_dir)
-        if not relative_path.parts:
-            continue
-
-        top_dir = relative_path.parts[0]
-        fixture_format = dir_to_format.get(top_dir)
-        if fixture_format is None:
-            continue
-
-        if evm_verification.can_consume(fixture_format):
-            evm_verification.consume_fixture(
-                fixture_format,
-                json_file,
-                fixture_name=None,
-                debug_output_path=None,
-            )
-
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     """
@@ -1785,45 +1596,13 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     - Generate index file for all produced fixtures.
     - Create tarball of the output directory if the output is a tarball.
     """
-
-    def _log_timing(msg: str) -> None:
-        """Log with timestamp and flush immediately for CI visibility."""
-        log_line = f"[sessionfinish] {time.strftime('%H:%M:%S')} {msg}"
-        # Print to stderr (unbuffered) for immediate CI visibility
-        print(log_line, file=sys.stderr, flush=True)
-
-    # Log immediately when hook is entered (before any early returns)
-    is_worker = xdist.is_xdist_worker(session)
-    _log_timing(f"pytest_sessionfinish ENTERED (worker={is_worker})")
-
     del exitstatus
 
     # Save pre-allocation groups after phase 1
     fixture_output: FixtureOutput = session.config.fixture_output  # type: ignore[attr-defined]
     session_instance: FillingSession = session.config.filling_session  # type: ignore[attr-defined]
     if session_instance.phase_manager.is_pre_alloc_generation:
-        _log_timing("Phase 1: saving pre-alloc groups (partial)...")
-        t0 = time.time()
         session_instance.save_pre_alloc_groups()
-        _log_timing(
-            f"Phase 1: save_pre_alloc_groups done in {time.time() - t0:.1f}s"
-        )
-
-        # Master merges all worker partial files after all workers finish
-        if not is_worker:
-            _log_timing("Phase 1 (master): merging partial group files...")
-            t0 = time.time()
-            pre_alloc_folder = fixture_output.pre_alloc_groups_folder_path
-            merge_partial_group_files(pre_alloc_folder)
-            _log_timing(
-                f"Phase 1 (master): merge done in {time.time() - t0:.1f}s"
-            )
-        else:
-            # Workers: clear in-memory state to reduce memory pressure while
-            # waiting for other workers to finish
-            session_instance.pre_alloc_group_builders = None
-            gc.collect()
-
         return
 
     if session.config.getoption("optimize_gas", False):
@@ -1842,66 +1621,24 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 json.dumps(gas_optimized_tests, indent=2, sort_keys=True)
             )
 
-    if is_worker:
-        # Workers: clear in-memory state to reduce memory pressure while
-        # waiting for other workers to finish
-        session_instance.pre_alloc_groups = None
-        if hasattr(session.config, "fixture_collector"):
-            fc = session.config.fixture_collector
-            fc.all_fixtures.clear()
-            fc._fixtures_to_verify.clear()
-        gc.collect()
+    if xdist.is_xdist_worker(session):
         return
 
     if fixture_output.is_stdout or is_help_or_collectonly_mode(session.config):
         return
 
-    _log_timing("Finalization (master): starting...")
-
-    # Merge partial fixture files from all workers into final JSON files
-    _log_timing("merge_partial_fixture_files: starting...")
-    t0 = time.time()
-    merge_partial_fixture_files(fixture_output.directory)
-    _log_timing(
-        f"merge_partial_fixture_files: done in {time.time() - t0:.1f}s"
-    )
-
     # Remove any lock files that may have been created.
-    _log_timing("Removing lock files...")
-    t0 = time.time()
     for file in fixture_output.directory.rglob("*.lock"):
         file.unlink()
-    _log_timing(f"Lock files removed in {time.time() - t0:.1f}s")
 
-    # Verify fixtures after merge if verification is enabled
-    _log_timing("_verify_fixtures_post_merge: starting...")
-    t0 = time.time()
-    _verify_fixtures_post_merge(session.config, fixture_output.directory)
-    _log_timing(
-        f"_verify_fixtures_post_merge: done in {time.time() - t0:.1f}s"
-    )
-
-    # Generate index file for all produced fixtures by merging partial indexes.
-    # Only merge if partial indexes were actually written (i.e., tests produced
-    # fixtures). When no tests are filled (e.g., all skipped), no partial
-    # indexes exist and merge_partial_indexes should not be called.
+    # Generate index file for all produced fixtures.
     if (
         session.config.getoption("generate_index")
         and not session_instance.phase_manager.is_pre_alloc_generation
     ):
-        meta_dir = fixture_output.directory / ".meta"
-        if meta_dir.exists() and any(meta_dir.glob("partial_index*.jsonl")):
-            _log_timing("merge_partial_indexes: starting...")
-            t0 = time.time()
-            merge_partial_indexes(fixture_output.directory, quiet_mode=True)
-            _log_timing(
-                f"merge_partial_indexes: done in {time.time() - t0:.1f}s"
-            )
+        generate_fixtures_index(
+            fixture_output.directory, quiet_mode=True, force_flag=False
+        )
 
     # Create tarball of the output directory if the output is a tarball.
-    _log_timing("create_tarball: starting...")
-    t0 = time.time()
     fixture_output.create_tarball()
-    _log_timing(f"create_tarball: done in {time.time() - t0:.1f}s")
-
-    _log_timing("Finalization (master): COMPLETE")

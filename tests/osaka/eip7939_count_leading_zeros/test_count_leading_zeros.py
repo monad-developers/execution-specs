@@ -150,7 +150,7 @@ def test_clz_gas_cost(
             CodeGasMeasure(
                 code=Op.CLZ(Op.PUSH1(1)),
                 extra_stack_items=1,
-                overhead_cost=Op.PUSH1.gas_cost(fork),
+                overhead_cost=fork.gas_costs().G_VERY_LOW,
             ),
         ),
         storage={"0x00": "0xdeadbeef"},
@@ -161,7 +161,7 @@ def test_clz_gas_cost(
     )
     post = {
         contract_address: Account(  # Cost measured is CLZ + PUSH1
-            storage={"0x00": Op.CLZ.gas_cost(fork)}
+            storage={"0x00": fork.gas_costs().G_LOW}
         ),
     }
     state_test(pre=pre, post=post, tx=tx)
@@ -188,7 +188,9 @@ def test_clz_gas_cost_boundary(
     call_code = Op.SSTORE(
         0,
         Op.CALL(
-            gas=code.gas_cost(fork) + gas_cost_delta,
+            gas=fork.gas_costs().G_VERY_LOW
+            + Spec.CLZ_GAS_COST
+            + gas_cost_delta,
             address=contract_address,
         ),
     )
@@ -306,7 +308,7 @@ def test_clz_push_operation_same_value(
 
 @EIPChecklist.Opcode.Test.ForkTransition.Invalid()
 @EIPChecklist.Opcode.Test.ForkTransition.At()
-@pytest.mark.valid_at_transition_to("Osaka")
+@pytest.mark.valid_at_transition_to("Osaka", subsequent_forks=True)
 def test_clz_fork_transition(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

@@ -42,8 +42,7 @@ class EnvironmentInStateTestFiller(BaseModel):
         if self.current_difficulty is None:
             if self.current_random is None:
                 raise ValueError(
-                    "If `currentDifficulty` is not set, "
-                    "`currentRandom` must be set!"
+                    "If `currentDifficulty` is not set, `currentRandom` must be set!"
                 )
         return self
 
@@ -52,8 +51,7 @@ class EnvironmentInStateTestFiller(BaseModel):
         kwargs: Dict[str, Any] = {}
         if isinstance(self.current_coinbase, Tag):
             assert self.current_coinbase.name in tags, (
-                f"Tag {self.current_coinbase.name} to resolve coinbase "
-                "not found in tags"
+                f"Tag {self.current_coinbase.name} to resolve coinbase not found in tags"
             )
             kwargs["fee_recipient"] = self.current_coinbase.resolve(tags)
         else:

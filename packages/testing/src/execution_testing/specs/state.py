@@ -44,7 +44,6 @@ from execution_testing.fixtures.state import (
     FixtureEnvironment,
     FixtureForkPost,
     FixtureTransaction,
-    FixtureTransactionReceipt,
 )
 from execution_testing.forks import Fork
 from execution_testing.logging import (
@@ -186,8 +185,7 @@ class StateTest(BaseTest):
             )
         except Exception as e:
             logger.debug(
-                "Transactions are not equivalent "
-                f"(gas_limit={current_gas_limit})"
+                f"Transactions are not equivalent (gas_limit={current_gas_limit})"
             )
             logger.debug(e)
             return False
@@ -204,16 +202,14 @@ class StateTest(BaseTest):
         for k in base_tool_alloc.root.keys():
             if k not in modified_tool_alloc:
                 logger.debug(
-                    "Post alloc is not equivalent "
-                    f"(gas_limit={current_gas_limit})"
+                    f"Post alloc is not equivalent (gas_limit={current_gas_limit})"
                 )
                 return False
             base_account = base_tool_alloc[k]
             modified_account = modified_tool_alloc[k]
             if (modified_account is None) != (base_account is None):
                 logger.debug(
-                    "Post alloc is not equivalent "
-                    f"(gas_limit={current_gas_limit})"
+                    f"Post alloc is not equivalent (gas_limit={current_gas_limit})"
                 )
                 return False
             if (
@@ -222,8 +218,7 @@ class StateTest(BaseTest):
                 and base_account.nonce != modified_account.nonce
             ):
                 logger.debug(
-                    "Post alloc is not equivalent "
-                    f"(gas_limit={current_gas_limit})"
+                    f"Post alloc is not equivalent (gas_limit={current_gas_limit})"
                 )
                 return False
         logger.debug(
@@ -253,12 +248,10 @@ class StateTest(BaseTest):
         Generate the genesis environment for the BlockchainTest formatted test.
         """
         assert self.env.number >= 1, (
-            "genesis block number cannot be negative, set state test "
-            "env.number to at least 1"
+            "genesis block number cannot be negative, set state test env.number to at least 1"
         )
         assert self.env.timestamp >= 1, (
-            "genesis timestamp cannot be negative, set state test "
-            "env.timestamp to at least 1"
+            "genesis timestamp cannot be negative, set state test env.timestamp to at least 1"
         )
         # There's only a handful of values that we need to set in the genesis
         # for the environment values at block 1 to make sense:
@@ -444,8 +437,7 @@ class StateTest(BaseTest):
                         ):
                             raise Exception(
                                 "Requires more than the minimum "
-                                f"{self._gas_optimization_max_gas_limit} "
-                                "wanted."
+                                f"{self._gas_optimization_max_gas_limit} wanted."
                             )
 
                 assert self.verify_modified_gas_limit(
@@ -469,27 +461,11 @@ class StateTest(BaseTest):
             )
             gas_used = int(transition_tool_output.result.gas_used)
             if not self.skip_gas_used_validation:
-                diff = gas_used - expected_benchmark_gas_used
                 assert gas_used == expected_benchmark_gas_used, (
-                    f"gas_used ({gas_used}) does not match "
-                    f"expected_benchmark_gas_used "
-                    f"({expected_benchmark_gas_used}), difference: {diff}"
+                    f"gas_used ({gas_used}) does not match expected_benchmark_gas_used "
+                    f"({expected_benchmark_gas_used})"
+                    f", difference: {gas_used - expected_benchmark_gas_used}"
                 )
-        if len(transition_tool_output.result.receipts) == 1:
-            receipt = FixtureTransactionReceipt.from_transaction_receipt(
-                transition_tool_output.result.receipts[0], tx
-            )
-            receipt_root = FixtureTransactionReceipt.list_root([receipt])
-            assert (
-                transition_tool_output.result.receipts_root == receipt_root
-            ), (
-                f"Receipts root mismatch: "
-                f"{transition_tool_output.result.receipts_root} != "
-                f"{receipt_root.hex()}"
-                f"Receipt: {receipt.rlp()}"
-            )
-        else:
-            receipt = None
 
         return StateFixture(
             env=FixtureEnvironment(**env.model_dump(exclude_none=True)),
@@ -499,7 +475,6 @@ class StateTest(BaseTest):
                     FixtureForkPost(
                         state_root=transition_tool_output.result.state_root,
                         logs_hash=transition_tool_output.result.logs_hash,
-                        receipt=receipt,
                         tx_bytes=tx.rlp(),
                         expect_exception=tx.error,
                         state=output_alloc,

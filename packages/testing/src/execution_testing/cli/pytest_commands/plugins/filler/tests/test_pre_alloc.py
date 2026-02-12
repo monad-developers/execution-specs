@@ -11,7 +11,7 @@ from execution_testing.base_types import (
 )
 from execution_testing.forks import Fork, Prague
 from execution_testing.test_types import EOA
-from execution_testing.vm import Op
+from execution_testing.vm import EVMCodeType, Op
 
 from ..pre_alloc import (
     CONTRACT_ADDRESS_INCREMENTS_DEFAULT,
@@ -24,6 +24,7 @@ from ..pre_alloc import (
 def create_test_alloc(
     alloc_mode: AllocMode = AllocMode.PERMISSIVE,
     fork: Fork = Prague,
+    evm_code_type: EVMCodeType = EVMCodeType.LEGACY,
 ) -> Alloc:
     """Create a test Alloc instance with default iterators."""
     contract_iter = iter(
@@ -45,6 +46,7 @@ def create_test_alloc(
         contract_address_iterator=contract_iter,
         eoa_iterator=eoa_iter,
         fork=fork,
+        evm_code_type=evm_code_type,
     )
 
 
@@ -151,9 +153,12 @@ def test_alloc_empty_account() -> None:
     # Note: empty_account() only returns address, doesn't add to pre
 
 
-def test_alloc_deploy_contract_code_types() -> None:
-    """Test `Alloc.deploy_contract` bytecode output."""
-    pre = create_test_alloc()
+@pytest.mark.parametrize(
+    "evm_code_type", [EVMCodeType.LEGACY, EVMCodeType.EOF_V1]
+)
+def test_alloc_deploy_contract_code_types(evm_code_type: EVMCodeType) -> None:
+    """Test `Alloc.deploy_contract` with different EVM code types."""
+    pre = create_test_alloc(evm_code_type=evm_code_type)
 
     contract = pre.deploy_contract(Op.SSTORE(0, 1) + Op.STOP)
 
@@ -162,8 +167,12 @@ def test_alloc_deploy_contract_code_types() -> None:
     assert account is not None
     assert account.code is not None
 
-    # Bytecode should be raw opcodes
-    assert account.code == bytes.fromhex("600160005500")
+    if evm_code_type == EVMCodeType.LEGACY:
+        # Legacy bytecode should be raw opcodes
+        assert account.code == bytes.fromhex("600160005500")
+    elif evm_code_type == EVMCodeType.EOF_V1:
+        # EOF v1 should have the EOF container header
+        assert account.code.startswith(b"\xef\x00\x01")
 
 
 @pytest.mark.parametrize(

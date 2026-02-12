@@ -33,6 +33,7 @@ from execution_testing.base_types.conversions import (
     FixedSizeBytesConvertible,
     NumberConvertible,
 )
+from execution_testing.vm import EVMCodeType
 
 from .trie import (
     EMPTY_TRIE_ROOT,
@@ -172,10 +173,7 @@ class Alloc(BaseAlloc):
 
         def __str__(self) -> str:
             """Print exception string."""
-            return (
-                f"unexpected account in allocation {self.address}: "
-                f"{self.account}"
-            )
+            return f"unexpected account in allocation {self.address}: {self.account}"
 
     @dataclass(kw_only=True)
     class MissingAccountError(Exception):
@@ -246,8 +244,7 @@ class Alloc(BaseAlloc):
         if overlapping_keys:
             if key_collision_mode == cls.KeyCollisionMode.ERROR:
                 raise Exception(
-                    f"Overlapping keys detected: "
-                    f"{[key.hex() for key in overlapping_keys]}"
+                    f"Overlapping keys detected: {[key.hex() for key in overlapping_keys]}"
                 )
             elif (
                 key_collision_mode
@@ -414,11 +411,9 @@ class Alloc(BaseAlloc):
             storage: The expected storage state of the deployed contract after
                      initcode execution.
             label: Label to use for the contract.
-
         """
         raise NotImplementedError(
-            "deterministic_deploy_contract is not implemented in the base "
-            "class"
+            "deterministic_deploy_contract is not implemented in the base class"
         )
 
     def deploy_contract(
@@ -429,6 +424,7 @@ class Alloc(BaseAlloc):
         balance: NumberConvertible = 0,
         nonce: NumberConvertible = 1,
         address: Address | None = None,
+        evm_code_type: EVMCodeType | None = None,
         label: str | None = None,
         stub: str | None = None,
     ) -> Address:
@@ -472,7 +468,6 @@ class Alloc(BaseAlloc):
             minimum_balance: If set to True, account will be checked to have a
                 minimum balance of `amount` and only fund if the balance is
                 insufficient
-
         """
         raise NotImplementedError(
             "fund_address is not implemented in the base class"

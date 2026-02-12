@@ -1,13 +1,12 @@
-from socket import socket
-from typing import Mapping, Tuple
-
 import urllib3
+from typing import Tuple, Mapping
 from _typeshed import Incomplete
 from requests.adapters import HTTPAdapter
 from requests.models import PreparedRequest
-from urllib3._collections import RecentlyUsedContainer
-from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.util import Timeout
+from urllib3.connectionpool import HTTPConnectionPool
+from urllib3._collections import RecentlyUsedContainer
+from socket import socket
 
 class UnixHTTPConnection(urllib3.connection.HTTPConnection):
     unix_socket_url: str

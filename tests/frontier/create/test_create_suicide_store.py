@@ -19,6 +19,7 @@ from execution_testing import (
     Transaction,
     compute_create_address,
 )
+from execution_testing.forks import Byzantium
 
 
 class Operation(IntEnum):
@@ -146,7 +147,7 @@ def test_create_suicide_store(
         to=create_contract,
         data=suicide_initcode,
         sender=sender,
-        protected=fork.supports_protected_txs(),
+        protected=fork >= Byzantium,
     )
 
     post = {

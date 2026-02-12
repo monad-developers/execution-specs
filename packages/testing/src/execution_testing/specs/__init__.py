@@ -11,6 +11,14 @@ from .blockchain import (
     BlockchainTestSpec,
     Header,
 )
+from .eof import (
+    EOFStateTest,
+    EOFStateTestFiller,
+    EOFStateTestSpec,
+    EOFTest,
+    EOFTestFiller,
+    EOFTestSpec,
+)
 from .state import StateTest, StateTestFiller, StateTestSpec
 from .static_state.state_static import StateStaticTest
 from .transaction import (
@@ -35,6 +43,12 @@ __all__ = (
     "BlockchainTestSpec",
     "Block",
     "Header",
+    "EOFStateTest",
+    "EOFStateTestFiller",
+    "EOFStateTestSpec",
+    "EOFTest",
+    "EOFTestFiller",
+    "EOFTestSpec",
     "StateStaticTest",
     "StateTest",
     "StateTestFiller",

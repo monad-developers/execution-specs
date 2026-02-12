@@ -21,7 +21,7 @@ def test_function(state_test, pre):
 
 
 @pytest.fixture
-def expected_exit_code() -> pytest.ExitCode:  # noqa: D103
+def expected_exit_code() -> pytest.ExitCode:
     return pytest.ExitCode.OK
 
 
@@ -57,6 +57,7 @@ class TestFillClickCli:
         result = run_fill("--help")
         assert "[--evm-bin EVM_BIN]" in result.output
         assert "[--traces]" in result.output
+        assert "[--evm-code-type EVM_CODE_TYPE]" in result.output
         assert "--help" in result.output
         assert "Arguments defining evm executable behavior:" in result.output
 
@@ -81,8 +82,7 @@ class TestFillPytester:
     """
     Test fill command using pytester.
 
-    This mode skips the fill command's Click CLI and uses pytester to run
-    the command.
+    This mode skips the fill command's Click CLI and uses pytester to run the command.
 
     Pytester allows actually filling the Python test files.
     """
@@ -144,10 +144,7 @@ class TestFillPytester:
     @pytest.fixture()
     def default_html_report_file_path(self) -> str:
         """File path for fill's pytest html report."""
-        filler_module = (
-            execution_testing.cli.pytest_commands.plugins.filler.filler
-        )
-        return filler_module.default_html_report_file_path()
+        return execution_testing.cli.pytest_commands.plugins.filler.filler.default_html_report_file_path()
 
     @pytest.fixture(scope="function")
     def default_fixtures_output(

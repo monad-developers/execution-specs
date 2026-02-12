@@ -141,7 +141,6 @@ def access_delegation(
 
     """
     state = evm.message.block_env.state
-
     code = get_account(state, address).code
     if not is_valid_delegation(code):
         return False, False, address, code, Uint(0)
@@ -165,6 +164,8 @@ def set_delegation(message: Message) -> U256:
     ----------
     message :
         Transaction specific items.
+    env :
+        External items required for EVM execution.
 
     Returns
     -------

@@ -76,8 +76,7 @@ class GitReferenceSpec(ReferenceSpec):
 
         if response.status_code != 200:
             warnings.warn(
-                f"Unable to get latest version, "
-                f"status code: {response.status_code} - "
+                f"Unable to get latest version, status code: {response.status_code} - "
                 f"text: {response.text}",
                 stacklevel=2,
             )

@@ -46,6 +46,11 @@ class OpcodeWithOperands:
         opcode_name = self.opcode._name_.lower()
         if self.opcode.data_portion_length == 0:
             return f"{opcode_name}"
+        elif self.opcode == Op.RJUMPV:
+            operands = ", ".join(
+                str(ZeroPaddedHexNumber(operand)) for operand in self.operands
+            )
+            return f"{opcode_name} {operands}"
         else:
             operands = ", ".join(
                 str(ZeroPaddedHexNumber(operand)) for operand in self.operands
@@ -89,6 +94,7 @@ def process_evm_bytes(evm_bytes: bytes) -> List[OpcodeWithOperands]:  # noqa: D1
             raise ValueError(f"Unknown opcode: {opcode_byte}")
 
         if opcode.data_portion_length > 0:
+            signed = opcode in [Op.RJUMP, Op.RJUMPI]
             opcodes.append(
                 OpcodeWithOperands(
                     opcode=opcode,
@@ -96,20 +102,35 @@ def process_evm_bytes(evm_bytes: bytes) -> List[OpcodeWithOperands]:  # noqa: D1
                         int.from_bytes(
                             evm_bytes_array[: opcode.data_portion_length],
                             "big",
+                            signed=signed,
                         )
                     ],
                 )
             )
             evm_bytes_array = evm_bytes_array[opcode.data_portion_length :]
+        elif opcode == Op.RJUMPV:
+            if len(evm_bytes_array) == 0:
+                opcodes.append(OpcodeWithOperands(opcode=opcode))
+            else:
+                max_index = evm_bytes_array.pop(0)
+                operands: List[int] = []
+                for _ in range(max_index + 1):
+                    operands.append(
+                        int.from_bytes(evm_bytes_array[:2], "big", signed=True)
+                    )
+                    evm_bytes_array = evm_bytes_array[2:]
+                opcodes.append(
+                    OpcodeWithOperands(opcode=opcode, operands=operands)
+                )
         else:
             opcodes.append(OpcodeWithOperands(opcode=opcode))
 
     return opcodes
 
 
-def format_opcodes(  # noqa: D103
+def format_opcodes(
     opcodes: List[OpcodeWithOperands], assembly: bool = False
-) -> str:
+) -> str:  # noqa: D103
     if assembly:
         opcodes_with_empty_lines: List[OpcodeWithOperands] = []
         for i, op_with_operands in enumerate(opcodes):
