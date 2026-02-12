@@ -170,12 +170,10 @@ def test() -> None:
     if fork in [dev_fork.name() for dev_fork in get_development_forks()]:
         fork_option = f" --until={fork}"
 
-    docs_url = DocsConfig().DOCS_URL__WRITING_TESTS
     click.echo(
         click.style(
-            f"\n 📝 Get started with tests:  {docs_url}"
-            f"\n ⛽ To fill this test, run: "
-            f"`uv run fill {module_path}{fork_option}`",
+            f"\n 📝 Get started with tests:  {DocsConfig().DOCS_URL__WRITING_TESTS}"
+            f"\n ⛽ To fill this test, run: `uv run fill {module_path}{fork_option}`",
             fg="cyan",
         )
     )

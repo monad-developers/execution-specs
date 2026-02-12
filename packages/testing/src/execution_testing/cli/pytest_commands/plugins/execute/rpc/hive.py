@@ -58,12 +58,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store",
         dest="tx_wait_timeout",
         type=int,
-        # Lowered from Remote RPC because of consistent block production
-        default=10,
-        help=(
-            "Maximum time in seconds to wait for a transaction to be "
-            "included in a block"
-        ),
+        default=10,  # Lowered from Remote RPC because of the consistent block production
+        help="Maximum time in seconds to wait for a transaction to be included in a block",
     )
 
 
@@ -255,8 +251,7 @@ def base_hive_test(
             test = test_suite.start_test(
                 name="Base Hive Test",
                 description=(
-                    "Base test used to deploy the main client to be used "
-                    "throughout all tests."
+                    "Base test used to deploy the main client to be used throughout all tests."
                 ),
             )
             with open(base_file, "w") as f:
@@ -342,9 +337,8 @@ def client(
                         )
 
     error_message = (
-        f"Unable to connect to the client container ({client_type.name}) "
-        "via Hive during test setup. Check the client or Hive server logs "
-        "for more information."
+        f"Unable to connect to the client container ({client_type.name}) via Hive during test "
+        "setup. Check the client or Hive server logs for more information."
     )
     assert client is not None, error_message
 

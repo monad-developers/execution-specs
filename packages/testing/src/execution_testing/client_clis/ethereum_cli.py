@@ -111,8 +111,7 @@ class EthereumCLI:
             binary = Path(resolved_path)
         else:
             logger.debug(
-                f"Resolved path does not exist: {resolved_path}\n"
-                "Trying to find it via `which`"
+                f"Resolved path does not exist: {resolved_path}\nTrying to find it via `which`"
             )
 
             # it might be that the provided binary exists in path
@@ -156,8 +155,7 @@ class EthereumCLI:
 
                 if result.returncode != 0:
                     logger.debug(
-                        "Subprocess returncode is not 0! "
-                        f"It is: {result.returncode}"
+                        f"Subprocess returncode is not 0! It is: {result.returncode}"
                     )
                     # don't raise exception, you are supposed to keep trying
                     # different version flags
@@ -190,14 +188,12 @@ class EthereumCLI:
                         continue
 
                     logger.debug(
-                        f"T8n with version {binary_output} does not "
-                        f"belong to subclass {subclass}"
+                        f"T8n with version {binary_output} does not belong to subclass {subclass}"
                     )
 
             except Exception as e:
                 logger.debug(
-                    f"Trying to determine t8n version with flag "
-                    f"`{version_flag}` failed: {e}"
+                    f"Trying to determine t8n version with flag `{version_flag}` failed: {e}"
                 )
                 continue
 
@@ -213,8 +209,7 @@ class EthereumCLI:
         assert cls.detect_binary_pattern is not None
 
         logger.debug(
-            f"Trying to match {binary_output} against this "
-            f"pattern: {cls.detect_binary_pattern}"
+            f"Trying to match {binary_output} against this pattern: {cls.detect_binary_pattern}"
         )
         match_result = cls.detect_binary_pattern.match(binary_output)
         match_successful: bool = match_result is not None

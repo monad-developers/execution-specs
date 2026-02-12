@@ -54,7 +54,7 @@ class BenchmarkCodeGenerator(ABC):
     setup: Bytecode = field(default_factory=Bytecode)
     cleanup: Bytecode = field(default_factory=Bytecode)
     tx_kwargs: Dict[str, Any] = field(default_factory=dict)
-    fixed_opcode_count: float | None = None
+    fixed_opcode_count: int | None = None
     code_padding_opcode: Op | None = None
     _contract_address: Address | None = None
     _inner_iterations: int = 1000
@@ -78,13 +78,10 @@ class BenchmarkCodeGenerator(ABC):
             "fixed_opcode_count is not set"
         )
         # Adjust outer loop iterations based on inner iterations
-        if self.fixed_opcode_count < 1.0:
-            # < 1000 opcodes, outer = 1 as inner already set to exact count
-            iterations = 1
-        else:
-            # >= 1000: calculate outer iterations from target / inner
-            target_opcodes = int(self.fixed_opcode_count * 1000)
-            iterations = target_opcodes // self._inner_iterations
+        # If inner is 500 instead of 1000, double the outer loop
+        outer_multiplier = 1000 // self._inner_iterations
+        iterations = self.fixed_opcode_count * outer_multiplier
+
         prefix = Op.CALLDATACOPY(
             Op.PUSH0, Op.PUSH0, Op.CALLDATASIZE
         ) + Op.PUSH4(iterations)
@@ -181,61 +178,24 @@ class BenchmarkCodeGenerator(ABC):
         max_iterations = available_space // len(repeated_code)
 
         # Use fixed_opcode_count if provided, otherwise fill to max
-        # Iteration Logic: The goal is to set the total operation count
-        # proportional to a 'fixed_opcode_count' multiplied by 1000,
-        # across two contracts (Loop M * Target N).
+        # Iteration Logic: The goal is to set the total operation count proportional to a
+        # 'fixed_opcode_count' multiplied by 1000, across two contracts (Loop M * Target N).
 
         # --- 1. Determine Inner Iterations (N) ---
-        # The Target Contract's loop count is determined by block filling,
-        # capped at 1000.
+        # The Target Contract's loop count is determined by block filling, capped at 1000.
         #
         # 1a. Calculate 'max_iterations' to fill the block.
         # 1b. The Inner Iteration count (N) is capped at 1000.
-        # 1c. If the calculated N is less than 1000, use 250 as fallback.
+        # 1c. If the calculated N is less than 1000, use 500 as the fallback count.
 
         # --- 2. Determine Outer Iterations (M) ---
-        # The Loop Contract's call count (M) is set to ensure the final
-        # total execution is consistent.
+        # The Loop Contract's call count (M) is set to ensure the final total execution is consistent.
         #
-        # 2a. If N=1000: M = fixed_opcode_count (Total: foc*1000)
-        # 2b. If N=250: M = fixed_opcode_count*4 (Total: same as above)
-        #
-        # --- 3. Sub-1K Case (fixed_opcode_count < 1.0) ---
-        # For Sub-1K counts (e.g., 0.25 = 250 opcodes): N = exact count, M = 1.
+        # 2a. If N is 1000: Set M = fixed_opcode_count. (Total ops: fixed_opcode_count * 1000)
+        # 2b. If N is 500: Set M = fixed_opcode_count * 2. (Total ops: (fixed_opcode_count * 2) * 500 = fixed_opcode_count * 1000)
         if self.fixed_opcode_count is not None:
-            if self.fixed_opcode_count < 0.001:
-                raise ValueError(
-                    f"fixed_opcode_count must be >= 0.001 (1 opcode), "
-                    f"got {self.fixed_opcode_count}"
-                )
-            if self.fixed_opcode_count < 1.0:
-                # < 1000 opcodes, inner = exact count, outer = 1
-                self._inner_iterations = min(
-                    max_iterations, int(self.fixed_opcode_count * 1000)
-                )
-            else:
-                # >= 1000 opcodes: use 250 inner iterations (0.25K granularity)
-                target_opcodes = int(self.fixed_opcode_count * 1000)
-
-                if max_iterations >= 250 and target_opcodes % 250 == 0:
-                    inner_iterations = 250
-                elif max_iterations >= target_opcodes:
-                    # Use exact count as inner with outer = 1
-                    inner_iterations = target_opcodes
-                else:
-                    suggested_lo = ((target_opcodes // 250) * 250) / 1000
-                    suggested_hi = ((target_opcodes // 250 + 1) * 250) / 1000
-                    raise ValueError(
-                        f"fixed_opcode_count {self.fixed_opcode_count} "
-                        f"({target_opcodes} opcodes) exceeds max contract "
-                        f"size for this attack block.\n"
-                        f"Contract size limit allows up to {max_iterations} "
-                        f"opcodes ({max_iterations / 1000:.3f}K) in the "
-                        f"inner loop.\n"
-                        f"For counts above this limit, use multiples of 0.25K "
-                        f"(e.g., {suggested_lo:.2f} or {suggested_hi:.2f})."
-                    )
-                self._inner_iterations = inner_iterations
+            inner_iterations = 1000 if max_iterations >= 1000 else 500
+            self._inner_iterations = min(max_iterations, inner_iterations)
 
         # TODO: Unify the PUSH0 and PUSH1 usage.
         iterations = (
@@ -261,8 +221,8 @@ class BenchmarkCodeGenerator(ABC):
         """Validate that the generated code fits within size limits."""
         if len(code) > fork.max_code_size():
             raise ValueError(
-                f"Generated code size {len(code)} exceeds maximum "
-                f"allowed size {fork.max_code_size()}"
+                f"Generated code size {len(code)} exceeds maximum allowed size "
+                f"{fork.max_code_size()}"
             )
 
 
@@ -287,7 +247,7 @@ class BenchmarkTest(BaseTest):
     gas_benchmark_value: int = Field(
         default_factory=lambda: int(Environment().gas_limit)
     )
-    fixed_opcode_count: float | None = None
+    fixed_opcode_count: int | None = None
     target_opcode: Op | None = None
     code_generator: BenchmarkCodeGenerator | None = None
 
@@ -308,9 +268,7 @@ class BenchmarkTest(BaseTest):
     ]
 
     supported_markers: ClassVar[Dict[str, str]] = {
-        "blockchain_test_engine_only": (
-            "Only generate a blockchain test engine fixture"
-        ),
+        "blockchain_test_engine_only": "Only generate a blockchain test engine fixture",
         "blockchain_test_only": "Only generate a blockchain test fixture",
         "repricing": "Mark test as reference test for gas repricing analysis",
     }
@@ -337,8 +295,7 @@ class BenchmarkTest(BaseTest):
 
         if len(set_props) != 1:
             raise ValueError(
-                f"Exactly one must be set, but got {len(set_props)}: "
-                f"{', '.join(set_props)}"
+                f"Exactly one must be set, but got {len(set_props)}: {', '.join(set_props)}"
             )
 
         blocks: List[Block] = self.setup_blocks
@@ -378,8 +335,7 @@ class BenchmarkTest(BaseTest):
 
         else:
             raise ValueError(
-                "Cannot create BlockchainTest without a code generator, "
-                "transactions, or blocks"
+                "Cannot create BlockchainTest without a code generator, transactions, or blocks"
             )
 
         self.blocks = blocks
@@ -491,9 +447,8 @@ class BenchmarkTest(BaseTest):
     def _verify_target_opcode_count(
         self, opcode_count: OpcodeCount | None
     ) -> None:
-        """Verify target opcode was executed the expected number of times."""
-        # Skip validation if opcode count is not available
-        # (e.g. currently only supported for evmone filling)
+        """Verify the target opcode was executed the expected number of times."""
+        # Skip validation if opcode count is not available (e.g. currently only supported for evmone filling)
         if opcode_count is None:
             return
 

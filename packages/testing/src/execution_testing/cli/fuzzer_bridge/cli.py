@@ -330,8 +330,7 @@ def process_directory_parallel(
                         error_file, exception = error
                         if not quiet:
                             progress.console.print(
-                                f"[red]Error processing {error_file}: "
-                                f"{exception}[/red]"
+                                f"[red]Error processing {error_file}: {exception}[/red]"
                             )
 
                     # Update progress bar
@@ -366,11 +365,10 @@ def process_directory_parallel(
         # Final status
         if not quiet:
             emoji = "✅" if error_count == 0 else "⚠️"
-            status = f"Done! {success_count} succeeded, {error_count} failed"
             progress.update(
                 task_id,
                 completed=file_count,
-                filename=f"{status} {emoji}",
+                filename=f"Done! {success_count} succeeded, {error_count} failed {emoji}",
                 workers=num_workers,
             )
 
@@ -485,11 +483,10 @@ def process_directory(
         # Final status
         if not quiet:
             emoji = "✅" if error_count == 0 else "⚠️"
-            status = f"Done! {success_count} succeeded, {error_count} failed"
             progress.update(
                 task_id,
                 completed=file_count,
-                filename=f"{status} {emoji}",
+                filename=f"Done! {success_count} succeeded, {error_count} failed {emoji}",
             )
 
 
@@ -670,9 +667,7 @@ def batch_mode(
     "--workers",
     type=int,
     default=None,
-    help=(
-        "Number of parallel workers (default: auto-detect based on CPU count)"
-    ),
+    help="Number of parallel workers (default: auto-detect based on CPU count)",
 )
 @click.option(
     "-b",
@@ -685,10 +680,8 @@ def batch_mode(
     "--block-strategy",
     type=click.Choice(["distribute", "first-block"]),
     default="distribute",
-    help=(
-        "Transaction distribution strategy: 'distribute' splits txs evenly, "
-        "'first-block' puts all txs in first block (default: distribute)"
-    ),
+    help="Transaction distribution strategy: 'distribute' splits txs evenly, "
+    "'first-block' puts all txs in first block (default: distribute)",
 )
 @click.option(
     "--block-time",
@@ -746,8 +739,7 @@ def main(
     # Standard mode: require input_path and output_path
     if input_path is None or output_path is None:
         raise click.UsageError(
-            "INPUT_PATH and OUTPUT_PATH are required when not using "
-            "--batch mode"
+            "INPUT_PATH and OUTPUT_PATH are required when not using --batch mode"
         )
     # Create transition tool
     t8n: TransitionTool

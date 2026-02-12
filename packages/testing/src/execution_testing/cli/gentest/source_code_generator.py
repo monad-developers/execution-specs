@@ -89,6 +89,7 @@ def format_code(code: str) -> str:
                 str(formatter_path),
                 "format",
                 str(input_file_path),
+                "--quiet",
                 "--no-cache",
                 "--config",
                 str(config_path),
@@ -99,8 +100,7 @@ def format_code(code: str) -> str:
         if result.returncode != 0:
             raise Exception(
                 f"Error formatting code using formatter '{formatter_path}': "
-                f"returncode={result.returncode}, stdout={result.stdout!r}, "
-                f"stderr={result.stderr!r}"
+                f"{result.stderr}"
             )
 
         # Return the formatted source code

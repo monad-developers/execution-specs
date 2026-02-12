@@ -155,8 +155,7 @@ def create_sender_eoa_map(
 
         # Verify private key matches address (safety check)
         assert Address(sender) == addr, (
-            f"Private key for account {addr} does not match derived "
-            f"address {sender}"
+            f"Private key for account {addr} does not match derived address {sender}"
         )
 
         senders[addr] = sender

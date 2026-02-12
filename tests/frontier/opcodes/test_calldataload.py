@@ -10,6 +10,7 @@ from execution_testing import (
     Transaction,
 )
 from execution_testing import Macros as Om
+from execution_testing.forks import Byzantium
 
 
 @pytest.mark.ported_from(
@@ -91,7 +92,7 @@ def test_calldataload(
         tx = Transaction(
             data=calldata,
             gas_limit=100_000,
-            protected=fork.supports_protected_txs(),
+            protected=fork >= Byzantium,
             sender=pre.fund_eoa(),
             to=to,
         )
@@ -100,7 +101,7 @@ def test_calldataload(
         tx = Transaction(
             data=calldata,
             gas_limit=100_000,
-            protected=fork.supports_protected_txs(),
+            protected=fork >= Byzantium,
             sender=pre.fund_eoa(),
             to=contract_address,
         )

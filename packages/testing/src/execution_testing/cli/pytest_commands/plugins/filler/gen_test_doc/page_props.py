@@ -26,11 +26,10 @@ def apply_name_filters(input_string: str) -> str:
     Apply a list of capitalizations/regexes to names used in titles & nav
     menus.
 
-    Note: As of 2024-10-08, with 634 doc pages, this function constitutes
-    ~2.0s of the total runtime (~5.5s). This seems to be insignificant with
-    the time taken by mkdocstrings to include the docstrings in the final
-    output, which is a separate mkdocs "build-step" that occurs outside the
-    scope of this plugin.
+    Note: As of 2024-10-08, with 634 doc pages, this function constitutes ~2.0s
+    of the total runtime (~5.5s). This seems to be insignificant with the time
+    taken by mkdocstrings to include the docstrings in the final output, which
+    is a separate mkdocs "build-step" that occurs outside the scope of this plugin.
     """
     word_replacements = {
         "acl": "ACL",
@@ -45,6 +44,7 @@ def apply_name_filters(input_string: str) -> str:
         "bls12 map fp to g1": "BLS12_MAP_FP_TO_G1",
         "bls12 pairing": "BLS12_PAIRING_CHECK",
         "eips": "EIPs",
+        "eof": "EOF",
         "vm": "VM",
     }
     # adding these is the expensive part

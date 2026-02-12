@@ -17,8 +17,7 @@ def reset_phase_manager() -> None:
 def test_test_phase_enum_values() -> None:
     """Test that TestPhase enum has correct values."""
     assert TestPhase.SETUP.value == "setup"
-    assert TestPhase.EXECUTION.value == "testing"
-    assert TestPhase.CLEANUP.value == "cleanup"
+    assert TestPhase.EXECUTION.value == "execution"
 
 
 def test_phase_manager_class_state() -> None:

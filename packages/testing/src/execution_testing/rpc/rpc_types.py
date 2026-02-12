@@ -49,10 +49,7 @@ class JSONRPCError(Exception):
     def __str__(self) -> str:
         """Return string representation of the JSONRPCError."""
         if self.data is not None:
-            return (
-                f"JSONRPCError(code={self.code}, message={self.message}, "
-                f"data={self.data})"
-            )
+            return f"JSONRPCError(code={self.code}, message={self.message}, data={self.data})"
 
         return f"JSONRPCError(code={self.code}, message={self.message})"
 
@@ -196,8 +193,6 @@ class BlobAndProofV2(CamelModel):
 
 class GetPayloadResponse(CamelModel):
     """Represents the response of a get payload request."""
-
-    model_config = CamelModel.model_config | {"extra": "ignore"}
 
     execution_payload: FixtureExecutionPayload
     blobs_bundle: BlobsBundle | None = None

@@ -22,8 +22,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         type=str,
         default=None,
         help=(
-            "Path to a solc executable (for Yul source compilation). "
-            "Default: solc binary in PATH."
+            "Path to a solc executable (for Yul source compilation). Default: solc binary in PATH."
         ),
     )
 
@@ -44,8 +43,7 @@ def pytest_configure(config: pytest.Config) -> None:
         solc_bin = which("solc")
         if not solc_bin:
             pytest.exit(
-                "solc binary not found in PATH. Please install solc and "
-                "ensure it's in your PATH.",
+                "solc binary not found in PATH. Please install solc and ensure it's in your PATH.",
                 returncode=pytest.ExitCode.USAGE_ERROR,
             )
 
@@ -116,8 +114,8 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     if solc_version_semver < SOLC_EXPECTED_MIN_VERSION:
         pytest.exit(
-            f"Unsupported solc version: {solc_version_semver}. Minimum "
-            f"required version is {SOLC_EXPECTED_MIN_VERSION}",
+            f"Unsupported solc version: {solc_version_semver}. Minimum required version is "
+            f"{SOLC_EXPECTED_MIN_VERSION}",
             returncode=pytest.ExitCode.USAGE_ERROR,
         )
 

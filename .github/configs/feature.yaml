@@ -1,15 +1,15 @@
 # Unless filling for special features, all features should fill for previous forks (starting from Frontier) too
 stable:
   evm-type: stable
-  fill-params: --until=Prague --fill-static-tests --ignore=tests/static/state_tests/stQuadraticComplexityTest --no-html --durations=50
+  fill-params: --until=Prague --fill-static-tests --ignore=tests/static/state_tests/stQuadraticComplexityTest
 
 develop:
-  evm-type: develop
-  fill-params: --until=BPO4 --fill-static-tests --ignore=tests/static/state_tests/stQuadraticComplexityTest --no-html --durations=50
+  evm-type: develop 
+  fill-params: --until=BPO4 --fill-static-tests --ignore=tests/static/state_tests/stQuadraticComplexityTest
 
 monad:
   evm-type: develop
   # --suppress-no-test-exit-code works around a problem where multi-phase fill
   # (triggered by tarball output) fails to proceed on no tests processed
   # in 1st phase (exit code 5)
-  fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_NEXT --chain-id=143 -k "not eip4844 and not eip7002 and not eip7251 and not eip7685 and not eip6110 and not eip7594 and not eip7918 and not eip7610 and not eip7934 and not invalid_header" --no-html --durations=50
+  fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_NEXT --chain-id=143 -k "not eip4844 and not eip7002 and not eip7251 and not eip7685 and not eip6110 and not eip7594 and not eip7918 and not eip7610 and not eip7934 and not invalid_header"

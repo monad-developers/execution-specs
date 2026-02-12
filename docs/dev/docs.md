@@ -113,7 +113,7 @@ uv run mike list
 Delete a version:
 
 ```console
-uv run mike delete v1.2.3a1
+uv run mike delete v1.2.3a1-eof
 ```
 
 ### Set Default Version

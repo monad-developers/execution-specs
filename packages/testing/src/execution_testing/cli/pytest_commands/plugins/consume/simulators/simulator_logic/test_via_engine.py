@@ -77,8 +77,7 @@ def test_blockchain_via_engine(
             expected = fixture.genesis.block_hash
             got = genesis_block["hash"]
             logger.fail(
-                f"Genesis block hash mismatch. "
-                f"Expected: {expected}, Got: {got}"
+                f"Genesis block hash mismatch. Expected: {expected}, Got: {got}"
             )
             raise GenesisBlockMismatchExceptionError(
                 expected_header=fixture.genesis,
@@ -99,15 +98,17 @@ def test_blockchain_via_engine(
                 with payload_timing.time(
                     f"engine_newPayloadV{payload.new_payload_version}"
                 ):
-                    version = payload.new_payload_version
-                    logger.info(f"Sending engine_newPayloadV{version}...")
+                    logger.info(
+                        f"Sending engine_newPayloadV{payload.new_payload_version}..."
+                    )
                     try:
                         payload_response = engine_rpc.new_payload(
                             *payload.params,
                             version=payload.new_payload_version,
                         )
-                        status = payload_response.status
-                        logger.info(f"Payload response status: {status}")
+                        logger.info(
+                            f"Payload response status: {payload_response.status}"
+                        )
                         expected_validity = (
                             PayloadStatusEnum.VALID
                             if payload.valid()
@@ -120,8 +121,8 @@ def test_blockchain_via_engine(
                             )
                         if payload.error_code is not None:
                             raise LoggedError(
-                                "Client failed to raise expected Engine API "
-                                f"error code: {payload.error_code}"
+                                f"Client failed to raise expected Engine API error code: "
+                                f"{payload.error_code}"
                             )
                         elif (
                             payload_response.status
@@ -129,8 +130,7 @@ def test_blockchain_via_engine(
                         ):
                             if payload_response.validation_error is None:
                                 raise LoggedError(
-                                    "Client returned INVALID but no "
-                                    "validation error was provided."
+                                    "Client returned INVALID but no validation error was provided."
                                 )
                             if isinstance(
                                 payload_response.validation_error,
@@ -138,12 +138,9 @@ def test_blockchain_via_engine(
                             ):
                                 message = (
                                     "Undefined exception message: "
-                                    f"expected exception: "
-                                    f'"{payload.validation_error}", '
-                                    f"returned exception: "
-                                    f'"{payload_response.validation_error}" '
-                                    f"(mapper: "
-                                    f'"{payload_response.validation_error.mapper_name}")'  # noqa: E501
+                                    f'expected exception: "{payload.validation_error}", '
+                                    f'returned exception: "{payload_response.validation_error}" '
+                                    f'(mapper: "{payload_response.validation_error.mapper_name}")'
                                 )
                                 if strict_exception_matching:
                                     raise LoggedError(message)
@@ -155,12 +152,9 @@ def test_blockchain_via_engine(
                                     not in payload_response.validation_error
                                 ):
                                     message = (
-                                        "Client returned unexpected "
-                                        "validation error: "
-                                        f"got: "
-                                        f'"{payload_response.validation_error}" '  # noqa: E501
-                                        f"expected: "
-                                        f'"{payload.validation_error}"'
+                                        "Client returned unexpected validation error: "
+                                        f'got: "{payload_response.validation_error}" '
+                                        f'expected: "{payload.validation_error}"'
                                     )
                                     if strict_exception_matching:
                                         raise LoggedError(message)
@@ -169,8 +163,7 @@ def test_blockchain_via_engine(
 
                     except JSONRPCError as e:
                         logger.info(
-                            f"JSONRPC error encountered: "
-                            f"{e.code} - {e.message}"
+                            f"JSONRPC error encountered: {e.code} - {e.message}"
                         )
                         if payload.error_code is None:
                             raise LoggedError(
@@ -178,8 +171,7 @@ def test_blockchain_via_engine(
                             ) from e
                         if e.code != payload.error_code:
                             raise LoggedError(
-                                f"Unexpected error code: {e.code}, "
-                                f"expected: {payload.error_code}"
+                                f"Unexpected error code: {e.code}, expected: {payload.error_code}"
                             ) from e
 
                 if payload.valid():
@@ -204,9 +196,8 @@ def test_blockchain_via_engine(
                             forkchoice_response.payload_status.status
                             != PayloadStatusEnum.VALID
                         ):
-                            status = forkchoice_response.payload_status.status
                             raise LoggedError(
-                                f"unexpected status: want "
-                                f"{PayloadStatusEnum.VALID}, got {status}"
+                                f"unexpected status: want {PayloadStatusEnum.VALID},"
+                                f" got {forkchoice_response.payload_status.status}"
                             )
         logger.info("All payloads processed successfully.")

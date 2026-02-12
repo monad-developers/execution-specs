@@ -482,11 +482,18 @@ env
 envvar
 eoa
 EOAs
+eof
+EOF1
+eofcreate
+EOFException
+eofparse
+eoftest
+EOFv
+eofwrap
 epilog
 eq
 ERC
 Erigon
-errlines
 esbenp
 etc
 ETH
@@ -498,6 +505,7 @@ ethereum's
 EthereumCLI
 EthereumJS
 evm
+EVMCodeType
 Evmone
 evmone
 exc
@@ -762,7 +770,6 @@ makereport
 marcin
 marioevz
 markdownlint
-markexpr
 master
 matchers
 mcopy
@@ -849,7 +856,6 @@ ommers
 oneliner
 oob
 opc
-opcount
 opcode's
 OpenSSL
 oprypin
@@ -870,7 +876,6 @@ P7692
 paradigmxyz
 param
 parametrization
-parametrizations
 parametrize
 parametrized
 parametrizer
@@ -1288,7 +1293,6 @@ VRS
 vscode
 vv
 
-warmup
 Watcherfall
 wd
 wds
@@ -1332,9 +1336,3 @@ zfill
 zkevm
 Zsh
 zsh
-slot1
-slot2
-lexicographically
-uint16
-uint128
-630m

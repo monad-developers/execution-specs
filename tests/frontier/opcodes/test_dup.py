@@ -5,12 +5,12 @@ from execution_testing import (
     Account,
     Alloc,
     Environment,
-    Fork,
     Op,
     StateTestFiller,
     Storage,
     Transaction,
 )
+from execution_testing.forks import Frontier, Homestead
 
 
 @pytest.mark.parametrize(
@@ -35,9 +35,10 @@ from execution_testing import (
     ],
     ids=lambda op: str(op),
 )
+@pytest.mark.with_all_evm_code_types
 def test_dup(
     state_test: StateTestFiller,
-    fork: Fork,
+    fork: str,
     dup_opcode: Op,
     pre: Alloc,
 ) -> None:
@@ -68,10 +69,11 @@ def test_dup(
 
     tx = Transaction(
         ty=0x0,
+        nonce=0,
         to=account,
         gas_limit=500000,
         gas_price=10,
-        protected=fork.supports_protected_txs(),
+        protected=False if fork in [Frontier, Homestead] else True,
         data="",
         sender=sender,
     )

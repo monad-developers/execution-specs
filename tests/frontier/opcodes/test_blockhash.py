@@ -9,6 +9,7 @@ from execution_testing import (
     Op,
     Transaction,
 )
+from execution_testing.forks import Byzantium
 from execution_testing.forks.helpers import Fork
 
 
@@ -22,7 +23,6 @@ from execution_testing.forks.helpers import Fork
         pytest.param(256, True, id="256_empty_blocks"),
     ],
 )
-@pytest.mark.slow()
 def test_genesis_hash_available(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -60,7 +60,7 @@ def test_genesis_hash_available(
                         sender=sender,
                         to=contract,
                         gas_limit=100_000,
-                        protected=fork.supports_protected_txs(),
+                        protected=fork >= Byzantium,
                     )
                 ]
                 if not setup_blocks_empty
@@ -76,7 +76,7 @@ def test_genesis_hash_available(
                         sender=sender,
                         to=contract,
                         gas_limit=100_000,
-                        protected=fork.supports_protected_txs(),
+                        protected=fork >= Byzantium,
                     )
                 ]
             )

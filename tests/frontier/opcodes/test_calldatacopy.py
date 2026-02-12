@@ -10,6 +10,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import Byzantium
 
 
 @pytest.mark.ported_from(
@@ -192,7 +193,7 @@ def test_calldatacopy(
         data=tx_data,
         gas_limit=100_000,
         gas_price=0x0A,
-        protected=fork.supports_protected_txs(),
+        protected=fork >= Byzantium,
         sender=pre.fund_eoa(),
         to=to,
         value=0x01,

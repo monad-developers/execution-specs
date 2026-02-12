@@ -27,7 +27,7 @@ from execution_testing.forks import (
 )
 from execution_testing.specs import StateTest
 from execution_testing.test_types import Alloc, Environment, Transaction
-from execution_testing.vm import Op
+from execution_testing.vm import Op, UndefinedOpcodes
 
 from ..tools_code import CalldataCase, Case, Conditional, Initcode, Switch
 
@@ -496,8 +496,7 @@ def test_opcodes_if(conditional_bytecode: bytes, expected: bytes) -> None:
                 default_action=Op.SSTORE(0, 6),
             ),
             {0: 3},
-            # first in list should be evaluated
-            id="five-cases-multiple-conditions-met",
+            id="five-cases-multiple-conditions-met",  # first in list should be evaluated
         ),
         pytest.param(
             Hash(9),
@@ -700,3 +699,16 @@ def test_switch(
         t8n=default_t8n,
         fixture_format=BlockchainFixture,
     )
+
+
+def test_full_opcode_range() -> None:
+    """
+    Test that the full opcode range is covered by the opcode set defined by
+    Opcodes and UndefineOpcodes.
+    """
+    assert len(set(Op) & set(UndefinedOpcodes)) == 0
+    full_possible_opcode_set = set(Op) | set(UndefinedOpcodes)
+    assert len(full_possible_opcode_set) == 256
+    assert {op.hex() for op in full_possible_opcode_set} == {
+        f"{i:02x}" for i in range(256)
+    }

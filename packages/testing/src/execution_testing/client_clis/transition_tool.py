@@ -146,7 +146,6 @@ class TransitionTool(EthereumCLI):
 
     supports_xdist: ClassVar[bool] = True
     supports_blob_params: ClassVar[bool] = False
-    fork_name_map: ClassVar[Dict[str, str]] = {}
 
     @abstractmethod
     def __init__(
@@ -330,19 +329,13 @@ class TransitionTool(EthereumCLI):
         }
         output_paths["body"] = os.path.join("output", "txs.rlp")
 
-        # Get fork name and apply any tool-specific mapping
-        fork_name = (
-            t8n_data.fork_name_if_supports_blob_params
-            if self.supports_blob_params
-            else t8n_data.fork_name
-        )
-        fork_name = self.fork_name_map.get(fork_name, fork_name)
-
         # Construct args for evmone-t8n binary
         args = [
             str(self.binary),
             "--state.fork",
-            fork_name,
+            t8n_data.fork_name_if_supports_blob_params
+            if self.supports_blob_params
+            else t8n_data.fork_name,
             "--input.alloc",
             input_paths["alloc"],
             "--input.senders_authorities",
@@ -533,10 +526,9 @@ class TransitionTool(EthereumCLI):
 
         if debug_output_path:
             with profiler.pause():
-                request_data_str = json.dumps(request_data_json, indent=2)
                 request_info = (
                     f"Server URL: {self.server_url}\n\n"
-                    f"Request Data:\n{request_data_str}\n"
+                    f"Request Data:\n{json.dumps(request_data_json, indent=2)}\n"
                 )
                 dump_files_to_directory(
                     debug_output_path,
@@ -551,9 +543,7 @@ class TransitionTool(EthereumCLI):
                             tx.model_dump(mode="json", **model_dump_config)
                             for tx in request_data.input.txs
                         ],
-                        "input/blob_params.json": (
-                            request_data.input.blob_params
-                        ),
+                        "input/blob_params.json": request_data.input.blob_params,
                         "request_info.txt": request_info,
                     },
                 )
@@ -580,10 +570,9 @@ class TransitionTool(EthereumCLI):
 
         if debug_output_path:
             with profiler.pause():
-                headers_str = json.dumps(dict(response.headers), indent=2)
                 response_info = (
                     f"Status Code: {response.status_code}\n\n"
-                    f"Headers:\n{headers_str}\n\n"
+                    f"Headers:\n{json.dumps(dict(response.headers), indent=2)}\n\n"
                     f"Content:\n{response.text}\n"
                 )
                 dump_files_to_directory(

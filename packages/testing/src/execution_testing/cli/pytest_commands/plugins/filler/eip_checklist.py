@@ -218,17 +218,15 @@ class ConflictingChecklistItemsWarning(ChecklistWarning):
             return None
 
         details = [
-            "The following checklist items were marked both "
-            "as not applicable and covered:",
+            "The following checklist items were marked both as not applicable and covered:",
             "",
             "| ID | Description | Not Applicable | Tests |",
             "|---|---|---|---|",
         ]
         for item in conflicting_items:
-            tests_str = ", ".join(sorted(item.tests))
             details.append(
                 f"| {item.id} | {item.description} | "
-                f"{item.not_applicable_reason} | {tests_str} |"
+                + f"{item.not_applicable_reason} | {', '.join(sorted(item.tests))} |"
             )
 
         return cls(details=details)
@@ -249,6 +247,11 @@ class EIP:
     @property
     def covered_items(self) -> int:
         """Return the number of covered items."""
+        return sum(
+            1
+            for item in self.items.values()
+            if item.covered and not item.not_applicable
+        )
         return sum(
             1
             for item in self.items.values()
@@ -312,7 +315,7 @@ class EIP:
                 ids = resolve_id(item_id)
                 if not ids:
                     logger.warning(
-                        f"Item ID {item_id} not found in checklist template "
+                        f"Item ID {item_id} not found in the checklist template, "
                         f"for EIP {self.number}"
                     )
                     continue
@@ -340,7 +343,7 @@ class EIP:
                 ids = resolve_id(item_id)
                 if not ids:
                     logger.warning(
-                        f"Item ID {item_id} not found in checklist template "
+                        f"Item ID {item_id} not found in the checklist template, "
                         f"for EIP {self.number}"
                     )
                     continue
@@ -359,10 +362,9 @@ class EIP:
             # Find the line with this item ID
             lines[checklist_item.line_number - 1] = str(checklist_item)
 
-        emoji = self.completeness_emoji
-        pct = f"{self.percentage:.2f}%"
         lines[lines.index(PERCENTAGE_LINE)] = (
-            f"| {self.total_items} | {self.covered_items} | {emoji} {pct} |"
+            f"| {self.total_items} | {self.covered_items} | {self.completeness_emoji} "
+            f"{self.percentage:.2f}% |"
         )
 
         # Replace the title line with the EIP number
@@ -449,8 +451,8 @@ class EIPChecklistCollector:
         for marker in item.iter_markers("eip_checklist"):
             if not marker.args:
                 pytest.fail(
-                    f"eip_checklist marker on {item.nodeid} must have "
-                    "at least one argument (item_id)"
+                    f"eip_checklist marker on {item.nodeid} must have at least one argument "
+                    "(item_id)"
                 )
             additional_eips = marker.kwargs.get("eip", [])
             if not isinstance(additional_eips, list):
@@ -461,8 +463,8 @@ class EIPChecklistCollector:
             if additional_eips:
                 if any(not isinstance(eip, int) for eip in additional_eips):
                     pytest.fail(
-                        "EIP numbers must be integers. Found non-integer "
-                        f"EIPs in {item.nodeid}: {additional_eips}"
+                        "EIP numbers must be integers. Found non-integer EIPs in "
+                        f"{item.nodeid}: {additional_eips}"
                     )
                 eips += [self.get_eip(eip) for eip in additional_eips]
 
@@ -471,7 +473,7 @@ class EIPChecklistCollector:
                 covered_ids = resolve_id(item_id.strip())
                 if not covered_ids:
                     logger.warning(
-                        f"Item ID {item_id} not found in checklist template "
+                        f"Item ID {item_id} not found in the checklist template, "
                         f"for test {item.nodeid}"
                     )
                     continue

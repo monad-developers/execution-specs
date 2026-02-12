@@ -23,7 +23,7 @@ from ..memory import buffer_read
 
 def pop(evm: Evm) -> None:
     """
-    Removes an item from the stack.
+    Remove item from stack.
 
     Parameters
     ----------
@@ -46,7 +46,7 @@ def pop(evm: Evm) -> None:
 
 def push_n(evm: Evm, num_bytes: int) -> None:
     """
-    Pushes an N-byte immediate onto the stack.
+    Pushes a N-byte immediate onto the stack.
 
     Parameters
     ----------
@@ -76,7 +76,7 @@ def push_n(evm: Evm, num_bytes: int) -> None:
 
 def dup_n(evm: Evm, item_number: int) -> None:
     """
-    Duplicates the Nth stack item (from top of the stack) to the top of stack.
+    Duplicate the Nth stack item (from top of the stack) to the top of stack.
 
     Parameters
     ----------
@@ -104,7 +104,7 @@ def dup_n(evm: Evm, item_number: int) -> None:
 
 def swap_n(evm: Evm, item_number: int) -> None:
     """
-    Swaps the top and the `item_number` element of the stack, where
+    Swap the top and the `item_number` element of the stack, where
     the top of the stack is position zero.
 
     If `item_number` is zero, this function does nothing (which should not be

@@ -17,7 +17,7 @@ from execution_testing import (
     Transaction,
     compute_create_address,
 )
-from execution_testing.forks import London
+from execution_testing.forks import Byzantium, London
 
 
 @pytest.mark.ported_from(
@@ -108,7 +108,7 @@ def test_create_one_byte(
         data=b"",
         nonce=0,
         sender=sender,
-        protected=fork.supports_protected_txs(),
+        protected=fork >= Byzantium,
     )
 
     post = {

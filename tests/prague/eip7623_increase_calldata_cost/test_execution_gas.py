@@ -93,9 +93,7 @@ class TestGasConsumption:
         Test executing a transaction that fully consumes its execution gas
         allocation.
         """
-        tx.expected_receipt = TransactionReceipt(
-            cumulative_gas_used=tx.gas_limit
-        )
+        tx.expected_receipt = TransactionReceipt(gas_used=tx.gas_limit)
         state_test(
             pre=pre,
             post={},

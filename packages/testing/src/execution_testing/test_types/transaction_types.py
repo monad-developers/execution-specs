@@ -1,6 +1,5 @@
 """Transaction-related types for Ethereum tests."""
 
-import numbers
 from dataclasses import dataclass
 from enum import IntEnum
 from functools import cached_property
@@ -8,6 +7,7 @@ from typing import Any, ClassVar, Dict, Generic, List, Literal, Self, Sequence
 
 import ethereum_rlp as eth_rlp
 from coincurve.keys import PrivateKey, PublicKey
+from ethereum_types.numeric import Uint
 from pydantic import (
     AliasChoices,
     BaseModel,
@@ -17,6 +17,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from trie import HexaryTrie
 
 from execution_testing.base_types import (
     AccessList,
@@ -279,7 +280,7 @@ class TransactionTestMetadata(CamelModel):
     """Represents the metadata for a transaction."""
 
     test_id: str | None = None
-    phase: TestPhase | None = None
+    phase: str | None = None
     action: str | None = None  # e.g. deploy / fund / execute
     target: str | None = None  # account/contract label
     tx_index: int | None = None  # index within this phase
@@ -758,6 +759,14 @@ class Transaction(
         return self.rlp() if self.ty > 0 else self.to_list(signing=False)
 
     @staticmethod
+    def list_root(input_txs: List["Transaction"]) -> Hash:
+        """Return transactions root of a list of transactions."""
+        t = HexaryTrie(db={})
+        for i, tx in enumerate(input_txs):
+            t.set(eth_rlp.encode(Uint(i)), tx.rlp())
+        return Hash(t.root_hash)
+
+    @staticmethod
     def list_blob_versioned_hashes(
         input_txs: List["Transaction"],
     ) -> List[Hash]:
@@ -822,8 +831,7 @@ class Transaction(
         if self.ty == 3 and self.blob_versioned_hashes is not None:
             max_fee_per_blob_gas = self.max_fee_per_blob_gas
             assert max_fee_per_blob_gas is not None, (
-                "Impossible to calculate minimum balance without "
-                "max_fee_per_blob_gas"
+                "Impossible to calculate minimum balance without max_fee_per_blob_gas"
             )
             return (
                 gas_price * gas_limit
@@ -833,47 +841,6 @@ class Transaction(
             )
         else:
             return gas_price * gas_limit + self.value
-
-    def _format_field_value(self, value: Any) -> str:
-        """
-        Format a field value for string representation.
-
-        Uses decimal for numeric values (int, HexNumber, etc.) and
-        hex encoding for Address, Bytes, Hash, etc.
-        """
-        if value is None:
-            return "None"
-
-        # fields like 'value' should be shown as decimal number
-        if isinstance(value, numbers.Number):
-            # Force decimal representation for int subclasses like HexNumber
-            if isinstance(value, int):
-                return str(int(value))
-
-            return str(value)
-
-        # fields like 'to' should be shown as hex string
-        if hasattr(value, "hex") and callable(value.hex):
-            return f'"{value.hex()}"'
-
-        return repr(value)
-
-    def __repr__(self) -> str:
-        """
-        Return string representation with hex-encoded values for
-        applicable fields.
-        """
-        field_strs = []
-        for field_name in self.__class__.model_fields:
-            value = getattr(self, field_name)
-            formatted_value = self._format_field_value(value)
-            field_strs.append(f"{field_name}={formatted_value}")
-
-        return f"{self.__class__.__name__}({', '.join(field_strs)})"
-
-    def __str__(self) -> str:
-        """Return the repr string representation."""
-        return self.__repr__()
 
 
 class NetworkWrappedTransaction(CamelModel, RLPSerializable):
@@ -999,7 +966,7 @@ class NetworkWrappedTransaction(CamelModel, RLPSerializable):
         max_priority_fee_per_gas: int,
         max_fee_per_blob_gas: int,
     ) -> None:
-        """Set gas price to values of the current execution environment."""
+        """Set the gas price to the appropriate values of the current execution environment."""
         self.tx.set_gas_price(
             gas_price=gas_price,
             max_fee_per_gas=max_fee_per_gas,

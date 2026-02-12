@@ -265,8 +265,7 @@ class PreInFiller(EthereumTestRootModel):
             if extra_dependency not in resolved_accounts:
                 if all_dependencies[extra_dependency].type != "eoa":
                     raise ValueError(
-                        f"Contract dependency {extra_dependency} "
-                        "not found in pre"
+                        f"Contract dependency {extra_dependency} not found in pre"
                     )
 
                 # Create new EOA - this will have a dynamically generated key

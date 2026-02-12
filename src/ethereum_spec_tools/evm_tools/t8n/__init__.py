@@ -16,7 +16,6 @@ from typing_extensions import override
 from ethereum import trace
 from ethereum.exceptions import EthereumException, InvalidBlock
 from ethereum.fork_criteria import ByBlockNumber, ByTimestamp, Unscheduled
-from ethereum.forks.amsterdam.state_tracker import StateChanges
 from ethereum_spec_tools.forks import Hardfork, TemporaryHardfork
 
 from ..loaders.fixture_loader import Load
@@ -269,7 +268,10 @@ class T8N(Load):
 
         self.logger = get_stream_logger("T8N")
 
-        super().__init__(fork)
+        super().__init__(
+            self.options.state_fork,
+            fork,
+        )
 
         self.chain_id = parse_hex_or_int(self.options.state_chainid, U64)
         self.alloc = Alloc(self, stdin)
@@ -319,9 +321,6 @@ class T8N(Load):
                 self.env.parent_beacon_block_root
             )
             kw_arguments["excess_blob_gas"] = self.env.excess_blob_gas
-
-        if self.fork.has_block_access_list_hash:
-            kw_arguments["state_changes"] = StateChanges()
 
         if self.fork.has_senders_authorities:
             kw_arguments[
@@ -411,34 +410,20 @@ class T8N(Load):
                 data=block_env.parent_beacon_block_root,
             )
 
-        for tx_index, (original_idx, tx) in enumerate(
-            zip(
-                self.txs.successfully_parsed,
-                self.txs.transactions,
-                strict=True,
-            )
+        for i, tx in zip(
+            self.txs.successfully_parsed,
+            self.txs.transactions,
+            strict=True,
         ):
             self.backup_state()
             try:
                 self.fork.process_transaction(
-                    block_env, block_output, tx, Uint(tx_index)
+                    block_env, block_output, tx, Uint(i)
                 )
             except EthereumException as e:
-                self.txs.rejected_txs[original_idx] = (
-                    f"Failed transaction: {e!r}"
-                )
+                self.txs.rejected_txs[i] = f"Failed transaction: {e!r}"
                 self.restore_state()
-                self.logger.warning(
-                    f"Transaction {original_idx} failed: {e!r}"
-                )
-
-        # Post-execution operations use index N+1
-        if self.fork.has_block_access_list_hash:
-            from ethereum.forks.amsterdam.state_tracker import (
-                increment_block_access_index,
-            )
-
-            increment_block_access_index(block_env.state_changes)
+                self.logger.warning(f"Transaction {i} failed: {e!r}")
 
         if not self.fork.proof_of_stake:
             if self.options.state_reward is None:
@@ -455,12 +440,6 @@ class T8N(Load):
 
         if self.fork.has_compute_requests_hash:
             self.fork.process_general_purpose_requests(block_env, block_output)
-
-        if self.fork.has_block_access_list_hash:
-            # Build block access list from block_env.state_changes
-            block_output.block_access_list = self.fork.build_block_access_list(
-                block_env.state_changes
-            )
 
     def run_blockchain_test(self) -> None:
         """

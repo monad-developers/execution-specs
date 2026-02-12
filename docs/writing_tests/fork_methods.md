@@ -124,9 +124,10 @@ fork.system_contracts(block_number=0, timestamp=0)  # Returns list of system con
 Methods for determining EVM features and valid opcodes:
 
 ```python
+fork.evm_code_types(block_number=0, timestamp=0)  # Returns list of supported code types (e.g., Legacy, EOF)
 fork.valid_opcodes()  # Returns list of valid opcodes for this fork
-fork.call_opcodes(block_number=0, timestamp=0)  # Returns list of call opcodes
-fork.create_opcodes(block_number=0, timestamp=0)  # Returns list of create opcodes
+fork.call_opcodes(block_number=0, timestamp=0)  # Returns list of call opcodes with their code types
+fork.create_opcodes(block_number=0, timestamp=0)  # Returns list of create opcodes with their code types
 ```
 
 ### Blob-related Methods (Cancun+)

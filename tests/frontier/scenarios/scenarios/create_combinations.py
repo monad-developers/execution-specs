@@ -6,6 +6,7 @@ from typing import List
 from execution_testing import (
     Alloc,
     Bytecode,
+    EVMCodeType,
     Op,
     Opcode,
     compute_create_address,
@@ -48,7 +49,11 @@ def scenarios_create_combinations(
 
     scenarios_list: List[Scenario] = []
     keep_gas = 100000
-    create_types: List[Opcode] = list(scenario_input.fork.create_opcodes())
+    create_types: List[Opcode] = [
+        create_code
+        for create_code, evm_type in scenario_input.fork.create_opcodes()
+        if evm_type == EVMCodeType.LEGACY
+    ]
     env: ScenarioEnvironment
     balance: AddressBalance = AddressBalance()
 
@@ -106,7 +111,11 @@ def scenarios_create_combinations(
         + Op.RETURN(0, Op.EXTCODESIZE(operation_contract))
     )
     deploy_code_size: int = int(len(deploy_code.hex()) / 2)
-    call_types: List[Opcode] = list(scenario_input.fork.call_opcodes())
+    call_types: List[Opcode] = [
+        callcode
+        for callcode, evm_type in scenario_input.fork.call_opcodes()
+        if evm_type == EVMCodeType.LEGACY
+    ]
 
     pre: Alloc = scenario_input.pre
     for create in create_types:

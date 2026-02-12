@@ -13,69 +13,70 @@ from execution_testing.base_types import (
     Address,
     Bytes,
     CamelModel,
+    HexNumber,
     RLPSerializable,
-    ZeroPaddedHexNumber,
+    StorageKey,
 )
 
 
 class BalNonceChange(CamelModel, RLPSerializable):
     """Represents a nonce change in the block access list."""
 
-    block_access_index: ZeroPaddedHexNumber = Field(
-        ZeroPaddedHexNumber(1),
+    tx_index: HexNumber = Field(
+        HexNumber(1),
         description="Transaction index where the change occurred",
     )
-    post_nonce: ZeroPaddedHexNumber = Field(
+    post_nonce: HexNumber = Field(
         ..., description="Nonce value after the transaction"
     )
 
-    rlp_fields: ClassVar[List[str]] = ["block_access_index", "post_nonce"]
+    rlp_fields: ClassVar[List[str]] = ["tx_index", "post_nonce"]
 
 
 class BalBalanceChange(CamelModel, RLPSerializable):
     """Represents a balance change in the block access list."""
 
-    block_access_index: ZeroPaddedHexNumber = Field(
-        ZeroPaddedHexNumber(1),
+    tx_index: HexNumber = Field(
+        HexNumber(1),
         description="Transaction index where the change occurred",
     )
-    post_balance: ZeroPaddedHexNumber = Field(
+    post_balance: HexNumber = Field(
         ..., description="Balance after the transaction"
     )
 
-    rlp_fields: ClassVar[List[str]] = ["block_access_index", "post_balance"]
+    rlp_fields: ClassVar[List[str]] = ["tx_index", "post_balance"]
 
 
 class BalCodeChange(CamelModel, RLPSerializable):
     """Represents a code change in the block access list."""
 
-    block_access_index: ZeroPaddedHexNumber = Field(
-        ZeroPaddedHexNumber(1),
+    tx_index: HexNumber = Field(
+        HexNumber(1),
         description="Transaction index where the change occurred",
     )
     new_code: Bytes = Field(..., description="New code bytes")
 
-    rlp_fields: ClassVar[List[str]] = ["block_access_index", "new_code"]
+    rlp_fields: ClassVar[List[str]] = ["tx_index", "new_code"]
 
 
 class BalStorageChange(CamelModel, RLPSerializable):
     """Represents a change to a specific storage slot."""
 
-    block_access_index: ZeroPaddedHexNumber = Field(
-        ZeroPaddedHexNumber(1),
+    tx_index: HexNumber = Field(
+        HexNumber(1),
         description="Transaction index where the change occurred",
     )
-    post_value: ZeroPaddedHexNumber = Field(
+    post_value: StorageKey = Field(
         ..., description="Value after the transaction"
     )
 
-    rlp_fields: ClassVar[List[str]] = ["block_access_index", "post_value"]
+    rlp_fields: ClassVar[List[str]] = ["tx_index", "post_value"]
 
 
 class BalStorageSlot(CamelModel, RLPSerializable):
     """Represents all changes to a specific storage slot."""
 
-    slot: ZeroPaddedHexNumber = Field(..., description="Storage slot key")
+    slot: StorageKey = Field(..., description="Storage slot key")
     slot_changes: List[BalStorageChange] = Field(
         default_factory=list, description="List of changes to this slot"
     )
@@ -99,7 +100,7 @@ class BalAccountChange(CamelModel, RLPSerializable):
     storage_changes: List[BalStorageSlot] = Field(
         default_factory=list, description="List of storage changes"
     )
-    storage_reads: List[ZeroPaddedHexNumber] = Field(
+    storage_reads: List[StorageKey] = Field(
         default_factory=list,
         description="List of storage slots that were read",
     )
