@@ -442,6 +442,7 @@ class Alloc(BaseAlloc):
         amount: NumberConvertible | None = None,
         label: str | None = None,
         storage: Storage | None = None,
+        code: BytesConvertible | None = None,
         delegation: Address | Literal["Self"] | None = None,
         nonce: NumberConvertible | None = None,
     ) -> EOA:
@@ -463,8 +464,10 @@ class Alloc(BaseAlloc):
         """
         Fund an address with a given amount.
 
-        If the address is already present in the pre-alloc the amount will be
-        added to its existing balance.
+        Add a funded account to the pre-allocation.
+        The address must not already exist in the pre-allocation. To set the
+        balance of an account, use the `amount` parameter in `fund_eoa()` or
+        the `balance` parameter in `deploy_contract()` at creation time.
 
         Args:
             address: Address to fund

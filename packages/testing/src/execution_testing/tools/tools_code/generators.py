@@ -6,11 +6,9 @@ from typing import Any, Dict, Generator, List, Self, SupportsBytes, Tuple, Type
 from pydantic import Field
 
 from execution_testing.base_types import Address, Bytes
-from execution_testing.forks import Fork
-from execution_testing.test_types import EOA, Transaction, ceiling_division
+from execution_testing.forks import Fork, Frontier
+from execution_testing.test_types import EOA, Transaction
 from execution_testing.vm import Bytecode, ForkOpcodeInterface, Op
-
-GAS_PER_DEPLOYED_CODE_BYTE = 0xC8
 
 
 class Initcode(Bytecode):
@@ -47,13 +45,16 @@ class Initcode(Bytecode):
         deploy_code: SupportsBytes | Bytes | None = None,
         initcode_length: int | None = None,
         initcode_prefix: Bytecode | None = None,
-        initcode_prefix_execution_gas: int = 0,
         padding_byte: int = 0x00,
         name: str = "",
+        fork: Fork = Frontier,
     ) -> Self:
         """
         Generate legacy initcode that inits a contract with the specified code.
         The initcode can be padded to a specified length for testing purposes.
+
+        Gas costs are calculated using the fork's gas costs and memory
+        expansion formula. Defaults to Frontier if no fork is provided.
         """
         if deploy_code is None:
             deploy_code = Bytecode()
@@ -62,19 +63,15 @@ class Initcode(Bytecode):
 
         initcode = initcode_prefix
         code_length = len(bytes(deploy_code))
-        execution_gas = initcode_prefix_execution_gas
 
         # PUSH2: length=<bytecode length>
         initcode += Op.PUSH2(code_length)
-        execution_gas = 3
 
         # PUSH1: offset=0
         initcode += Op.PUSH1(0)
-        execution_gas += 3
 
         # DUP2
         initcode += Op.DUP2
-        execution_gas += 3
 
         # PUSH1: initcode_length=11 + len(initcode_prefix_bytes) (constant)
         no_prefix_length = 0x0B
@@ -82,24 +79,17 @@ class Initcode(Bytecode):
             "initcode prefix too long"
         )
         initcode += Op.PUSH1(no_prefix_length + len(initcode_prefix))
-        execution_gas += 3
 
         # DUP3
         initcode += Op.DUP3
-        execution_gas += 3
 
         # CODECOPY: destinationOffset=0, offset=0, length
-        initcode += Op.CODECOPY
-        execution_gas += (
-            3
-            + (3 * ceiling_division(code_length, 32))
-            + (3 * code_length)
-            + ((code_length * code_length) // 512)
+        initcode += Op.CODECOPY(
+            data_size=code_length, new_memory_size=code_length
         )
 
         # RETURN: offset=0, length
         initcode += Op.RETURN
-        execution_gas += 0
 
         initcode_plus_deploy_code = bytes(initcode) + bytes(deploy_code)
         padding_bytes = bytes()
@@ -125,10 +115,10 @@ class Initcode(Bytecode):
         )
         instance._name_ = name
         instance.deploy_code = deploy_code
-        instance.execution_gas = execution_gas
-        instance.deployment_gas = GAS_PER_DEPLOYED_CODE_BYTE * len(
-            bytes(instance.deploy_code)
-        )
+        instance.execution_gas = initcode.gas_cost(fork)
+        instance.deployment_gas = Op.RETURN(
+            code_deposit_size=len(bytes(instance.deploy_code))
+        ).gas_cost(fork)
 
         return instance
 

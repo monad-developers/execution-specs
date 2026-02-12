@@ -101,7 +101,7 @@ def type_4_default_transaction(sender: Account, pre: Alloc):
 @pytest.mark.with_all_typed_transactions
 @pytest.mark.valid_from("Prague")
 def test_something_with_all_tx_types(
-    state_test: StateTestFiller, 
+    state_test: StateTestFiller,
     pre: Alloc,
     typed_transaction: Transaction
 ):
@@ -327,7 +327,7 @@ In this example, the test will be marked as expected to fail when it is being ex
 
 This marker is used to mark tests that are slow to run. These tests are not run during [`tox` checks](./verifying_changes.md), and are only run when a release is being prepared.
 
-### `@pytest.mark.pre_alloc_modify`
+### `@pytest.mark.pre_alloc_mutable`
 
 This marker is used to mark tests that modify the pre-alloc in a way that would be impractical to reproduce in a real-world scenario.
 
@@ -335,6 +335,10 @@ Examples of this include:
 
 - Modifying the pre-alloc to have a balance of 2^256 - 1.
 - Address collisions that would require hash collisions.
+- EOA accounts containing code
+- EOA accounts with a hard-coded nonce
+- Contracts having zero-nonce
+- Deploying a contract to a hard-coded address
 
 ### `@pytest.mark.skip()`
 
