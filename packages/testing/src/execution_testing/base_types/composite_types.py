@@ -1,5 +1,7 @@
 """Base composite types for Ethereum test cases."""
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -367,6 +369,11 @@ class Account(CamelModel):
     state.
     """
 
+    model_config = {
+        **CamelModel.model_config,
+        "frozen": True,
+    }
+
     @dataclass(kw_only=True)
     class NonceMismatchError(Exception):
         """
@@ -513,6 +520,16 @@ class Account(CamelModel):
     def __bool__(self: "Account") -> bool:
         """Return True on a non-empty account."""
         return any((self.nonce, self.balance, self.code, self.storage))
+
+    def hash(self) -> Hash:
+        """Return the hash of the account given its properties."""
+        data = self.model_dump(mode="json")
+        blob = json.dumps(
+            data,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return Hash(hashlib.sha256(blob).digest())
 
     @classmethod
     def with_code(cls: Type, code: BytesConvertible) -> "Account":

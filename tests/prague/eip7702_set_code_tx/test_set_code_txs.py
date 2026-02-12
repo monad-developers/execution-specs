@@ -54,13 +54,7 @@ from .spec import Spec, ref_spec_7702
 REFERENCE_SPEC_GIT_PATH = ref_spec_7702.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7702.version
 
-pytestmark = [
-    pytest.mark.valid_from("Prague"),
-    pytest.mark.pre_alloc_group(
-        "set_code_tests",
-        reason="Tests EIP-7702 set code transactions with system contracts",
-    ),
-]
+pytestmark = pytest.mark.valid_from("Prague")
 
 auth_account_start_balance = 0
 
@@ -706,12 +700,9 @@ def test_delegated_eoa_can_send_creating_tx(
     )
     assert initcode_len == len(initcode)
 
-    gas_costs = fork.gas_costs()
-
     tx = Transaction(
         ty=tx_type,
-        gas_limit=200_000
-        + (gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD) * 7,
+        gas_limit=200_000 + (Op.SSTORE(key_warm=False) * 7).gas_cost(fork),
         to=None,
         value=0,
         data=initcode,
@@ -2671,17 +2662,11 @@ def test_valid_tx_invalid_chain_id(
             Spec.MAX_NONCE,
             Spec.MAX_NONCE,
             id="nonce=2**64-1",
-            marks=pytest.mark.execute(
-                pytest.mark.skip(reason="Impossible account nonce")
-            ),
         ),
         pytest.param(
             Spec.MAX_NONCE - 1,
             Spec.MAX_NONCE - 1,
             id="nonce=2**64-2",
-            marks=pytest.mark.execute(
-                pytest.mark.skip(reason="Impossible account nonce")
-            ),
         ),
         pytest.param(
             0,
@@ -2695,7 +2680,7 @@ def test_valid_tx_invalid_chain_id(
         ),
     ],
 )
-@pytest.mark.execute(pytest.mark.skip(reason="Non-zero nonce not supported"))
+@pytest.mark.pre_alloc_mutable()
 def test_nonce_validity(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2767,7 +2752,7 @@ def test_nonce_validity(
     )
 
 
-@pytest.mark.execute(pytest.mark.skip(reason="Impossible account nonce"))
+@pytest.mark.pre_alloc_mutable()
 def test_nonce_overflow_after_first_authorization(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -3153,8 +3138,6 @@ def test_set_code_to_system_contract(
     )
     caller_code_address = pre.deploy_contract(caller_code)
     sender = pre.fund_eoa()
-    if call_value > 0:
-        pre.fund_address(sender, call_value)
 
     txs = [
         Transaction(
@@ -4055,9 +4038,7 @@ def test_authorization_reusing_nonce(
     [True, False],
 )
 @pytest.mark.exception_test
-@pytest.mark.execute(
-    pytest.mark.skip(reason="Requires contract-eoa address collision")
-)
+@pytest.mark.pre_alloc_mutable
 def test_set_code_from_account_with_non_delegating_code(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -4072,7 +4053,9 @@ def test_set_code_from_account_with_non_delegating_code(
     delegating) But at the same time it has auth tuple that will point this
     sender account To be eoa, delegation, contract .. etc
     """
-    sender = pre.fund_eoa(nonce=1)
+    # Set the sender account to have some code, that is specifically not a
+    # delegation.
+    sender = pre.fund_eoa(nonce=1, code=Op.STOP)
     random_address = pre.fund_eoa(0)
 
     set_code_to_address: Address
@@ -4089,12 +4072,6 @@ def test_set_code_from_account_with_non_delegating_code(
         case _:
             raise ValueError(f"Unsupported set code type: {set_code_type}")
     callee_address = pre.deploy_contract(Op.SSTORE(0, 1) + Op.STOP)
-
-    # Set the sender account to have some code, that is specifically not a
-    # delegation.
-    sender_account = pre[sender]
-    assert sender_account is not None
-    sender_account.code = Bytes(Op.STOP)
 
     tx = Transaction(
         gas_limit=100_000,
