@@ -116,7 +116,8 @@ def test_evm_tool_binary_arg(
             # typing: Path can not take None; but if None, we may
             # as well fail explicitly.
             raise Exception(
-                f"Failed to find `{DEFAULT_EVM_T8N_BINARY_NAME}` in the PATH via which"
+                f"Failed to find `{DEFAULT_EVM_T8N_BINARY_NAME}` "
+                "in the PATH via which"
             )
         evm_tool(binary=Path(evm_bin)).version()
         return
@@ -190,8 +191,6 @@ def test_evm_t8n(
             # eels are handled here.
             missing_receipt_fields = [
                 "root",
-                "status",
-                "cumulativeGasUsed",
                 "contractAddress",
                 "blockHash",
                 "transactionIndex",

@@ -210,14 +210,6 @@ def success(
     call_opcode: Op,
 ) -> bool:
     """Prepare expected success or failure for each test."""
-    if call_opcode == Op.EXTDELEGATECALL:
-        return False
-    if result == Result.OUT_OF_GAS and call_opcode in [
-        Op.EXTCALL,
-        Op.EXTSTATICCALL,
-    ]:
-        return True
-
     return result == Result.SUCCESS
 
 
@@ -235,7 +227,7 @@ def post(
     expected_storage: Storage.StorageDictType = {}
     # CALL operation return code
     expected_storage[key_call_return_code] = call_return_code(
-        call_opcode, success, revert=call_opcode == Op.EXTDELEGATECALL
+        call_opcode, success
     )
     if success:
         # Success return values
@@ -256,10 +248,6 @@ def post(
         expected_storage[key_return_2] = precompile_input[32:64]
         expected_storage[key_return_copy_1] = expected_storage[1]
         expected_storage[key_return_copy_2] = expected_storage[2]
-    if call_opcode in [Op.EXTCALL, Op.EXTSTATICCALL, Op.EXTDELEGATECALL]:
-        # Input parameters were not overwritten
-        expected_storage[key_return_1] = precompile_input[0:32]
-        expected_storage[key_return_2] = precompile_input[32:64]
     return {
         precompile_caller_address: Account(
             storage=expected_storage,
@@ -611,7 +599,7 @@ def test_tx_entry_point(
         access_list=access_list,
         to=Address(Spec.POINT_EVALUATION_PRECOMPILE_ADDRESS),
         gas_limit=call_gas + intrinsic_gas_cost,
-        expected_receipt=TransactionReceipt(gas_used=consumed_gas),
+        expected_receipt=TransactionReceipt(cumulative_gas_used=consumed_gas),
     )
 
     post = {

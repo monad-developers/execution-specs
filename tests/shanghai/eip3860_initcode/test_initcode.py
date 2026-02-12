@@ -212,9 +212,9 @@ def valid_gas_test_case(initcode: Initcode, gas_test_case: str) -> bool:
         ]
         if valid_gas_test_case(i, g)
     ],
-    ids=lambda x: f"{get_initcode_name(x[0])}-{x[1]}"
-    if isinstance(x, tuple)
-    else x,
+    ids=lambda x: (
+        f"{get_initcode_name(x[0])}-{x[1]}" if isinstance(x, tuple) else x
+    ),
 )
 class TestContractCreationGasUsage:
     """
@@ -342,7 +342,7 @@ class TestContractCreationGasUsage:
             error=tx_error,
             sender=sender,
             # The entire gas limit is expected to be consumed.
-            expected_receipt=TransactionReceipt(gas_used=gas_limit),
+            expected_receipt=TransactionReceipt(cumulative_gas_used=gas_limit),
         )
 
     @pytest.fixture

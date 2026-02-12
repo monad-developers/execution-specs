@@ -1,10 +1,24 @@
 """All Ethereum fork class definitions."""
 
+from __future__ import annotations
+
 from dataclasses import replace
 from hashlib import sha256
 from os.path import realpath
 from pathlib import Path
-from typing import List, Literal, Mapping, Optional, Sized, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Sized,
+)
+
+if TYPE_CHECKING:
+    from execution_testing.fixtures.blockchain import FixtureHeader
 
 from execution_testing.base_types import (
     AccessList,
@@ -12,9 +26,14 @@ from execution_testing.base_types import (
     BlobSchedule,
     Bytes,
     ForkBlobSchedule,
+    ZeroPaddedHexNumber,
 )
 from execution_testing.base_types.conversions import BytesConvertible
-from execution_testing.vm import EVMCodeType, Opcodes
+from execution_testing.vm import (
+    OpcodeBase,
+    OpcodeGasCalculator,
+    Opcodes,
+)
 
 from ..base_fork import (
     BaseFeeChangeCalculator,
@@ -128,6 +147,7 @@ class Frontier(BaseFork, solc_name="homestead"):
             G_WARM_SLOAD=100,
             G_COLD_SLOAD=2_100,
             G_STORAGE_SET=20_000,
+            G_STORAGE_UPDATE=5_000,
             G_STORAGE_RESET=2_900,
             R_STORAGE_CLEAR=4_800,
             G_SELF_DESTRUCT=5_000,
@@ -156,6 +176,510 @@ class Frontier(BaseFork, solc_name="homestead"):
             G_AUTHORIZATION=0,
             R_AUTHORIZATION_EXISTING_AUTHORITY=0,
         )
+
+    @classmethod
+    def _with_memory_expansion(
+        cls,
+        base_gas: int | Callable[[OpcodeBase], int],
+        memory_expansion_gas_calculator: MemoryExpansionGasCalculator,
+    ) -> Callable[[OpcodeBase], int]:
+        """
+        Wrap a gas cost calculator to include memory expansion cost.
+
+        Args:
+            base_gas: Either a constant gas cost (int) or a callable that
+                      calculates it
+            memory_expansion_gas_calculator: Calculator for memory expansion
+                                             cost
+
+        Returns:
+            A callable that calculates base_gas + memory_expansion_cost
+
+        """
+
+        def wrapper(opcode: OpcodeBase) -> int:
+            # Calculate base gas cost
+            if callable(base_gas):
+                base_cost = base_gas(opcode)
+            else:
+                base_cost = base_gas
+
+            # Add memory expansion cost if metadata is present
+            new_memory_size = opcode.metadata["new_memory_size"]
+            old_memory_size = opcode.metadata["old_memory_size"]
+            expansion_cost = memory_expansion_gas_calculator(
+                new_bytes=new_memory_size, previous_bytes=old_memory_size
+            )
+
+            return base_cost + expansion_cost
+
+        return wrapper
+
+    @classmethod
+    def _with_account_access(
+        cls,
+        base_gas: int | Callable[[OpcodeBase], int],
+        gas_costs: "GasCosts",
+    ) -> Callable[[OpcodeBase], int]:
+        """
+        Wrap a gas cost calculator to include account access cost.
+
+        Args:
+            base_gas: Either a constant gas cost (int) or a callable that
+                      calculates it
+            gas_costs: The gas costs dataclass for accessing warm/cold costs
+
+        Returns:
+            A callable that calculates base_gas + account_access_cost
+
+        """
+
+        def wrapper(opcode: OpcodeBase) -> int:
+            # Calculate base gas cost
+            if callable(base_gas):
+                base_cost = base_gas(opcode)
+            else:
+                base_cost = base_gas
+
+            # Add account access cost based on warmth
+            if opcode.metadata["address_warm"]:
+                access_cost = gas_costs.G_WARM_ACCOUNT_ACCESS
+            else:
+                access_cost = gas_costs.G_COLD_ACCOUNT_ACCESS
+
+            return base_cost + access_cost
+
+        return wrapper
+
+    @classmethod
+    def _with_data_copy(
+        cls,
+        base_gas: int | Callable[[OpcodeBase], int],
+        gas_costs: "GasCosts",
+    ) -> Callable[[OpcodeBase], int]:
+        """
+        Wrap a gas cost calculator to include data copy cost.
+
+        Args:
+            base_gas: Either a constant gas cost (int) or a callable that
+                      calculates it
+            gas_costs: The gas costs dataclass for accessing G_COPY
+
+        Returns:
+            A callable that calculates base_gas + copy_cost
+
+        """
+
+        def wrapper(opcode: OpcodeBase) -> int:
+            # Calculate base gas cost
+            if callable(base_gas):
+                base_cost = base_gas(opcode)
+            else:
+                base_cost = base_gas
+
+            # Add copy cost based on data size
+            data_size = opcode.metadata["data_size"]
+            word_count = (data_size + 31) // 32
+            copy_cost = gas_costs.G_COPY * word_count
+
+            return base_cost + copy_cost
+
+        return wrapper
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """
+        Return a mapping of opcodes to their gas costs.
+
+        Each entry is either:
+        - Constants (int): Direct gas cost values from gas_costs()
+        - Callables: Functions that take the opcode instance with metadata and
+                     return gas cost
+        """
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        memory_expansion_calculator = cls.memory_expansion_gas_calculator(
+            block_number=block_number, timestamp=timestamp
+        )
+
+        # Define the opcode gas cost mapping
+        # Each entry is either:
+        # - an int (constant cost)
+        # - a callable(opcode) -> int
+        return {
+            # Stop and arithmetic operations
+            Opcodes.STOP: 0,
+            Opcodes.ADD: gas_costs.G_VERY_LOW,
+            Opcodes.MUL: gas_costs.G_LOW,
+            Opcodes.SUB: gas_costs.G_VERY_LOW,
+            Opcodes.DIV: gas_costs.G_LOW,
+            Opcodes.SDIV: gas_costs.G_LOW,
+            Opcodes.MOD: gas_costs.G_LOW,
+            Opcodes.SMOD: gas_costs.G_LOW,
+            Opcodes.ADDMOD: gas_costs.G_MID,
+            Opcodes.MULMOD: gas_costs.G_MID,
+            Opcodes.EXP: lambda op: (
+                gas_costs.G_EXP
+                + gas_costs.G_EXP_BYTE
+                * ((op.metadata["exponent"].bit_length() + 7) // 8)
+            ),
+            Opcodes.SIGNEXTEND: gas_costs.G_LOW,
+            # Comparison & bitwise logic operations
+            Opcodes.LT: gas_costs.G_VERY_LOW,
+            Opcodes.GT: gas_costs.G_VERY_LOW,
+            Opcodes.SLT: gas_costs.G_VERY_LOW,
+            Opcodes.SGT: gas_costs.G_VERY_LOW,
+            Opcodes.EQ: gas_costs.G_VERY_LOW,
+            Opcodes.ISZERO: gas_costs.G_VERY_LOW,
+            Opcodes.AND: gas_costs.G_VERY_LOW,
+            Opcodes.OR: gas_costs.G_VERY_LOW,
+            Opcodes.XOR: gas_costs.G_VERY_LOW,
+            Opcodes.NOT: gas_costs.G_VERY_LOW,
+            Opcodes.BYTE: gas_costs.G_VERY_LOW,
+            # SHA3
+            Opcodes.SHA3: cls._with_memory_expansion(
+                lambda op: (
+                    gas_costs.G_KECCAK_256
+                    + gas_costs.G_KECCAK_256_WORD
+                    * ((op.metadata["data_size"] + 31) // 32)
+                ),
+                memory_expansion_calculator,
+            ),
+            # Environmental information
+            Opcodes.ADDRESS: gas_costs.G_BASE,
+            Opcodes.BALANCE: cls._with_account_access(0, gas_costs),
+            Opcodes.ORIGIN: gas_costs.G_BASE,
+            Opcodes.CALLER: gas_costs.G_BASE,
+            Opcodes.CALLVALUE: gas_costs.G_BASE,
+            Opcodes.CALLDATALOAD: gas_costs.G_VERY_LOW,
+            Opcodes.CALLDATASIZE: gas_costs.G_BASE,
+            Opcodes.CALLDATACOPY: cls._with_memory_expansion(
+                cls._with_data_copy(gas_costs.G_VERY_LOW, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.CODESIZE: gas_costs.G_BASE,
+            Opcodes.CODECOPY: cls._with_memory_expansion(
+                cls._with_data_copy(gas_costs.G_VERY_LOW, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.GASPRICE: gas_costs.G_BASE,
+            Opcodes.EXTCODESIZE: cls._with_account_access(0, gas_costs),
+            Opcodes.EXTCODECOPY: cls._with_memory_expansion(
+                cls._with_data_copy(
+                    cls._with_account_access(0, gas_costs),
+                    gas_costs,
+                ),
+                memory_expansion_calculator,
+            ),
+            # Block information
+            Opcodes.BLOCKHASH: gas_costs.G_BLOCKHASH,
+            Opcodes.COINBASE: gas_costs.G_BASE,
+            Opcodes.TIMESTAMP: gas_costs.G_BASE,
+            Opcodes.NUMBER: gas_costs.G_BASE,
+            Opcodes.PREVRANDAO: gas_costs.G_BASE,
+            Opcodes.GASLIMIT: gas_costs.G_BASE,
+            # Stack, memory, storage and flow operations
+            Opcodes.POP: gas_costs.G_BASE,
+            Opcodes.MLOAD: cls._with_memory_expansion(
+                gas_costs.G_VERY_LOW, memory_expansion_calculator
+            ),
+            Opcodes.MSTORE: cls._with_memory_expansion(
+                gas_costs.G_VERY_LOW, memory_expansion_calculator
+            ),
+            Opcodes.MSTORE8: cls._with_memory_expansion(
+                gas_costs.G_VERY_LOW, memory_expansion_calculator
+            ),
+            Opcodes.SLOAD: lambda op: (
+                gas_costs.G_WARM_SLOAD
+                if op.metadata["key_warm"]
+                else gas_costs.G_COLD_SLOAD
+            ),
+            Opcodes.SSTORE: lambda op: cls._calculate_sstore_gas(
+                op, gas_costs
+            ),
+            Opcodes.JUMP: gas_costs.G_MID,
+            Opcodes.JUMPI: gas_costs.G_HIGH,
+            Opcodes.PC: gas_costs.G_BASE,
+            Opcodes.MSIZE: gas_costs.G_BASE,
+            Opcodes.GAS: gas_costs.G_BASE,
+            Opcodes.JUMPDEST: gas_costs.G_JUMPDEST,
+            # Push operations (PUSH1 through PUSH32)
+            **{
+                getattr(Opcodes, f"PUSH{i}"): gas_costs.G_VERY_LOW
+                for i in range(1, 33)
+            },
+            # Dup operations (DUP1 through DUP16)
+            **{
+                getattr(Opcodes, f"DUP{i}"): gas_costs.G_VERY_LOW
+                for i in range(1, 17)
+            },
+            # Swap operations (SWAP1 through SWAP16)
+            **{
+                getattr(Opcodes, f"SWAP{i}"): gas_costs.G_VERY_LOW
+                for i in range(1, 17)
+            },
+            # Logging operations
+            Opcodes.LOG0: cls._with_memory_expansion(
+                lambda op: (
+                    gas_costs.G_LOG
+                    + gas_costs.G_LOG_DATA * op.metadata["data_size"]
+                ),
+                memory_expansion_calculator,
+            ),
+            Opcodes.LOG1: cls._with_memory_expansion(
+                lambda op: (
+                    gas_costs.G_LOG
+                    + gas_costs.G_LOG_DATA * op.metadata["data_size"]
+                    + gas_costs.G_LOG_TOPIC
+                ),
+                memory_expansion_calculator,
+            ),
+            Opcodes.LOG2: cls._with_memory_expansion(
+                lambda op: (
+                    gas_costs.G_LOG
+                    + gas_costs.G_LOG_DATA * op.metadata["data_size"]
+                    + gas_costs.G_LOG_TOPIC * 2
+                ),
+                memory_expansion_calculator,
+            ),
+            Opcodes.LOG3: cls._with_memory_expansion(
+                lambda op: (
+                    gas_costs.G_LOG
+                    + gas_costs.G_LOG_DATA * op.metadata["data_size"]
+                    + gas_costs.G_LOG_TOPIC * 3
+                ),
+                memory_expansion_calculator,
+            ),
+            Opcodes.LOG4: cls._with_memory_expansion(
+                lambda op: (
+                    gas_costs.G_LOG
+                    + gas_costs.G_LOG_DATA * op.metadata["data_size"]
+                    + gas_costs.G_LOG_TOPIC * 4
+                ),
+                memory_expansion_calculator,
+            ),
+            # System operations
+            Opcodes.CREATE: cls._with_memory_expansion(
+                lambda op: cls._calculate_create_gas(op, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.CALL: cls._with_memory_expansion(
+                lambda op: cls._calculate_call_gas(op, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.CALLCODE: cls._with_memory_expansion(
+                lambda op: cls._calculate_call_gas(op, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.RETURN: cls._with_memory_expansion(
+                lambda op: cls._calculate_return_gas(op, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.INVALID: 0,
+            Opcodes.SELFDESTRUCT: lambda op: cls._calculate_selfdestruct_gas(
+                op, gas_costs
+            ),
+        }
+
+    @classmethod
+    def opcode_gas_calculator(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> OpcodeGasCalculator:
+        """
+        Return callable that calculates the gas cost of a single opcode.
+        """
+        opcode_gas_map = cls.opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+
+        def fn(opcode: OpcodeBase) -> int:
+            # Get the gas cost or calculator
+            if opcode not in opcode_gas_map:
+                raise ValueError(
+                    f"No gas cost defined for opcode: {opcode._name_}"
+                )
+            gas_cost_or_calculator = opcode_gas_map[opcode]
+
+            # If it's a callable, call it with the opcode
+            if callable(gas_cost_or_calculator):
+                return gas_cost_or_calculator(opcode)
+
+            # Otherwise it's a constant
+            return gas_cost_or_calculator
+
+        return fn
+
+    @classmethod
+    def opcode_refund_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """
+        Return a mapping of opcodes to their gas refunds.
+
+        Each entry is either:
+        - Constants (int): Direct gas refund values
+        - Callables: Functions that take the opcode instance with metadata and
+                     return gas refund
+        """
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+
+        # Only SSTORE provides refunds
+        return {
+            Opcodes.SSTORE: lambda op: cls._calculate_sstore_refund(
+                op, gas_costs
+            ),
+        }
+
+    @classmethod
+    def opcode_refund_calculator(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> OpcodeGasCalculator:
+        """
+        Return callable that calculates the gas refund of a single opcode.
+        """
+        opcode_refund_map = cls.opcode_refund_map(
+            block_number=block_number, timestamp=timestamp
+        )
+
+        def fn(opcode: OpcodeBase) -> int:
+            # Get the gas refund or calculator
+            if opcode not in opcode_refund_map:
+                # Most opcodes don't provide refunds
+                return 0
+            refund_or_calculator = opcode_refund_map[opcode]
+
+            # If it's a callable, call it with the opcode
+            if callable(refund_or_calculator):
+                return refund_or_calculator(opcode)
+
+            # Otherwise it's a constant
+            return refund_or_calculator
+
+        return fn
+
+    @classmethod
+    def _calculate_sstore_refund(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """Calculate SSTORE gas refund based on metadata."""
+        metadata = opcode.metadata
+
+        original_value = metadata["original_value"]
+        current_value = metadata["current_value"]
+        if current_value is None:
+            current_value = original_value
+        new_value = metadata["new_value"]
+
+        # Refund is provided when setting from non-zero to zero
+        refund = 0
+        if current_value != new_value:
+            if original_value != 0 and current_value != 0 and new_value == 0:
+                # Storage is cleared for the first time in the transaction
+                refund += gas_costs.R_STORAGE_CLEAR
+
+            if original_value != 0 and current_value == 0:
+                # Gas refund issued earlier to be reversed
+                refund -= gas_costs.R_STORAGE_CLEAR
+
+            if original_value == new_value:
+                # Storage slot being restored to its original value
+                if original_value == 0:
+                    # Slot was originally empty and was SET earlier
+                    refund += gas_costs.G_STORAGE_SET - gas_costs.G_WARM_SLOAD
+                else:
+                    # Slot was originally non-empty and was UPDATED earlier
+                    refund += (
+                        gas_costs.G_STORAGE_UPDATE
+                        - gas_costs.G_COLD_SLOAD
+                        - gas_costs.G_WARM_SLOAD
+                    )
+
+        return refund
+
+    @classmethod
+    def _calculate_sstore_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """Calculate SSTORE gas cost based on metadata."""
+        metadata = opcode.metadata
+
+        original_value = metadata["original_value"]
+        current_value = metadata["current_value"]
+        if current_value is None:
+            current_value = original_value
+        new_value = metadata["new_value"]
+
+        gas_cost = 0 if metadata["key_warm"] else gas_costs.G_COLD_SLOAD
+
+        if original_value == current_value and current_value != new_value:
+            if original_value == 0:
+                gas_cost += gas_costs.G_STORAGE_SET
+            else:
+                gas_cost += gas_costs.G_STORAGE_UPDATE - gas_costs.G_COLD_SLOAD
+        else:
+            gas_cost += gas_costs.G_WARM_SLOAD
+
+        return gas_cost
+
+    @classmethod
+    def _calculate_call_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """
+        Calculate CALL/DELEGATECALL/STATICCALL gas cost based on metadata.
+        """
+        metadata = opcode.metadata
+
+        # Base cost depends on address warmth
+        if metadata["address_warm"]:
+            base_cost = gas_costs.G_WARM_ACCOUNT_ACCESS
+        else:
+            base_cost = gas_costs.G_COLD_ACCOUNT_ACCESS
+
+        return base_cost
+
+    @classmethod
+    def _calculate_create_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """CREATE gas is constant at Frontier."""
+        del opcode
+        return gas_costs.G_CREATE
+
+    @classmethod
+    def _calculate_return_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """Calculate RETURN gas cost based on metadata."""
+        metadata = opcode.metadata
+
+        # Code deposit cost when returning from initcode
+        code_deposit_size = metadata["code_deposit_size"]
+        return gas_costs.G_CODE_DEPOSIT_BYTE * code_deposit_size
+
+    @classmethod
+    def _calculate_selfdestruct_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """Calculate SELFDESTRUCT gas cost based on metadata."""
+        metadata = opcode.metadata
+
+        base_cost = gas_costs.G_SELF_DESTRUCT
+
+        # Check if the beneficiary is cold
+        if not metadata["address_warm"]:
+            base_cost += gas_costs.G_COLD_ACCOUNT_ACCESS
+
+        # Check if creating a new account
+        if metadata["account_new"]:
+            base_cost += gas_costs.G_NEW_ACCOUNT
+
+        return base_cost
 
     @classmethod
     def memory_expansion_gas_calculator(
@@ -414,7 +938,8 @@ class Frontier(BaseFork, solc_name="homestead"):
     ) -> int | None:
         """Return the version of the full blob transaction wrapper."""
         raise NotImplementedError(
-            f"Full blob transaction wrapper version is not supported in {cls.name()}"
+            "Full blob transaction wrapper version is not supported in "
+            f"{cls.name()}"
         )
 
     @classmethod
@@ -440,6 +965,14 @@ class Frontier(BaseFork, solc_name="homestead"):
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> bool:
         """At genesis, header must not contain beacon chain requests."""
+        del block_number, timestamp
+        return False
+
+    @classmethod
+    def header_bal_hash_required(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> bool:
+        """At genesis, header must not contain block access list hash."""
         del block_number, timestamp
         return False
 
@@ -480,6 +1013,14 @@ class Frontier(BaseFork, solc_name="homestead"):
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> bool:
         """At genesis, payloads do not have requests."""
+        del block_number, timestamp
+        return False
+
+    @classmethod
+    def engine_execution_payload_block_access_list(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> bool:
+        """At genesis, payloads do not have block access list."""
         del block_number, timestamp
         return False
 
@@ -553,6 +1094,11 @@ class Frontier(BaseFork, solc_name="homestead"):
         return 5_000_000_000_000_000_000
 
     @classmethod
+    def supports_protected_txs(cls) -> bool:
+        """At Genesis, fork has no support for EIP-155 protected txs."""
+        return False
+
+    @classmethod
     def tx_types(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> List[int]:
@@ -609,14 +1155,6 @@ class Frontier(BaseFork, solc_name="homestead"):
         return None
 
     @classmethod
-    def evm_code_types(
-        cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[EVMCodeType]:
-        """At Genesis, only legacy EVM code is supported."""
-        del block_number, timestamp
-        return [EVMCodeType.LEGACY]
-
-    @classmethod
     def max_code_size(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> int:
@@ -652,13 +1190,10 @@ class Frontier(BaseFork, solc_name="homestead"):
     @classmethod
     def call_opcodes(
         cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[Tuple[Opcodes, EVMCodeType]]:
+    ) -> List[Opcodes]:
         """Return list of call opcodes supported by the fork."""
         del block_number, timestamp
-        return [
-            (Opcodes.CALL, EVMCodeType.LEGACY),
-            (Opcodes.CALLCODE, EVMCodeType.LEGACY),
-        ]
+        return [Opcodes.CALL, Opcodes.CALLCODE]
 
     @classmethod
     def valid_opcodes(
@@ -801,12 +1336,10 @@ class Frontier(BaseFork, solc_name="homestead"):
     @classmethod
     def create_opcodes(
         cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[Tuple[Opcodes, EVMCodeType]]:
+    ) -> List[Opcodes]:
         """At Genesis, only `CREATE` opcode is supported."""
         del block_number, timestamp
-        return [
-            (Opcodes.CREATE, EVMCodeType.LEGACY),
-        ]
+        return [Opcodes.CREATE]
 
     @classmethod
     def max_refund_quotient(
@@ -848,6 +1381,56 @@ class Frontier(BaseFork, solc_name="homestead"):
         del block_number, timestamp
         return {}
 
+    @classmethod
+    def build_default_block_header(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> FixtureHeader:
+        """
+        Build a default block header for this fork with the given attributes.
+
+        This method automatically detects which header fields are required by
+        the fork and assigns appropriate default values. It introspects the
+        FixtureHeader model to find fields with HeaderForkRequirement
+        annotations and automatically includes them if the fork requires them.
+
+        Args:
+            block_number: The block number
+            timestamp: The block timestamp
+
+        Returns:
+            FixtureHeader instance with default values applied based on fork
+            requirements.
+
+        Raises:
+            TypeError: If the overrides don't have the correct type.
+
+        """
+        from execution_testing.fixtures.blockchain import FixtureHeader
+
+        defaults = {
+            "number": ZeroPaddedHexNumber(block_number),
+            "timestamp": ZeroPaddedHexNumber(timestamp),
+            "fork": cls,
+        }
+
+        # Iterate through FixtureHeader fields to populate defaults
+        for field_name, field_info in FixtureHeader.model_fields.items():
+            if field_name in defaults:
+                continue
+
+            # Get default value, checking fork requirements and model defaults
+            default_value = FixtureHeader.get_default_from_annotation(
+                fork=cls,
+                field_name=field_name,
+                field_hint=field_info.annotation,
+                block_number=int(block_number),
+                timestamp=int(timestamp),
+            )
+            if default_value is not None:
+                defaults[field_name] = default_value
+
+        return FixtureHeader(**defaults)
+
 
 class Homestead(Frontier):
     """Homestead fork."""
@@ -872,11 +1455,33 @@ class Homestead(Frontier):
     @classmethod
     def call_opcodes(
         cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[Tuple[Opcodes, EVMCodeType]]:
+    ) -> List[Opcodes]:
         """At Homestead, DELEGATECALL opcode was introduced."""
-        return [(Opcodes.DELEGATECALL, EVMCodeType.LEGACY)] + super(
-            Homestead, cls
-        ).call_opcodes(block_number=block_number, timestamp=timestamp)
+        return [Opcodes.DELEGATECALL] + super(Homestead, cls).call_opcodes(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add DELEGATECALL opcode gas cost for Homestead."""
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        memory_expansion_calculator = cls.memory_expansion_gas_calculator(
+            block_number=block_number, timestamp=timestamp
+        )
+        base_map = super(Homestead, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+        return {
+            **base_map,
+            Opcodes.DELEGATECALL: cls._with_memory_expansion(
+                lambda op: cls._calculate_call_gas(op, gas_costs),
+                memory_expansion_calculator,
+            ),
+        }
 
     @classmethod
     def valid_opcodes(
@@ -930,19 +1535,48 @@ class DAOFork(Homestead, ignore=True):
     pass
 
 
-class Tangerine(DAOFork, ignore=True):
-    """Tangerine fork (EIP-150)."""
+class TangerineWhistle(DAOFork, ignore=True):
+    """TangerineWhistle fork (EIP-150)."""
 
     pass
 
 
-class SpuriousDragon(Tangerine, ignore=True):
-    """SpuriousDragon fork (EIP-155, EIP-158)."""
+class SpuriousDragon(TangerineWhistle, ignore=True):
+    """SpuriousDragon fork."""
 
-    pass
+    @classmethod
+    def _calculate_call_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """
+        At Spurious Dragon, the call gas cost needs to take the value transfer
+        and account new into account.
+        """
+        base_cost = super(SpuriousDragon, cls)._calculate_call_gas(
+            opcode, gas_costs
+        )
+
+        # Additional costs for value transfer, does not apply to STATICCALL
+        metadata = opcode.metadata
+        if "value_transfer" in metadata:
+            if metadata["value_transfer"]:
+                base_cost += gas_costs.G_CALL_VALUE
+                if metadata["account_new"]:
+                    base_cost += gas_costs.G_NEW_ACCOUNT
+            elif metadata["account_new"]:
+                raise ValueError("Account new requires value transfer")
+
+        return base_cost
+
+    @classmethod
+    def supports_protected_txs(cls) -> bool:
+        """
+        At Genesis, supports EIP-155 protected transactions.
+        """
+        return True
 
 
-class Byzantium(Homestead):
+class Byzantium(SpuriousDragon):
     """Byzantium fork."""
 
     @classmethod
@@ -988,11 +1622,41 @@ class Byzantium(Homestead):
     @classmethod
     def call_opcodes(
         cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[Tuple[Opcodes, EVMCodeType]]:
+    ) -> List[Opcodes]:
         """At Byzantium, STATICCALL opcode was introduced."""
-        return [(Opcodes.STATICCALL, EVMCodeType.LEGACY)] + super(
-            Byzantium, cls
-        ).call_opcodes(block_number=block_number, timestamp=timestamp)
+        return [Opcodes.STATICCALL] + super(Byzantium, cls).call_opcodes(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add Byzantium opcodes gas costs."""
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        memory_expansion_calculator = cls.memory_expansion_gas_calculator(
+            block_number=block_number, timestamp=timestamp
+        )
+        base_map = super(Byzantium, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+        return {
+            **base_map,
+            Opcodes.RETURNDATASIZE: gas_costs.G_BASE,
+            Opcodes.RETURNDATACOPY: cls._with_memory_expansion(
+                cls._with_data_copy(gas_costs.G_VERY_LOW, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.STATICCALL: cls._with_memory_expansion(
+                lambda op: cls._calculate_call_gas(op, gas_costs),
+                memory_expansion_calculator,
+            ),
+            Opcodes.REVERT: cls._with_memory_expansion(
+                0, memory_expansion_calculator
+            ),
+        }
 
     @classmethod
     def valid_opcodes(
@@ -1038,13 +1702,53 @@ class Constantinople(Byzantium):
         return 2_000_000_000_000_000_000
 
     @classmethod
+    def _calculate_create2_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """Calculate CREATE2 gas cost based on metadata."""
+        metadata = opcode.metadata
+
+        # Keccak256 hashing cost
+        init_code_size = metadata["init_code_size"]
+        init_code_words = (init_code_size + 31) // 32
+        hash_gas = gas_costs.G_KECCAK_256_WORD * init_code_words
+
+        return gas_costs.G_CREATE + hash_gas
+
+    @classmethod
     def create_opcodes(
         cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[Tuple[Opcodes, EVMCodeType]]:
+    ) -> List[Opcodes]:
         """At Constantinople, `CREATE2` opcode is added."""
-        return [(Opcodes.CREATE2, EVMCodeType.LEGACY)] + super(
-            Constantinople, cls
-        ).create_opcodes(block_number=block_number, timestamp=timestamp)
+        return [Opcodes.CREATE2] + super(Constantinople, cls).create_opcodes(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add Constantinople opcodes gas costs."""
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        memory_expansion_calculator = cls.memory_expansion_gas_calculator(
+            block_number=block_number, timestamp=timestamp
+        )
+        base_map = super(Constantinople, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+        return {
+            **base_map,
+            Opcodes.SHL: gas_costs.G_VERY_LOW,
+            Opcodes.SHR: gas_costs.G_VERY_LOW,
+            Opcodes.SAR: gas_costs.G_VERY_LOW,
+            Opcodes.EXTCODEHASH: cls._with_account_access(0, gas_costs),
+            Opcodes.CREATE2: cls._with_memory_expansion(
+                lambda op: cls._calculate_create2_gas(op, gas_costs),
+                memory_expansion_calculator,
+            ),
+        }
 
     @classmethod
     def valid_opcodes(
@@ -1080,6 +1784,23 @@ class Istanbul(ConstantinopleFix):
         ] + super(Istanbul, cls).precompiles(
             block_number=block_number, timestamp=timestamp
         )
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add Istanbul opcodes gas costs."""
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        base_map = super(Istanbul, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+        return {
+            **base_map,
+            Opcodes.CHAINID: gas_costs.G_BASE,
+            Opcodes.SELFBALANCE: gas_costs.G_LOW,
+        }
 
     @classmethod
     def valid_opcodes(
@@ -1210,6 +1931,22 @@ class London(Berlin):
         return [2] + super(London, cls).contract_creating_tx_types(
             block_number=block_number, timestamp=timestamp
         )
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add London opcodes gas costs."""
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        base_map = super(London, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+        return {
+            **base_map,
+            Opcodes.BASEFEE: gas_costs.G_BASE,
+        }
 
     @classmethod
     def valid_opcodes(
@@ -1463,6 +2200,66 @@ class Shanghai(Paris):
         return 0xC000
 
     @classmethod
+    def _calculate_create_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """
+        Calculate CREATE gas cost based on metadata (from Shanghai, includes
+        initcode cost).
+        """
+        metadata = opcode.metadata
+
+        # Get base cost from parent fork
+        base_cost = super(Shanghai, cls)._calculate_create_gas(
+            opcode, gas_costs
+        )
+
+        # Add initcode cost (EIP-3860)
+        init_code_size = metadata["init_code_size"]
+        init_code_words = (init_code_size + 31) // 32
+        init_code_gas = gas_costs.G_INITCODE_WORD * init_code_words
+
+        return base_cost + init_code_gas
+
+    @classmethod
+    def _calculate_create2_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """
+        Calculate CREATE2 gas cost based on metadata (from Shanghai,
+        includes initcode cost).
+        """
+        metadata = opcode.metadata
+
+        # Get base cost from parent fork (includes keccak hash cost)
+        base_cost = super(Shanghai, cls)._calculate_create2_gas(
+            opcode, gas_costs
+        )
+
+        # Add initcode cost (EIP-3860)
+        init_code_size = metadata["init_code_size"]
+        init_code_words = (init_code_size + 31) // 32
+        init_code_gas = gas_costs.G_INITCODE_WORD * init_code_words
+
+        return base_cost + init_code_gas
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add Shanghai opcodes gas costs."""
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        base_map = super(Shanghai, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+        return {
+            **base_map,
+            Opcodes.PUSH0: gas_costs.G_BASE,
+        }
+
+    @classmethod
     def valid_opcodes(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> List[Opcodes]:
@@ -1480,7 +2277,9 @@ class Cancun(Shanghai):
         "CELL_LENGTH": 2048,
         # EIP-2537: Main subgroup order = q, due to this BLS_MODULUS
         # every blob byte (uint256) must be smaller than 116
-        "BLS_MODULUS": 0x73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001,
+        "BLS_MODULUS": (
+            0x73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001
+        ),
         # https://github.com/ethereum/consensus-specs/blob/
         # cc6996c22692d70e41b7a453d925172ee4b719ad/specs/deneb/
         # polynomial-commitments.md?plain=1#L78
@@ -1495,7 +2294,8 @@ class Cancun(Shanghai):
         """Return blob constant if it exists."""
         retrieved_constant = cls.BLOB_CONSTANTS.get(name)
         assert retrieved_constant is not None, (
-            f"You tried to retrieve the blob constant {name} but it does not exist!"
+            f"You tried to retrieve the blob constant {name} but it does "
+            "not exist!"
         )
         return retrieved_constant
 
@@ -1757,9 +2557,10 @@ class Cancun(Shanghai):
         new_allocation = {
             0x000F3DF6D732807EF1319FB7B8BB8522D0BEAC02: {
                 "nonce": 1,
-                "code": "0x3373fffffffffffffffffffffffffffffffffffffffe14604d57602036146024575f5f"
-                "fd5b5f35801560495762001fff810690815414603c575f5ffd5b62001fff01545f5260205ff35b5f"
-                "5ffd5b62001fff42064281555f359062001fff015500",
+                "code": "0x3373fffffffffffffffffffffffffffffffffffffffe14604d"
+                "57602036146024575f5ffd5b5f35801560495762001fff810690"
+                "815414603c575f5ffd5b62001fff01545f5260205ff35b5f5ffd"
+                "5b62001fff42064281555f359062001fff015500",
             }
         }
         return new_allocation | super(Cancun, cls).pre_allocation_blockchain()  # type: ignore
@@ -1795,6 +2596,45 @@ class Cancun(Shanghai):
         """From Cancun, payloads must have a parent beacon block root."""
         del block_number, timestamp
         return True
+
+    @classmethod
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """
+        Return a mapping of opcodes to their gas costs for Cancun.
+
+        Adds Cancun-specific opcodes: BLOBHASH, BLOBBASEFEE, TLOAD, TSTORE,
+        MCOPY.
+        """
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        memory_expansion_calculator = cls.memory_expansion_gas_calculator(
+            block_number=block_number, timestamp=timestamp
+        )
+
+        # Get parent fork's opcode gas map
+        base_map = super(Cancun, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+
+        # Add Cancun-specific opcodes
+        return {
+            **base_map,
+            # EIP-4844: Shard Blob Transactions
+            Opcodes.BLOBHASH: gas_costs.G_VERY_LOW,
+            # EIP-7516: BLOBBASEFEE opcode
+            Opcodes.BLOBBASEFEE: gas_costs.G_BASE,
+            # EIP-1153: Transient storage opcodes
+            Opcodes.TLOAD: gas_costs.G_WARM_SLOAD,
+            Opcodes.TSTORE: gas_costs.G_WARM_SLOAD,
+            # EIP-5656: MCOPY - Memory copying instruction
+            Opcodes.MCOPY: cls._with_memory_expansion(
+                cls._with_data_copy(gas_costs.G_VERY_LOW, gas_costs),
+                memory_expansion_calculator,
+            ),
+        }
 
     @classmethod
     def valid_opcodes(
@@ -1942,6 +2782,26 @@ class Prague(Cancun):
             return tokens * gas_costs.G_TX_DATA_STANDARD_TOKEN_COST
 
         return fn
+
+    @classmethod
+    def _calculate_call_gas(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """
+        At Prague, the call gas cost needs to take the authorization into
+        account.
+        """
+        metadata = opcode.metadata
+
+        base_cost = super(Prague, cls)._calculate_call_gas(opcode, gas_costs)
+
+        if metadata["delegated_address"] or metadata["delegated_address_warm"]:
+            if metadata["delegated_address_warm"]:
+                base_cost += gas_costs.G_WARM_ACCOUNT_ACCESS
+            else:
+                base_cost += gas_costs.G_COLD_ACCOUNT_ACCESS
+
+        return base_cost
 
     @classmethod
     def transaction_data_floor_cost_calculator(
@@ -2214,12 +3074,20 @@ class Osaka(Prague, solc_name="cancun"):
         return max_block_size - safety_margin
 
     @classmethod
-    def is_deployed(cls) -> bool:
-        """
-        Flag that the fork has not been deployed to mainnet; it is under active
-        development.
-        """
-        return False
+    def opcode_gas_map(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add Osaka opcodes gas costs."""
+        gas_costs = cls.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        base_map = super(Osaka, cls).opcode_gas_map(
+            block_number=block_number, timestamp=timestamp
+        )
+        return {
+            **base_map,
+            Opcodes.CLZ: gas_costs.G_LOW,
+        }
 
     @classmethod
     def valid_opcodes(
@@ -2345,7 +3213,7 @@ class Osaka(Prague, solc_name="cancun"):
         return 2**13  # EIP-7918 new parameter
 
 
-class MONAD_EIGHT(Prague, solc_name="cancun"):
+class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
     """MONAD_EIGHT fork."""
 
     @classmethod
@@ -2400,7 +3268,7 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):
         )
 
 
-class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):
+class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
     """MONAD_NEXT fork."""
 
     @classmethod
@@ -2502,6 +3370,11 @@ class BPO3(BPO2, bpo_fork=True):
     """
 
     @classmethod
+    def is_deployed(cls) -> bool:
+        """BPO3 is a pseudo fork for testing, not deployed to mainnet."""
+        return False
+
+    @classmethod
     def blob_base_fee_update_fraction(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> int:
@@ -2574,6 +3447,16 @@ class Amsterdam(BPO2):
     #  live on mainnet.
 
     @classmethod
+    def header_bal_hash_required(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> bool:
+        """
+        From Amsterdam, header must contain block access list hash (EIP-7928).
+        """
+        del block_number, timestamp
+        return True
+
+    @classmethod
     def is_deployed(cls) -> bool:
         """Return True if this fork is deployed."""
         return False
@@ -2586,37 +3469,13 @@ class Amsterdam(BPO2):
         del block_number, timestamp
         return 5
 
-
-class EOFv1(Prague, solc_name="cancun"):
-    """EOF fork."""
-
     @classmethod
-    def evm_code_types(
+    def engine_execution_payload_block_access_list(
         cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[EVMCodeType]:
-        """EOF V1 is supported starting from Osaka."""
-        return super(EOFv1, cls).evm_code_types(
-            block_number=block_number,
-            timestamp=timestamp,
-        ) + [EVMCodeType.EOF_V1]
-
-    @classmethod
-    def call_opcodes(
-        cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> List[Tuple[Opcodes, EVMCodeType]]:
-        """EOF V1 introduces EXTCALL, EXTSTATICCALL, EXTDELEGATECALL."""
-        return [
-            (Opcodes.EXTCALL, EVMCodeType.EOF_V1),
-            (Opcodes.EXTSTATICCALL, EVMCodeType.EOF_V1),
-            (Opcodes.EXTDELEGATECALL, EVMCodeType.EOF_V1),
-        ] + super(EOFv1, cls).call_opcodes(
-            block_number=block_number, timestamp=timestamp
-        )
-
-    @classmethod
-    def is_deployed(cls) -> bool:
+    ) -> bool:
         """
-        Flag that the fork has not been deployed to mainnet; it is under active
-        development.
+        From Amsterdam, engine execution payload includes `block_access_list`
+        as a parameter.
         """
-        return False
+        del block_number, timestamp
+        return True
