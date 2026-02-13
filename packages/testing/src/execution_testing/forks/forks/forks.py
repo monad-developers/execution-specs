@@ -3294,11 +3294,21 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
         # NOTE: Move this to Spurious Dragon once this fork is introduced. See
         # EIP-170.
         """
-        At Spurious Dragon, an upper bound was introduced for max contract code
-        size.
+        MONAD_EIGHT sets its own max_code_size to a higher value.
         """
         del block_number, timestamp
         return 128 * 1024
+
+    @classmethod
+    def max_initcode_size(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int:
+        """
+        MONAD_EIGHT sets its own max_code_size, need to override default.
+        """
+        return 2 * cls.max_code_size(
+            block_number=block_number, timestamp=timestamp
+        )
 
     @classmethod
     def gas_costs(
@@ -3310,17 +3320,27 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
         # TODO: this is actually monad not osaka and actually apply equally
         # in monadized prague... so it's a mess need to think about
         # fork management
+        super_costs = super(MONAD_EIGHT, cls).gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        osaka_costs = Osaka.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
         return replace(
-            super(MONAD_EIGHT, cls).gas_costs(
-                block_number=block_number, timestamp=timestamp
-            ),
-            G_PRECOMPILE_BLAKE2F_PER_ROUND=1 * 2,
-            G_PRECOMPILE_ECADD=150 * 2,
-            G_PRECOMPILE_ECMUL=6000 * 5,
-            G_PRECOMPILE_ECPAIRING_BASE=45_000 * 5,
-            G_PRECOMPILE_ECPAIRING_PER_POINT=34_000 * 5,
-            G_COLD_ACCOUNT_ACCESS=10_100,  # 2600 + 7500
-            G_COLD_SLOAD=8_100,  # 2100 + 6000
+            super_costs,
+            G_PRECOMPILE_BLAKE2F_PER_ROUND=super_costs.G_PRECOMPILE_BLAKE2F_PER_ROUND
+            * 2,
+            G_PRECOMPILE_ECADD=super_costs.G_PRECOMPILE_ECADD * 2,
+            G_PRECOMPILE_ECMUL=super_costs.G_PRECOMPILE_ECMUL * 5,
+            G_PRECOMPILE_ECPAIRING_BASE=super_costs.G_PRECOMPILE_ECPAIRING_BASE
+            * 5,
+            G_PRECOMPILE_ECPAIRING_PER_POINT=super_costs.G_PRECOMPILE_ECPAIRING_PER_POINT
+            * 5,
+            G_COLD_ACCOUNT_ACCESS=super_costs.G_COLD_ACCOUNT_ACCESS + 7500,
+            G_COLD_SLOAD=super_costs.G_COLD_SLOAD + 6000,
+            G_STORAGE_UPDATE=super_costs.G_STORAGE_UPDATE + 6000,
+            # MONAD_EIGHT introduces EIP-7951 independent of Osaka.
+            G_PRECOMPILE_P256VERIFY=osaka_costs.G_PRECOMPILE_P256VERIFY,
         )
 
 
@@ -3332,8 +3352,9 @@ class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> List[Opcodes]:
         """Return spec from explicit parent."""
-        del block_number, timestamp
-        return Osaka.valid_opcodes()
+        return Osaka.valid_opcodes(
+            block_number=block_number, timestamp=timestamp
+        )
 
     @classmethod
     def gas_costs(
