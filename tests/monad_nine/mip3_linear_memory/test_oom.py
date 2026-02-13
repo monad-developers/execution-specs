@@ -3,6 +3,7 @@ Tests OOM (out-of-memory) behavior of the MIP-3 memory model.
 """
 
 import itertools
+from typing import List
 
 import pytest
 from execution_testing import (
@@ -306,28 +307,25 @@ def test_nested_create_oom(
         to=factory_address,
         sender=pre.fund_eoa(),
     )
-
-    factory_storage = {
-        slot_code_worked: value_code_worked,
-    }
     new_contract_address = compute_create_address(
         address=factory_address,
         nonce=1,
         initcode=initcode,
         opcode=create_opcode,
     )
-    if exceed:
-        factory_storage[slot_call_result] = 0
-        new_contract = Account.NONEXISTENT
-    else:
-        factory_storage[slot_call_result] = new_contract_address
-        new_contract = Account(code=b"")
+
+    factory_storage = {
+        slot_code_worked: value_code_worked,
+        slot_call_result: 0 if exceed else new_contract_address,
+    }
 
     state_test(
         pre=pre,
         post={
             factory_address: Account(storage=factory_storage),
-            new_contract_address: new_contract,
+            new_contract_address: Account.NONEXISTENT
+            if exceed
+            else Account(code=b""),
         },
         tx=tx,
     )
@@ -356,7 +354,7 @@ def test_top_level_oom_creation_tx(
         to=None,
         ty=tx_type,
         sender=pre.fund_eoa(),
-        input=initcode,
+        data=initcode,
     )
 
     state_test(
@@ -515,7 +513,7 @@ def test_nested_frames_oom(
     chunk_size = (Spec.MAX_TX_MEMORY_USAGE // exceeds_at_depth) + 64
 
     # Deploy contracts from deepest to shallowest
-    addresses = []
+    addresses: List[Address] = []
     for depth in range(exceeds_at_depth - 1, -1, -1):
         callee = addresses[-1] if addresses else Address(0x0)
         contract = (
@@ -1142,6 +1140,8 @@ def test_charge_gas_before_oom_check(
     """
     gas_limit = generous_gas(fork)
     gas_costs = fork.gas_costs()
+
+    target: Address
 
     if gas_cost_type == "account_create":
         target = pre.fund_eoa(amount=0 if trigger_oog else 1)

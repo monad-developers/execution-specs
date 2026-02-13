@@ -18,7 +18,6 @@ from ethereum_types.bytes import Bytes, Bytes0
 from ethereum_types.numeric import U256, Uint, ulen
 
 from ethereum.exceptions import EthereumException
-from ethereum.forks.monad_next.vm.memory import EvmMemory
 from ethereum.trace import (
     EvmStop,
     OpEnd,
@@ -67,6 +66,7 @@ from .exceptions import (
     StackDepthLimitError,
 )
 from .instructions import Ops, op_implementation
+from .memory import EvmMemory
 from .runtime import get_valid_jump_destinations
 
 STACK_DEPTH_LIMIT = Uint(1024)

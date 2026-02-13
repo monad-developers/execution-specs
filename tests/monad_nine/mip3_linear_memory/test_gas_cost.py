@@ -74,7 +74,7 @@ def test_cost_non_quadratic(
 
 def memory_copy_opcodes(
     fork: Fork,
-) -> Generator[ParameterSet, None, None]:
+) -> Generator[tuple[Op, int, int], None, None]:
     """
     Memory-reading opcodes which allocate memory.
     Includes copy, hashing, and logging opcodes.

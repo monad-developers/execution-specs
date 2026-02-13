@@ -6,6 +6,8 @@ Tests that run on both MONAD_EIGHT and MONAD_NEXT to compare behavior:
 - MONAD_EIGHT: can go above this limit if allocations spread across frames
 """
 
+from typing import List
+
 import pytest
 from execution_testing import (
     Account,
@@ -14,6 +16,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.base_types.base_types import Address
 from execution_testing.forks.forks.forks import MONAD_NEXT
 from execution_testing.forks.helpers import Fork
 
@@ -58,7 +61,7 @@ def test_nested_frames_deep(
     )
 
     # Deploy contracts from deepest to shallowest
-    addresses = []
+    addresses: List[Address] = []
     for depth in range(max_depth - 1, -1, -1):
         if depth == max_depth - 1:
             # Deepest level: allocate memory and store success
