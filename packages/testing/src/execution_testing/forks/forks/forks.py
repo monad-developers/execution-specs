@@ -3343,6 +3343,14 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
             G_PRECOMPILE_P256VERIFY=osaka_costs.G_PRECOMPILE_P256VERIFY,
         )
 
+    @classmethod
+    def transaction_gas_limit_cap(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int | None:
+        """At MONAD_EIGHT, transaction gas limit is capped at 30 million."""
+        del block_number, timestamp
+        return 30_000_000
+
 
 class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
     """MONAD_NEXT fork."""
@@ -3380,6 +3388,15 @@ class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
     ) -> List[Address]:
         """Return spec from explicit parent."""
         return MONAD_EIGHT.precompiles(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
+    def transaction_gas_limit_cap(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int | None:
+        """Return spec from explicit parent."""
+        return MONAD_EIGHT.transaction_gas_limit_cap(
             block_number=block_number, timestamp=timestamp
         )
 

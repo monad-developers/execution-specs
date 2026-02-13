@@ -876,6 +876,9 @@ def test_set_code_max_depth_call_stack(
         case 16_777_216:
             gas_limit = tx_gas_limit_cap
             max_depth = 389
+        case 30_000_000:
+            gas_limit = tx_gas_limit_cap
+            max_depth = 426
         case _:
             raise NotImplementedError(
                 f"Unexpected transaction gas limit cap: {tx_gas_limit_cap}"
