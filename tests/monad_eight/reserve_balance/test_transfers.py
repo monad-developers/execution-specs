@@ -3,6 +3,7 @@ Tests reserve balance when doing transfers.
 """
 
 from enum import Enum, auto, unique
+from typing import Callable
 
 import pytest
 from execution_testing import (
@@ -1627,5 +1628,97 @@ def test_two_step_balance_change(
     blockchain_test(
         pre=pre,
         post={contract_address: Account(storage=storage)},
+        blocks=[Block(txs=[tx])],
+    )
+
+
+@pytest.mark.parametrize(
+    "violation_index_fn",
+    [
+        pytest.param(lambda _n: None, id="no_violation"),
+        pytest.param(lambda _n: 0, id="first_violates"),
+        pytest.param(lambda n: n // 2, id="middle_violates"),
+        pytest.param(lambda n: n - 1, id="last_violates"),
+    ],
+)
+def test_many_accounts_balance_change(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    violation_index_fn: Callable[[int], int | None],
+    fork: Fork,
+) -> None:
+    """
+    Test reserve balance with many accounts having their balance changed.
+
+    A single wallet is deployed and many EOAs delegate to it. Each EOA sends
+    a transfer when the wallet code executes. The violation_index parameter
+    determines which account (if any) ends up in violation.
+
+    The number of accounts to involve depends on how cheaply can we call them
+    and on the transaction gas limit cap.
+    """
+    gas_costs = fork.gas_costs()
+    gas_per_account = (
+        Op.CALL(
+            # Warmed using access lists for cheapest call
+            address_warm=True,
+            value_transfer=True,
+            account_new=False,
+            delegated_address=True,
+            # Warmed using access lists for cheapest call
+            delegated_address_warm=True,
+        ).gas_cost(fork)
+        + gas_costs.G_ACCESS_LIST_ADDRESS
+    )
+    gas_limit = fork.transaction_gas_limit_cap()
+    assert gas_limit is not None
+    # Using generous_gas(fork) as margin for constant gas expenses.
+    num_accounts = (gas_limit - generous_gas(fork)) // gas_per_account
+    assert num_accounts >= 2560  # 2570 minus margin
+    violation_index = violation_index_fn(num_accounts)
+
+    value = 1
+
+    initial_sink_balance = 1
+    sink_address = pre.fund_eoa(initial_sink_balance)
+    wallet_code = Op.CALL(address=sink_address, value=value)
+    wallet_address = pre.deploy_contract(code=wallet_code)
+
+    senders = []
+    for i in range(num_accounts):
+        if i == violation_index:
+            balance = Spec.RESERVE_BALANCE
+        else:
+            balance = Spec.RESERVE_BALANCE + value
+        senders.append(pre.fund_eoa(balance, delegation=wallet_address))
+
+    contract_code = Op.SSTORE(slot_code_worked, value_code_worked)
+    for sender in senders:
+        contract_code += Op.CALL(address=sender) + Op.POP
+    contract_address = pre.deploy_contract(contract_code)
+
+    tx = Transaction(
+        gas_limit=gas_limit,
+        to=contract_address,
+        sender=pre.fund_eoa(),
+        access_list=[AccessList(address=s, storage_keys=[]) for s in senders]
+        + [AccessList(address=wallet_address, storage_keys=[])],
+    )
+
+    reverted = violation_index is not None
+    total_sent = value * num_accounts
+
+    blockchain_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage={}
+                if reverted
+                else {slot_code_worked: value_code_worked}
+            ),
+            sink_address: Account(
+                balance=initial_sink_balance + (0 if reverted else total_sent)
+            ),
+        },
         blocks=[Block(txs=[tx])],
     )
