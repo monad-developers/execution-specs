@@ -145,6 +145,14 @@ class EvmMemory:
     data: bytearray
     high_watermark_bytes: int
 
+    def __len__(self) -> int:
+        """Return the length of the memory data."""
+        return len(self.data)
+
+    def hex(self) -> str:
+        """Return the hex string of the memory data."""
+        return self.data.hex()
+
 
 @dataclass
 class Evm:
@@ -187,6 +195,9 @@ def incorporate_child_on_success(evm: Evm, child_evm: Evm) -> None:
     evm.accessed_addresses.update(child_evm.accessed_addresses)
     evm.accessed_storage_keys.update(child_evm.accessed_storage_keys)
 
+    # NOTE: absence of `evm.memory`, in particular of its high watermark
+    #       is intended for memory to deallocate on call frame exit.
+
 
 def incorporate_child_on_error(evm: Evm, child_evm: Evm) -> None:
     """
@@ -201,3 +212,6 @@ def incorporate_child_on_error(evm: Evm, child_evm: Evm) -> None:
 
     """
     evm.gas_left += child_evm.gas_left
+
+    # NOTE: absence of `evm.memory`, in particular of its high watermark
+    #       is intended for memory to deallocate on call frame exit.

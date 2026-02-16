@@ -212,7 +212,9 @@ def update_memory_high_watermark(
 ) -> None:
     """
     Update the memory high watermark and check it doesn't exceed
-    MAX_TX_MEMORY_USAGE.
+    MAX_TX_MEMORY_USAGE. The high watermark is intended to not be
+    propagated from child EVM call frame to its parent, as the memory
+    is respectively deallocated on exit.
 
     Parameters
     ----------
