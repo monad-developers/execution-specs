@@ -409,7 +409,7 @@ def test_blake2b(
 
     gas_costs = fork.gas_costs()
     sstore_cost = gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
-    blake_cost = data.rounds * gas_costs.G_BLAKE2_PER_ROUND
+    blake_cost = data.rounds * gas_costs.G_PRECOMPILE_BLAKE2F_PER_ROUND
 
     data_bytes = data.create_blake2b_tx_data()
 

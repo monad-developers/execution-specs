@@ -162,8 +162,6 @@ class Frontier(BaseFork, solc_name="homestead"):
             G_MEMORY=3,
             G_TX_DATA_ZERO=4,
             G_TX_DATA_NON_ZERO=68,
-            G_TX_DATA_STANDARD_TOKEN_COST=0,
-            G_TX_DATA_FLOOR_TOKEN_COST=0,
             G_TRANSACTION=21_000,
             G_TRANSACTION_CREATE=32_000,
             G_LOG=375,
@@ -173,8 +171,35 @@ class Frontier(BaseFork, solc_name="homestead"):
             G_KECCAK_256_WORD=6,
             G_COPY=3,
             G_BLOCKHASH=20,
+            G_PRECOMPILE_ECRECOVER=3_000,
+            G_PRECOMPILE_SHA256_BASE=60,
+            G_PRECOMPILE_SHA256_WORD=12,
+            G_PRECOMPILE_RIPEMD160_BASE=600,
+            G_PRECOMPILE_RIPEMD160_WORD=120,
+            G_PRECOMPILE_IDENTITY_BASE=15,
+            G_PRECOMPILE_IDENTITY_WORD=3,
+            # Zero-initialized: introduced in later forks, set via
+            # replace() in the fork that activates them.
+            G_TX_DATA_STANDARD_TOKEN_COST=0,
+            G_TX_DATA_FLOOR_TOKEN_COST=0,
             G_AUTHORIZATION=0,
             R_AUTHORIZATION_EXISTING_AUTHORITY=0,
+            G_PRECOMPILE_ECADD=0,
+            G_PRECOMPILE_ECMUL=0,
+            G_PRECOMPILE_ECPAIRING_BASE=0,
+            G_PRECOMPILE_ECPAIRING_PER_POINT=0,
+            G_PRECOMPILE_BLAKE2F_BASE=0,
+            G_PRECOMPILE_BLAKE2F_PER_ROUND=0,
+            G_PRECOMPILE_POINT_EVALUATION=0,
+            G_PRECOMPILE_BLS_G1ADD=0,
+            G_PRECOMPILE_BLS_G1MUL=0,
+            G_PRECOMPILE_BLS_G1MAP=0,
+            G_PRECOMPILE_BLS_G2ADD=0,
+            G_PRECOMPILE_BLS_G2MUL=0,
+            G_PRECOMPILE_BLS_G2MAP=0,
+            G_PRECOMPILE_BLS_PAIRING_BASE=0,
+            G_PRECOMPILE_BLS_PAIRING_PER_PAIR=0,
+            G_PRECOMPILE_P256VERIFY=0,
         )
 
     @classmethod
@@ -1825,13 +1850,12 @@ class Istanbul(ConstantinopleFix):
                 block_number=block_number, timestamp=timestamp
             ),
             G_TX_DATA_NON_ZERO=16,  # https://eips.ethereum.org/EIPS/eip-2028
-            # https://eips.ethereum.org/EIPS/eip-152
-            G_BLAKE2_PER_ROUND=1,
             # https://eips.ethereum.org/EIPS/eip-1108
             G_PRECOMPILE_ECADD=150,
             G_PRECOMPILE_ECMUL=6000,
             G_PRECOMPILE_ECPAIRING_BASE=45_000,
             G_PRECOMPILE_ECPAIRING_PER_POINT=34_000,
+            G_PRECOMPILE_BLAKE2F_PER_ROUND=1,
         )
 
 
@@ -2598,6 +2622,18 @@ class Cancun(Shanghai):
         return True
 
     @classmethod
+    def gas_costs(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> GasCosts:
+        """On Cancun, the point evaluation precompile gas cost is set."""
+        return replace(
+            super(Cancun, cls).gas_costs(
+                block_number=block_number, timestamp=timestamp
+            ),
+            G_PRECOMPILE_POINT_EVALUATION=50_000,
+        )
+
+    @classmethod
     def opcode_gas_map(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
@@ -2716,6 +2752,14 @@ class Prague(Cancun):
             G_TX_DATA_FLOOR_TOKEN_COST=10,
             G_AUTHORIZATION=25_000,
             R_AUTHORIZATION_EXISTING_AUTHORITY=12_500,
+            G_PRECOMPILE_BLS_G1ADD=375,
+            G_PRECOMPILE_BLS_G1MUL=12_000,
+            G_PRECOMPILE_BLS_G1MAP=5_500,
+            G_PRECOMPILE_BLS_G2ADD=600,
+            G_PRECOMPILE_BLS_G2MUL=22_500,
+            G_PRECOMPILE_BLS_G2MAP=23_800,
+            G_PRECOMPILE_BLS_PAIRING_BASE=37_700,
+            G_PRECOMPILE_BLS_PAIRING_PER_PAIR=32_600,
         )
 
     @classmethod
@@ -3115,6 +3159,18 @@ class Osaka(Prague, solc_name="cancun"):
         )
 
     @classmethod
+    def gas_costs(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> GasCosts:
+        """On Osaka, the P256VERIFY precompile gas cost is set."""
+        return replace(
+            super(Osaka, cls).gas_costs(
+                block_number=block_number, timestamp=timestamp
+            ),
+            G_PRECOMPILE_P256VERIFY=6_900,
+        )
+
+    @classmethod
     def excess_blob_gas_calculator(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> ExcessBlobGasCalculator:
@@ -3238,11 +3294,21 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
         # NOTE: Move this to Spurious Dragon once this fork is introduced. See
         # EIP-170.
         """
-        At Spurious Dragon, an upper bound was introduced for max contract code
-        size.
+        MONAD_EIGHT sets its own max_code_size to a higher value.
         """
         del block_number, timestamp
         return 128 * 1024
+
+    @classmethod
+    def max_initcode_size(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int:
+        """
+        MONAD_EIGHT sets its own max_code_size, need to override default.
+        """
+        return 2 * cls.max_code_size(
+            block_number=block_number, timestamp=timestamp
+        )
 
     @classmethod
     def gas_costs(
@@ -3254,18 +3320,36 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
         # TODO: this is actually monad not osaka and actually apply equally
         # in monadized prague... so it's a mess need to think about
         # fork management
-        return replace(
-            super(MONAD_EIGHT, cls).gas_costs(
-                block_number=block_number, timestamp=timestamp
-            ),
-            G_BLAKE2_PER_ROUND=1 * 2,
-            G_PRECOMPILE_ECADD=150 * 2,
-            G_PRECOMPILE_ECMUL=6000 * 5,
-            G_PRECOMPILE_ECPAIRING_BASE=45_000 * 5,
-            G_PRECOMPILE_ECPAIRING_PER_POINT=34_000 * 5,
-            G_COLD_ACCOUNT_ACCESS=10_100,  # 2600 + 7500
-            G_COLD_SLOAD=8_100,  # 2100 + 6000
+        super_costs = super(MONAD_EIGHT, cls).gas_costs(
+            block_number=block_number, timestamp=timestamp
         )
+        osaka_costs = Osaka.gas_costs(
+            block_number=block_number, timestamp=timestamp
+        )
+        return replace(
+            super_costs,
+            G_PRECOMPILE_BLAKE2F_PER_ROUND=super_costs.G_PRECOMPILE_BLAKE2F_PER_ROUND
+            * 2,
+            G_PRECOMPILE_ECADD=super_costs.G_PRECOMPILE_ECADD * 2,
+            G_PRECOMPILE_ECMUL=super_costs.G_PRECOMPILE_ECMUL * 5,
+            G_PRECOMPILE_ECPAIRING_BASE=super_costs.G_PRECOMPILE_ECPAIRING_BASE
+            * 5,
+            G_PRECOMPILE_ECPAIRING_PER_POINT=super_costs.G_PRECOMPILE_ECPAIRING_PER_POINT
+            * 5,
+            G_COLD_ACCOUNT_ACCESS=super_costs.G_COLD_ACCOUNT_ACCESS + 7500,
+            G_COLD_SLOAD=super_costs.G_COLD_SLOAD + 6000,
+            G_STORAGE_UPDATE=super_costs.G_STORAGE_UPDATE + 6000,
+            # MONAD_EIGHT introduces EIP-7951 independent of Osaka.
+            G_PRECOMPILE_P256VERIFY=osaka_costs.G_PRECOMPILE_P256VERIFY,
+        )
+
+    @classmethod
+    def transaction_gas_limit_cap(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int | None:
+        """At MONAD_EIGHT, transaction gas limit is capped at 30 million."""
+        del block_number, timestamp
+        return 30_000_000
 
 
 class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
@@ -3276,8 +3360,9 @@ class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> List[Opcodes]:
         """Return spec from explicit parent."""
-        del block_number, timestamp
-        return Osaka.valid_opcodes()
+        return Osaka.valid_opcodes(
+            block_number=block_number, timestamp=timestamp
+        )
 
     @classmethod
     def gas_costs(
@@ -3303,6 +3388,15 @@ class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
     ) -> List[Address]:
         """Return spec from explicit parent."""
         return MONAD_EIGHT.precompiles(
+            block_number=block_number, timestamp=timestamp
+        )
+
+    @classmethod
+    def transaction_gas_limit_cap(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int | None:
+        """Return spec from explicit parent."""
+        return MONAD_EIGHT.transaction_gas_limit_cap(
             block_number=block_number, timestamp=timestamp
         )
 

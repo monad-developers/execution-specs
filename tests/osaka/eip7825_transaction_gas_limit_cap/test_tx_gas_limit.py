@@ -137,7 +137,8 @@ def test_transaction_gas_limit_cap(
         pytest.param(Op.STATICCALL),
     ],
 )
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_tx_gas_limit_cap_subcall_context(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -189,7 +190,8 @@ def test_tx_gas_limit_cap_subcall_context(
         pytest.param(False),
     ],
 )
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_tx_gas_larger_than_block_gas_limit(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -235,7 +237,8 @@ def test_tx_gas_larger_than_block_gas_limit(
         pytest.param(False),
     ],
 )
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_maximum_gas_refund(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -254,8 +257,10 @@ def test_maximum_gas_refund(
 
     # Base Operation: SSTORE(slot, 0)
     iteration_cost = (
-        gas_costs.G_STORAGE_RESET + gas_costs.G_BASE + gas_costs.G_VERY_LOW
-    )
+        Op.SSTORE(key_warm=True, original_value=1, new_value=0)
+        + Op.PUSH0
+        + Op.PUSH1(0)
+    ).gas_cost(fork)
     gas_refund = gas_costs.R_STORAGE_CLEAR
 
     # EIP-3529: Reduction in refunds
@@ -318,7 +323,8 @@ def total_cost_floor_per_token(fork: Fork) -> int:
     ],
 )
 @pytest.mark.parametrize("zero_byte", [True, False])
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_tx_gas_limit_cap_full_calldata(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -399,7 +405,8 @@ def test_tx_gas_limit_cap_full_calldata(
         pytest.param(False),
     ],
 )
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_tx_gas_limit_cap_contract_creation(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -464,7 +471,8 @@ def test_tx_gas_limit_cap_contract_creation(
         pytest.param(False, True),
     ],
 )
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_tx_gas_limit_cap_access_list_with_diff_keys(
     state_test: StateTestFiller,
     exceed_tx_gas_limit: bool,
@@ -549,7 +557,8 @@ def test_tx_gas_limit_cap_access_list_with_diff_keys(
         pytest.param(False, True),
     ],
 )
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_tx_gas_limit_cap_access_list_with_diff_addr(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -629,7 +638,8 @@ def test_tx_gas_limit_cap_access_list_with_diff_addr(
         pytest.param(False, True),
     ],
 )
-@pytest.mark.valid_from("Osaka")
+# Osaka originally, but Monad introduces tx gas limit cap differently
+@pytest.mark.valid_from("MONAD_EIGHT")
 def test_tx_gas_limit_cap_authorized_tx(
     state_test: StateTestFiller,
     pre: Alloc,

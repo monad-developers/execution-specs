@@ -52,29 +52,24 @@ def calculate_selfdestruct_gas(
     originator_balance: int,
 ) -> int:
     """Calculate exact gas needed for SELFDESTRUCT."""
-    gas_costs = fork.gas_costs()
-    gas = (
-        # PUSH + SELFDESTRUCT
-        gas_costs.G_VERY_LOW + gas_costs.G_SELF_DESTRUCT
-    )
-
-    # Cold access cost (>=Berlin only)
-    if fork >= Berlin and not beneficiary_warm:
-        gas += gas_costs.G_COLD_ACCOUNT_ACCESS
-
     # G_NEW_ACCOUNT:
     # - Pre-EIP-161 (TangerineWhistle): charged when beneficiary is dead
     # - Post-EIP-161 (>=SpuriousDragon): charged when beneficiary is dead
     #   AND originator has balance > 0
+    needs_new_account = False
     if beneficiary_dead:
         if fork >= SpuriousDragon:
-            if originator_balance > 0:
-                gas += gas_costs.G_NEW_ACCOUNT
+            needs_new_account = originator_balance > 0
         else:
             # Pre-EIP-161: always charged when beneficiary is dead
-            gas += gas_costs.G_NEW_ACCOUNT
+            needs_new_account = True
 
-    return gas
+    # PUSH + SELFDESTRUCT (with metadata for warm/cold and new account)
+    return Op.SELFDESTRUCT(
+        0,  # beneficiary address (generates a PUSH)
+        address_warm=beneficiary_warm or fork < Berlin,
+        account_new=needs_new_account,
+    ).gas_cost(fork)
 
 
 def setup_selfdestruct_test(
@@ -491,10 +486,11 @@ def test_selfdestruct_state_access_boundary(
 
     # Calculate gas for state access boundary only (base + cold access)
     # Does NOT include G_NEW_ACCOUNT
-    gas_costs = fork.gas_costs()
-    inner_call_gas = gas_costs.G_VERY_LOW + gas_costs.G_SELF_DESTRUCT
-    if fork >= Berlin and not warm:
-        inner_call_gas += gas_costs.G_COLD_ACCOUNT_ACCESS
+    inner_call_gas = Op.SELFDESTRUCT(
+        0,  # beneficiary address (generates a PUSH)
+        address_warm=warm or fork < Berlin,
+        account_new=False,
+    ).gas_cost(fork)
 
     if not is_success:
         inner_call_gas -= 1
@@ -576,20 +572,8 @@ def test_selfdestruct_state_access_boundary(
 @pytest.mark.parametrize(
     "beneficiary_initial_balance",
     [
-        pytest.param(
-            0,
-            id="dead_beneficiary",
-            marks=pytest.mark.pre_alloc_group(
-                "eip150_selfdestruct_precompile_dead"
-            ),
-        ),
-        pytest.param(
-            1,
-            id="alive_beneficiary",
-            marks=pytest.mark.pre_alloc_group(
-                "eip150_selfdestruct_precompile_alive"
-            ),
-        ),
+        pytest.param(0, id="dead_beneficiary"),
+        pytest.param(1, id="alive_beneficiary"),
     ],
 )
 @pytest.mark.valid_from("TangerineWhistle")
@@ -697,20 +681,8 @@ def test_selfdestruct_to_precompile(
 @pytest.mark.parametrize(
     "beneficiary_initial_balance",
     [
-        pytest.param(
-            0,
-            id="dead_beneficiary",
-            marks=pytest.mark.pre_alloc_group(
-                "eip150_selfdestruct_precompile_boundary_dead"
-            ),
-        ),
-        pytest.param(
-            1,
-            id="alive_beneficiary",
-            marks=pytest.mark.pre_alloc_group(
-                "eip150_selfdestruct_precompile_boundary_alive"
-            ),
-        ),
+        pytest.param(0, id="dead_beneficiary"),
+        pytest.param(1, id="alive_beneficiary"),
     ],
 )
 @pytest.mark.valid_from("TangerineWhistle")
@@ -740,8 +712,10 @@ def test_selfdestruct_to_precompile_state_access_boundary(
     beneficiary_dead = beneficiary_initial_balance == 0
 
     # State access boundary: base cost only (no G_NEW_ACCOUNT)
-    gas_costs = fork.gas_costs()
-    inner_call_gas = gas_costs.G_VERY_LOW + gas_costs.G_SELF_DESTRUCT
+    # Precompiles are always warm
+    inner_call_gas = Op.SELFDESTRUCT(
+        0, address_warm=True, account_new=False
+    ).gas_cost(fork)
 
     if not is_success:
         inner_call_gas -= 1
@@ -994,9 +968,9 @@ def test_selfdestruct_to_self(
     victim_code = Op.SELFDESTRUCT(Op.ADDRESS)
 
     # Gas: ADDRESS + SELFDESTRUCT (no cold access, no G_NEW_ACCOUNT)
-    # Note: ADDRESS opcode costs G_BASE, not G_VERY_LOW like PUSH
-    gas_costs = fork.gas_costs()
-    base_gas = gas_costs.G_BASE + gas_costs.G_SELF_DESTRUCT
+    base_gas = Op.SELFDESTRUCT(
+        Op.ADDRESS, address_warm=True, account_new=False
+    ).gas_cost(fork)
     inner_call_gas = base_gas if is_success else base_gas - 1
 
     if same_tx:

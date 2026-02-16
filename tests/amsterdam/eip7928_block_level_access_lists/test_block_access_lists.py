@@ -1073,19 +1073,13 @@ def test_bal_noop_storage_write(
 ) -> None:
     """Test that BAL correctly handles no-op storage write."""
     alice = pre.fund_eoa()
-    storage_contract = pre.deploy_contract(
-        code=Op.SSTORE(0x01, 0x42), storage={0x01: 0x42}
+    code = Op.SSTORE(
+        0x01, 0x42, key_warm=False, original_value=0, new_value=0x42
     )
+    storage_contract = pre.deploy_contract(code=code, storage={0x01: 0x42})
 
     intrinsic_gas_calculator = fork.transaction_intrinsic_cost_calculator()
-    gas_limit = (
-        intrinsic_gas_calculator()
-        # Sufficient gas for write
-        + fork.gas_costs().G_COLD_SLOAD
-        + fork.gas_costs().G_COLD_ACCOUNT_ACCESS
-        + fork.gas_costs().G_STORAGE_SET
-        + fork.gas_costs().G_BASE * 10  # Buffer for push
-    )
+    gas_limit = intrinsic_gas_calculator() + code.gas_cost(fork)
 
     tx = Transaction(
         sender=alice, to=storage_contract, gas_limit=gas_limit, gas_price=0xA
@@ -1387,10 +1381,6 @@ def test_bal_coinbase_zero_tip(
     )
 
 
-@pytest.mark.pre_alloc_group(
-    "precompile_funded",
-    reason="Expects clean precompile balances, isolate in EngineX",
-)
 @pytest.mark.parametrize(
     "value",
     [
@@ -2198,10 +2188,6 @@ def test_bal_cross_tx_storage_revert_to_zero(
     )
 
 
-@pytest.mark.pre_alloc_group(
-    "ripemd160_state_leak",
-    reason="Pre-funds RIPEMD-160, must be isolated in EngineX format",
-)
 def test_bal_cross_block_ripemd160_state_leak(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -2550,6 +2536,7 @@ def test_bal_all_transaction_types(
     )
 
 
+@pytest.mark.pre_alloc_mutable()
 def test_bal_lexicographic_address_ordering(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
