@@ -4,6 +4,64 @@
 [![codecov](https://codecov.io/gh/ethereum/execution-specs/graph/badge.svg?token=0LQZO56RTM)](https://codecov.io/gh/ethereum/execution-specs)
 [![Python Specification](https://github.com/ethereum/execution-specs/actions/workflows/test.yaml/badge.svg)](https://github.com/ethereum/execution-specs/actions/workflows/test.yaml)
 
+## Monadized `execution-specs` and spec tests
+
+**IMPORTANT: Read this first if you're planning to use it for [Monad](https://www.monad.xyz/).**
+
+---
+
+This fork implements the execution layer client features specific to Monad.
+
+It mainly serves as an alternative implementation of https://github.com/category-labs/monad, and a tool to generate (fill) spec tests for it to consume.
+
+### Getting started
+
+1. Install `uv`: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. Clone and setup:
+
+```bash
+git clone --depth 1 https://github.com/monad-developers/execution-specs
+cd execution-specs
+uv python install 3.12
+uv python pin 3.12
+uv sync --all-extras
+```
+3. Fill all monadized spec tests as of writing this (see below for explanation of flags):
+
+```bash
+uv run fill --clean -m "blockchain_test or transaction_test" --from MONAD_EIGHT --until MONAD_NEXT --chain-id 143 -n auto tests
+```
+
+4. The test fixtures to be found in `fixtures/` directory under repo root.
+
+(c.f. [somewhat outdated upstream "Getting started"](https://eest.ethereum.org/main/getting_started/installation/))
+
+### Filling tests
+
+Filling tests is the process of running Python generators of spec tests [like ones you can find here](./tests/monad_eight/reserve_balance/test_transfers.py), to generate JSON files with test fixtures. The fixtures are then in turn consumed by `monad`. In the process of filling the tests, the Python implementation of Monad execution layer is used to produce reference results including the state root.
+
+#### `uv run fill` flags
+
+- **`-m blockchain_test or transaction_test`**: causes these two flavors of fixtures to be generated
+  - `blockchain_test` is the currently supported by `monad` flavor of a spec test checking correctness of the state transition. Note this includes `blockchain_test_from_state_test`, meaning that all `state_test(...)` fillers are included
+  - `transaction_test` is also supported, tests only correctness of static transaction checks
+- **`--from MONAD_EIGHT --until MONAD_NEXT`**: hardforks for which to generate fixtures. Must match with those defined in `monad`, inclusive
+- **`--chain-id 143`**: must be specified for signatures and EIP-7702 to work correctly
+- **`-n auto`**: from `pytest`, parallel execution of tests
+- **`tests`**: root directory to traverse to discover tests
+  - inside the tests are organized by EIP/MIP and the hardfork when they **became relevant**. For Monad these are `monad_eight` and `monad_nine` as of writing this. Here hardfork is informative only, doesn't need to match with `monad`.
+  - note that tests relevant for previous hardforks, e.g. `tests/prague/eip7702_set_code_tx`, are filled for hardforks requested with `--from`, `--until` flags, respecting any constraints the test itself might define. In other words, in the invokation above, EIP-7702 tests **will be filled**
+
+`pytest` flags are in general supported, while `--traces` will give you detailed EVM step traces. Refer to https://eest.ethereum.org/main/filling_tests/ for more details.
+
+### Gotchas
+
+- not all Ethereum-only features have been switched off, e.g. eth-specific system contracts and tx types are available in the monadized `execution-specs` implementation. We're skipping their respective spec tests, and we don't have tests testing lack of these features in Monad.
+- we're going to be keeping up with upstream changes (currently `forks/amsterdam` branch). This should work by opening a PR with the upstream changes to be commit-merged into our default branch (currently `forks/monad_nine`).
+- when adding a new Monad-hardfork we should use the [`ethereum-spec-new-fork` tool](./CONTRIBUTING.md#new-fork-tool) provided to clone the parent hardfork into the new hardfork. If that new Monad-hardfork also adopts upstream (Ethereum) hardfork improvements, you will need to apply these yourself.
+
+---
+
 ## Description
 
 This repository contains the specifications related to the Ethereum execution client, specifically the [pyspec](/src/ethereum/__init__.py) and specifications for [network upgrades](/src/ethereum/__init__.py). The [JSON-RPC API specification](https://github.com/ethereum/execution-apis) can be found in a separate repository.
