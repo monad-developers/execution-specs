@@ -50,7 +50,7 @@ Filling tests is the process of running Python generators of spec tests [like on
 - **`-n auto`**: from `pytest`, parallel execution of tests
 - **`tests`**: root directory to traverse to discover tests
   - inside the tests are organized by EIP/MIP and the hardfork when they **became relevant**. For Monad these are `monad_eight` and `monad_nine` as of writing this. Here hardfork is informative only, doesn't need to match with `monad`.
-  - note that tests relevant for previous hardforks, e.g. `tests/prague/eip7702_set_code_tx`, are filled for hardforks requested with `--from`, `--until` flags, respecting any constraints the test itself might define. In other words, in the invokation above, EIP-7702 tests **will be filled**
+  - note that tests relevant for previous hardforks, e.g. `tests/prague/eip7702_set_code_tx`, are filled for hardforks requested with `--from`, `--until` flags, respecting any constraints the test itself might define. In other words, in the invocation above, EIP-7702 tests **will be filled**
 
 `pytest` flags are in general supported, while `--traces` will give you detailed EVM step traces. Refer to https://eest.ethereum.org/main/filling_tests/ for more details.
 
