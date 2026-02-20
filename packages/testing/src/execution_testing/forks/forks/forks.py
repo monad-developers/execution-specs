@@ -3400,6 +3400,30 @@ class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
             block_number=block_number, timestamp=timestamp
         )
 
+    @classmethod
+    def memory_expansion_gas_calculator(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> MemoryExpansionGasCalculator:
+        """
+        Return callable that calculates the gas cost of memory expansion for
+        the fork.
+        """
+        del block_number, timestamp
+        memory_words_per_gas = 2
+
+        def fn(*, new_bytes: int, previous_bytes: int = 0) -> int:
+            if new_bytes <= previous_bytes:
+                return 0
+            new_words = ceiling_division(new_bytes, 32)
+            previous_words = ceiling_division(previous_bytes, 32)
+
+            def c(w: int) -> int:
+                return w // memory_words_per_gas
+
+            return c(new_words) - c(previous_words)
+
+        return fn
+
 
 class BPO1(Osaka, bpo_fork=True):
     """Mainnet BPO1 fork - Blob Parameter Only fork 1."""

@@ -24,6 +24,7 @@ from ..gas import (
     GAS_LOG_TOPIC,
     calculate_gas_extend_memory,
     charge_gas,
+    update_memory_high_watermark,
 )
 from ..memory import memory_read_bytes
 from ..stack import pop
@@ -64,9 +65,10 @@ def log_n(evm: Evm, num_topics: int) -> None:
         + GAS_LOG_TOPIC * Uint(num_topics)
         + extend_memory.cost,
     )
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     if evm.message.is_static:
         raise WriteInStaticContext
     log_entry = Log(

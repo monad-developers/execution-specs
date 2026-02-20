@@ -59,6 +59,7 @@ from ..gas import (
     charge_gas,
     init_code_cost,
     max_message_call_gas,
+    update_memory_high_watermark,
 )
 from ..memory import memory_read_bytes, memory_write
 from ..stack import pop, push
@@ -175,9 +176,10 @@ def create(evm: Evm) -> None:
     init_code_gas = init_code_cost(Uint(memory_size))
 
     charge_gas(evm, GAS_CREATE + extend_memory.cost + init_code_gas)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     contract_address = compute_contract_address(
         evm.message.current_target,
         get_account(
@@ -229,9 +231,10 @@ def create2(evm: Evm) -> None:
         + extend_memory.cost
         + init_code_gas,
     )
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     contract_address = compute_create2_contract_address(
         evm.message.current_target,
         salt,
@@ -270,9 +273,10 @@ def return_(evm: Evm) -> None:
     )
 
     charge_gas(evm, GAS_ZERO + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     evm.output = memory_read_bytes(
         evm.memory, memory_start_position, memory_size
     )
@@ -410,10 +414,18 @@ def call(evm: Evm) -> None:
         extend_memory.cost,
         access_gas_cost + create_gas_cost + transfer_gas_cost,
     )
-    charge_gas(evm, message_call_gas.cost + extend_memory.cost)
+    charge_gas(
+        evm,
+        access_gas_cost
+        + create_gas_cost
+        + transfer_gas_cost
+        + extend_memory.cost,
+    )
+    update_memory_high_watermark(evm, extend_memory)
+    charge_gas(evm, message_call_gas.cost)
     if evm.message.is_static and value != U256(0):
         raise WriteInStaticContext
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     sender_balance = get_account(
         evm.message.block_env.state, evm.message.current_target
     ).balance
@@ -497,10 +509,12 @@ def callcode(evm: Evm) -> None:
         extend_memory.cost,
         access_gas_cost + transfer_gas_cost,
     )
-    charge_gas(evm, message_call_gas.cost + extend_memory.cost)
+    charge_gas(evm, access_gas_cost + transfer_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
+    charge_gas(evm, message_call_gas.cost)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     sender_balance = get_account(
         evm.message.block_env.state, evm.message.current_target
     ).balance
@@ -635,10 +649,12 @@ def delegatecall(evm: Evm) -> None:
     message_call_gas = calculate_message_call_gas(
         U256(0), gas, Uint(evm.gas_left), extend_memory.cost, access_gas_cost
     )
-    charge_gas(evm, message_call_gas.cost + extend_memory.cost)
+    charge_gas(evm, access_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
+    charge_gas(evm, message_call_gas.cost)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     generic_call(
         evm,
         message_call_gas.sub_call,
@@ -711,10 +727,12 @@ def staticcall(evm: Evm) -> None:
         extend_memory.cost,
         access_gas_cost,
     )
-    charge_gas(evm, message_call_gas.cost + extend_memory.cost)
+    charge_gas(evm, access_gas_cost + extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
+    charge_gas(evm, message_call_gas.cost)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     generic_call(
         evm,
         message_call_gas.sub_call,
@@ -758,9 +776,10 @@ def revert(evm: Evm) -> None:
     )
 
     charge_gas(evm, extend_memory.cost)
+    update_memory_high_watermark(evm, extend_memory)
 
     # OPERATION
-    evm.memory += b"\x00" * extend_memory.expand_by
+    evm.memory.data += b"\x00" * extend_memory.expand_by
     output = memory_read_bytes(evm.memory, memory_start_index, size)
     evm.output = Bytes(output)
     raise Revert

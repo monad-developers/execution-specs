@@ -16,9 +16,11 @@ from ethereum_types.numeric import U256, Uint
 
 from ethereum.utils.byte import right_pad_zero_bytes
 
+from . import EvmMemory
+
 
 def memory_write(
-    memory: bytearray, start_position: U256, value: Bytes
+    memory: EvmMemory, start_position: U256, value: Bytes
 ) -> None:
     """
     Writes to memory.
@@ -33,11 +35,11 @@ def memory_write(
         Data to write to memory.
 
     """
-    memory[start_position : int(start_position) + len(value)] = value
+    memory.data[start_position : int(start_position) + len(value)] = value
 
 
 def memory_read_bytes(
-    memory: bytearray, start_position: U256, size: U256
+    memory: EvmMemory, start_position: U256, size: U256
 ) -> Bytes:
     """
     Read bytes from memory.
@@ -57,7 +59,9 @@ def memory_read_bytes(
         Data read from memory.
 
     """
-    return Bytes(memory[start_position : Uint(start_position) + Uint(size)])
+    return Bytes(
+        memory.data[start_position : Uint(start_position) + Uint(size)]
+    )
 
 
 def buffer_read(buffer: Bytes, start_position: U256, size: U256) -> Bytes:

@@ -12,6 +12,8 @@ from execution_testing import (
     Storage,
     Transaction,
 )
+from execution_testing.forks.forks.forks import MONAD_NEXT
+from execution_testing.forks.helpers import Fork
 
 REFERENCE_SPEC_GIT_PATH = "EIPS/eip-211.md"
 REFERENCE_SPEC_VERSION = "1.0.0"
@@ -36,27 +38,17 @@ COPY_SIZE = 0x400  # 1024 bytes = 32 words
 
 
 @pytest.mark.parametrize(
-    "subcall_gas,expect_success",
+    "expect_success",
     [
-        pytest.param(
-            5000,
-            True,
-            id="sufficient_gas",
-        ),
-        pytest.param(
-            # Enough for: MSTORE + memory expansion + static CALLDATACOPY
-            # But NOT enough for word copy cost (3 gas per 32-byte word)
-            150,
-            False,
-            id="insufficient_gas_for_word_copy_cost",
-        ),
+        pytest.param(True, id="sufficient_gas"),
+        pytest.param(False, id="insufficient_gas_for_word_copy_cost"),
     ],
 )
 def test_calldatacopy_word_copy_oog(
     state_test: StateTestFiller,
     pre: Alloc,
-    subcall_gas: int,
     expect_success: bool,
+    fork: Fork,
 ) -> None:
     """
     Test that CALLDATACOPY properly consumes gas for word copy cost.
@@ -64,6 +56,16 @@ def test_calldatacopy_word_copy_oog(
     Uses a sub-call with controlled gas to isolate the test from intrinsic
     gas costs that vary across forks.
     """
+    if expect_success:
+        subcall_gas = 5000
+    else:
+        # MIP-3 (MONAD_NEXT) uses linear memory cost (words // 2) instead of
+        # quadratic (3*words + words²/512), so memory expansion is cheaper.
+        # Pre-MIP-3: MSTORE costs 3 + 98 = 101 gas for 32 words
+        # MIP-3: MSTORE costs 3 + 16 = 19 gas for 32 words
+        # We need enough gas for setup but not for CALLDATACOPY word copy cost.
+        subcall_gas = 68 if fork >= MONAD_NEXT else 150
+
     storage = Storage()
     storage_key = storage.store_next(1 if expect_success else 0)
 
@@ -121,29 +123,26 @@ def test_calldatacopy_word_copy_oog(
 
 
 @pytest.mark.parametrize(
-    "subcall_gas,expect_success",
+    "expect_success",
     [
-        pytest.param(
-            5000,
-            True,
-            id="sufficient_gas",
-        ),
-        pytest.param(
-            150,
-            False,
-            id="insufficient_gas_for_word_copy_cost",
-        ),
+        pytest.param(True, id="sufficient_gas"),
+        pytest.param(False, id="insufficient_gas_for_word_copy_cost"),
     ],
 )
 def test_codecopy_word_copy_oog(
     state_test: StateTestFiller,
     pre: Alloc,
-    subcall_gas: int,
     expect_success: bool,
+    fork: Fork,
 ) -> None:
     """
     Test that CODECOPY properly consumes gas for word copy cost.
     """
+    if expect_success:
+        subcall_gas = 5000
+    else:
+        subcall_gas = 68 if fork >= MONAD_NEXT else 150
+
     storage = Storage()
     storage_key = storage.store_next(1 if expect_success else 0)
 

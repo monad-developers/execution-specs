@@ -66,6 +66,7 @@ from .exceptions import (
     StackDepthLimitError,
 )
 from .instructions import Ops, op_implementation
+from .memory import EvmMemory
 from .runtime import get_valid_jump_destinations
 
 STACK_DEPTH_LIMIT = Uint(1024)
@@ -250,10 +251,19 @@ def process_message(message: Message) -> Evm:
     transient_storage = message.tx_env.transient_storage
     code = message.code
     valid_jump_destinations = get_valid_jump_destinations(code)
+
+    parent_high_watermark = (
+        message.parent_evm.memory.high_watermark_bytes
+        if message.parent_evm is not None
+        else 0
+    )
+
     evm = Evm(
         pc=Uint(0),
         stack=[],
-        memory=bytearray(),
+        memory=EvmMemory(
+            data=bytearray(), high_watermark_bytes=parent_high_watermark
+        ),
         code=code,
         gas_left=message.gas,
         valid_jump_destinations=valid_jump_destinations,
