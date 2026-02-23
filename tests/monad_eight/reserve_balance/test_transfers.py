@@ -325,6 +325,105 @@ def test_delegated_eoa_send_value(
 
 @pytest.mark.parametrize(
     ["value", "balance", "violation"],
+    [
+        pytest.param(0, Spec.RESERVE_BALANCE, False, id="zero_value"),
+        pytest.param(1, Spec.RESERVE_BALANCE, True, id="non_zero_value"),
+        pytest.param(
+            1, Spec.RESERVE_BALANCE + 1, False, id="non_zero_value_good"
+        ),
+    ],
+)
+@pytest.mark.parametrize("pre_delegated", [True, False])
+@pytest.mark.parametrize(
+    "delegation_targets",
+    [
+        pytest.param([], id="no_auths"),
+        pytest.param(
+            [Address(0x1111), Address(0)],
+            id="delegate_undelegate",
+        ),
+        pytest.param(
+            [Address(0), Address(0x1111)],
+            id="undelegate_delegate",
+        ),
+        pytest.param(
+            [Address(0x1111), Address(0x1111)],
+            id="delegate_twice",
+        ),
+        pytest.param(
+            [Address(0), Address(0)],
+            id="undelegate_twice",
+        ),
+        pytest.param(
+            [Address(0x1111), Address(0), Address(0x1111)],
+            id="delegate_undelegate_delegate",
+        ),
+        pytest.param(
+            [Address(0), Address(0x1111), Address(0)],
+            id="undelegate_delegate_undelegate",
+        ),
+        pytest.param(
+            [
+                Address(0x1111) if i % 2 == 0 else Address(0)
+                for i in range(1024)
+            ],
+            id="large",
+        ),
+    ],
+)
+def test_delegated_eoa_auth_list(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    value: int,
+    balance: int,
+    violation: bool,
+    pre_delegated: bool,
+    delegation_targets: list[Address],
+    fork: Fork,
+) -> None:
+    """
+    Test reserve balance violations for an EOA with various sequences
+    of delegation targets in the authorization list.
+    """
+    target_address = Address(0x1111)
+    if pre_delegated:
+        sender = pre.fund_eoa(balance, delegation=target_address)
+    else:
+        sender = pre.fund_eoa(balance)
+
+    authorization_list = [
+        AuthorizationTuple(
+            address=target,
+            nonce=sender.nonce + 1 + i,
+            signer=sender,
+        )
+        for i, target in enumerate(delegation_targets)
+    ]
+
+    contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
+    contract_address = pre.deploy_contract(contract)
+
+    auth_gas = len(delegation_targets) * Spec7702.PER_EMPTY_ACCOUNT_COST
+    tx_1 = Transaction(
+        gas_limit=generous_gas(fork) + auth_gas,
+        to=contract_address,
+        value=value,
+        sender=sender,
+        authorization_list=authorization_list or None,
+    )
+    any_delegation = pre_delegated or len(delegation_targets) > 0
+    reverted = violation and any_delegation
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={contract_address: Account(storage=storage)},
+        blocks=[Block(txs=[tx_1])],
+    )
+
+
+@pytest.mark.parametrize(
+    ["value", "balance", "violation"],
     value_balance_violation_param_list,
 )
 @pytest.mark.parametrize("pre_delegated", [True, False])
