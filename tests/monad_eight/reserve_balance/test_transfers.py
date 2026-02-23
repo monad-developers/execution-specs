@@ -22,6 +22,8 @@ from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.helpers import compute_create_address
 from execution_testing.tools.tools_code.generators import Initcode
 
+from tests.prague.eip7702_set_code_tx.spec import Spec as Spec7702
+
 from .helpers import (
     Stage1Balance,
     StageBalance,
@@ -1364,6 +1366,183 @@ def test_contract_unrestricted_with_create(
             else None,
         },
         blocks=[Block(txs=[tx_1])],
+    )
+
+
+@pytest.mark.parametrize("prefund_balance", [0, Spec.RESERVE_BALANCE // 2])
+@pytest.mark.parametrize("create_balance", [0, Spec.RESERVE_BALANCE // 2])
+@pytest.mark.parametrize("call_balance", [0, Spec.RESERVE_BALANCE // 2])
+@pytest.mark.parametrize("pull_balance", [0, Spec.RESERVE_BALANCE // 2])
+@pytest.mark.parametrize("same_tx", [True, False])
+@pytest.mark.parametrize("through_delegation", [True, False])
+@pytest.mark.with_all_create_opcodes
+def test_contract_unrestricted_with_selfdestruct(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    # Balance available to spender in previous transaction
+    prefund_balance: int,
+    # Balance available to spender in create
+    create_balance: int,
+    # Balance available to spender in selfdestruct call
+    call_balance: int,
+    # Balance the spender pulls in the selfdestruct call
+    pull_balance: int,
+    # Whether the selfdestructing call happens in the same tx
+    # as the creation (c.f. EIP-6780)
+    same_tx: bool,
+    # Whether the SELFDESTRUCT should be called on behalf of
+    # a delegating account
+    through_delegation: bool,
+    create_opcode: Op,
+    fork: Fork,
+) -> None:
+    """
+    Test reserve balance never affects contract spends done with a selfdestruct
+    opcode, unless selfdestruct is called on behalf of a delegating EOA.
+
+    We allow the selfdestructing contract to be funded in various stages of the
+    execution.
+    """
+    value = prefund_balance + call_balance + pull_balance
+    delegated_address = pre.fund_eoa(amount=0)
+
+    if through_delegation:
+        # If we're delegating to the selfdestructing account,
+        # the endowment given at creation will not be included
+        # in the SELFDESTRUCT transfer.
+        pass
+    else:
+        value += create_balance
+
+    selfdestruct_target = Address(0x5656)
+    pull_funder_address = pre.deploy_contract(
+        Op.SELFDESTRUCT(address=Op.CALLER), balance=pull_balance
+    )
+    deploy_code = Op.CALL(address=pull_funder_address) + Op.SELFDESTRUCT(
+        address=selfdestruct_target
+    )
+
+    initcode = Initcode(deploy_code=deploy_code)
+    new_address_offset = 0
+    initcode_offset = 32
+
+    factory = (
+        Op.SSTORE(slot_code_worked, value_code_worked)
+        + Op.CALLDATACOPY(initcode_offset, 0, len(initcode))
+        # create new contract and store its address to later call it
+        + Op.MSTORE(
+            new_address_offset,
+            create_opcode(
+                value=create_balance,
+                offset=initcode_offset,
+                size=len(initcode),
+            ),
+        )
+        + (
+            Op.CALL(
+                address=delegated_address
+                if through_delegation
+                else Op.MLOAD(new_address_offset),
+                value=call_balance,
+            )
+            if same_tx
+            else Op.STOP
+        )
+    )
+    factory_address = pre.deploy_contract(
+        factory, balance=create_balance + (call_balance if same_tx else 0)
+    )
+
+    new_contract_address = compute_create_address(
+        address=factory_address,
+        nonce=1,
+        initcode=initcode,
+        opcode=create_opcode,
+    )
+
+    txs = []
+    if prefund_balance > 0:
+        txs.append(
+            Transaction(
+                to=delegated_address
+                if through_delegation
+                else new_contract_address,
+                value=prefund_balance,
+                sender=pre.fund_eoa(),
+            ),
+        )
+
+    # The creating transaction. If same_tx is also the test tx.
+    txs.append(
+        Transaction(
+            gas_limit=generous_gas(fork),
+            to=factory_address,
+            sender=pre.fund_eoa(),
+            data=initcode,
+            authorization_list=[
+                AuthorizationTuple(
+                    address=new_contract_address,
+                    nonce=0,
+                    signer=delegated_address,
+                )
+            ]
+            if through_delegation
+            else None,
+        )
+    )
+
+    if not same_tx:
+        # A separate test tx follows the creating tx.
+        txs.append(
+            Transaction(
+                gas_limit=generous_gas(fork),
+                to=delegated_address
+                if through_delegation
+                else new_contract_address,
+                value=call_balance,
+                sender=pre.fund_eoa(),
+            )
+        )
+
+    storage = {slot_code_worked: value_code_worked}
+    reverted = through_delegation and value > 0 and prefund_balance > 0
+
+    blockchain_test(
+        pre=pre,
+        post={
+            # On no revert factory is always left with no balance.
+            factory_address: Account(storage=storage, balance=0),
+            # Deployed contract will remain if
+            #  - destructs not in same tx (EIP-6780)
+            #  - it destructs the delegating account
+            new_contract_address: Account(
+                balance=create_balance if through_delegation else 0,
+                code=deploy_code,
+            )
+            if not same_tx or through_delegation
+            else None,
+            # Delegated account is deleted if there is no delegation
+            delegated_address: Account(
+                balance=0,
+                code=Spec7702.delegation_designation(new_contract_address),
+            )
+            if through_delegation
+            else None,
+            # SELFDESTRUCT target is deleted if source was empty
+            selfdestruct_target: Account(balance=value)
+            if value != 0
+            else None,
+        }
+        if not reverted
+        else {
+            # On revert factory is left with pre state if the reverting
+            # transaction is the one which called it (same_tx)
+            factory_address: Account(
+                storage={} if same_tx else storage,
+                balance=create_balance + call_balance if same_tx else 0,
+            )
+        },
+        blocks=[Block(txs=txs)],
     )
 
 
