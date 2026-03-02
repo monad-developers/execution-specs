@@ -25,12 +25,16 @@ RETURNDATASIZE_OFFSET = 0x10000000000000000  # Must be greater than UPPER_BOUND
         pytest.param(32, id="32_bytes"),
     ],
 )
+# Should we shift the tested address range upwards to the
+# range where Monad precompiles are put
+@pytest.mark.parametrize("monad_range", [True, False])
 @pytest.mark.valid_from("Byzantium")
 def test_precompile_absence(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
     calldata_size: int,
+    monad_range: bool,
 ) -> None:
     """
     Test that addresses close to zero are not precompiles unless active in the
@@ -39,8 +43,12 @@ def test_precompile_absence(
     active_precompiles = fork.precompiles()
     storage = Storage()
     call_code = Bytecode()
-    for address in range(1, UPPER_BOUND + 1):
+    offset = 0x1000 - UPPER_BOUND // 2 if monad_range else 1
+    for address in range(offset, UPPER_BOUND + offset):
         if Address(address) in active_precompiles:
+            continue
+        if address == 0x1000:
+            # Monad Staking Precompile not implemented yet
             continue
         call_code += Op.SSTORE(
             address,
