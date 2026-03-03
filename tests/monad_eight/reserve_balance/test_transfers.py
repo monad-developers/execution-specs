@@ -1639,7 +1639,13 @@ def test_contract_unrestricted_with_selfdestruct(
             factory_address: Account(
                 storage={} if same_tx else storage,
                 balance=create_balance + call_balance if same_tx else 0,
-            )
+            ),
+            # Delegated account retains its prefunded balance on revert
+            delegated_address: Account(balance=prefund_balance)
+            if through_delegation and prefund_balance > 0
+            else None,
+            # SELFDESTRUCT target should not receive value on revert
+            selfdestruct_target: None,
         },
         blocks=[Block(txs=txs)],
     )
