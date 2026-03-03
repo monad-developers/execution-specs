@@ -30,9 +30,9 @@ def block_hash(evm: Evm) -> None:
 
     Raises
     ------
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.StackUnderflowError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.StackUnderflowError`
         If `len(stack)` is less than `1`.
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.OutOfGasError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.OutOfGasError`
         If `evm.gas_left` is less than `20`.
 
     """
@@ -79,9 +79,9 @@ def coinbase(evm: Evm) -> None:
 
     Raises
     ------
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.StackOverflowError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.StackOverflowError`
         If `len(stack)` is equal to `1024`.
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.OutOfGasError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.OutOfGasError`
         If `evm.gas_left` is less than `2`.
 
     """
@@ -113,9 +113,9 @@ def timestamp(evm: Evm) -> None:
 
     Raises
     ------
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.StackOverflowError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.StackOverflowError`
         If `len(stack)` is equal to `1024`.
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.OutOfGasError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.OutOfGasError`
         If `evm.gas_left` is less than `2`.
 
     """
@@ -146,9 +146,9 @@ def number(evm: Evm) -> None:
 
     Raises
     ------
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.StackOverflowError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.StackOverflowError`
         If `len(stack)` is equal to `1024`.
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.OutOfGasError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.OutOfGasError`
         If `evm.gas_left` is less than `2`.
 
     """
@@ -179,9 +179,9 @@ def prev_randao(evm: Evm) -> None:
 
     Raises
     ------
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.StackOverflowError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.StackOverflowError`
         If `len(stack)` is equal to `1024`.
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.OutOfGasError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.OutOfGasError`
         If `evm.gas_left` is less than `2`.
 
     """
@@ -212,9 +212,9 @@ def gas_limit(evm: Evm) -> None:
 
     Raises
     ------
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.StackOverflowError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.StackOverflowError`
         If `len(stack)` is equal to `1024`.
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.OutOfGasError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.OutOfGasError`
         If `evm.gas_left` is less than `2`.
 
     """
@@ -242,9 +242,9 @@ def chain_id(evm: Evm) -> None:
 
     Raises
     ------
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.StackOverflowError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.StackOverflowError`
         If `len(stack)` is equal to `1024`.
-    :py:class:`~ethereum.forks.monad_next.vm.exceptions.OutOfGasError`
+    :py:class:`~ethereum.forks.monad_nine.vm.exceptions.OutOfGasError`
         If `evm.gas_left` is less than `2`.
 
     """

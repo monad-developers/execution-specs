@@ -29,7 +29,7 @@ uv sync --all-extras
 3. Fill all monadized spec tests as of writing this (see below for explanation of flags):
 
 ```bash
-uv run fill --clean -m "blockchain_test or transaction_test" --from MONAD_EIGHT --until MONAD_NEXT --chain-id 143 -n auto tests
+uv run fill --clean -m "blockchain_test or transaction_test" --from MONAD_EIGHT --until MONAD_NINE --chain-id 143 -n auto tests
 ```
 
 4. The test fixtures to be found in `fixtures/` directory under repo root.
@@ -45,7 +45,7 @@ Filling tests is the process of running Python generators of spec tests [like on
 - **`-m blockchain_test or transaction_test`**: causes these two flavors of fixtures to be generated
   - `blockchain_test` is the currently supported by `monad` flavor of a spec test checking correctness of the state transition. Note this includes `blockchain_test_from_state_test`, meaning that all `state_test(...)` fillers are included
   - `transaction_test` is also supported, tests only correctness of static transaction checks
-- **`--from MONAD_EIGHT --until MONAD_NEXT`**: hardforks for which to generate fixtures. Must match with those defined in `monad`, inclusive
+- **`--from MONAD_EIGHT --until MONAD_NINE`**: hardforks for which to generate fixtures. Must match with those defined in `monad`, inclusive
 - **`--chain-id 143`**: must be specified for signatures and EIP-7702 to work correctly
 - **`-n auto`**: from `pytest`, parallel execution of tests
 - **`tests`**: root directory to traverse to discover tests

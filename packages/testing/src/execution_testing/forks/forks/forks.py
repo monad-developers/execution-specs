@@ -3352,8 +3352,8 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
         return 30_000_000
 
 
-class MONAD_NEXT(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
-    """MONAD_NEXT fork."""
+class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
+    """MONAD_NINE fork."""
 
     @classmethod
     def valid_opcodes(

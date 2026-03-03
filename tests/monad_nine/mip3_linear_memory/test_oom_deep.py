@@ -1,8 +1,8 @@
 """
 Tests deep nested call frames with memory allocation.
 
-Tests that run on both MONAD_EIGHT and MONAD_NEXT to compare behavior:
-- MONAD_NEXT: OOM when cumulative memory exceeds 8MB limit
+Tests that run on both MONAD_EIGHT and MONAD_NINE to compare behavior:
+- MONAD_NINE: OOM when cumulative memory exceeds 8MB limit
 - MONAD_EIGHT: can go above this limit if allocations spread across frames
 """
 
@@ -17,7 +17,7 @@ from execution_testing import (
     Transaction,
 )
 from execution_testing.base_types.base_types import Address
-from execution_testing.forks.forks.forks import MONAD_NEXT
+from execution_testing.forks.forks.forks import MONAD_NINE
 from execution_testing.forks.helpers import Fork
 
 from .spec import Spec, ref_spec_3
@@ -44,7 +44,7 @@ def test_nested_frames_deep(
     """
     Test memory allocation across many nested call frames.
 
-    Uses small chunk sizes to maximize depth. In MONAD_NEXT, reverts when
+    Uses small chunk sizes to maximize depth. In MONAD_NINE, reverts when
     cumulative memory exceeds MAX_TX_MEMORY_USAGE. This test contrasts that
     in MONAD_EIGHT one tx can allocate more memory in total and serves as
     a sanity check.
@@ -53,7 +53,7 @@ def test_nested_frames_deep(
     chunk_size = 128 * 1024  # 128KB per frame
 
     # Calculate expected max depth for each fork
-    # MONAD_NEXT: limited by 8MB cumulative memory = 64 frames
+    # MONAD_NINE: limited by 8MB cumulative memory = 64 frames
     # MONAD_EIGHT: limited by gas (quadratic cost + 63/64 forwarding)
     #   ~150 frames
     max_depth = (
@@ -87,7 +87,7 @@ def test_nested_frames_deep(
     )
 
     # Calculate expected successful depth based on fork
-    if fork >= MONAD_NEXT:
+    if fork >= MONAD_NINE:
         # OOM at cumulative memory > 8MB
         expected_max_success_depth = Spec.MAX_TX_MEMORY_USAGE // chunk_size
     else:
