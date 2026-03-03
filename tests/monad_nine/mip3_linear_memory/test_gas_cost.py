@@ -15,7 +15,7 @@ from execution_testing import (
     Transaction,
     gas_test,
 )
-from execution_testing.forks.forks.forks import MONAD_NEXT
+from execution_testing.forks.forks.forks import MONAD_NINE
 from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Opcode
 
@@ -61,7 +61,7 @@ def test_cost_non_quadratic(
     )
     storage = (
         {slot_code_worked: value_code_worked}
-        if not fail and fork >= MONAD_NEXT
+        if not fail and fork >= MONAD_NINE
         else {}
     )
 
@@ -140,7 +140,7 @@ def memory_sizes(
     yield pytest.param(0x20, id="single_word")
     yield pytest.param(0x100, id="large_copy")
     yield pytest.param(0x2000, id="above_quadratic_threshold_copy")
-    if fork >= MONAD_NEXT:
+    if fork >= MONAD_NINE:
         yield pytest.param(Spec.MAX_TX_MEMORY_USAGE, id="max")
 
 
@@ -409,7 +409,7 @@ def test_returndatacopy_gas_cost(
         ),
     ],
 )
-@pytest.mark.valid_from("MONAD_NEXT")
+@pytest.mark.valid_from("MONAD_NINE")
 def test_consecutive_expansions(
     state_test: StateTestFiller,
     pre: Alloc,

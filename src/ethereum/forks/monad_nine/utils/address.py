@@ -8,7 +8,7 @@ Hardfork Utility Functions For Addresses.
 Introduction
 ------------
 
-Address specific functions used in this MONAD_NEXT version of
+Address specific functions used in this MONAD_NINE version of
 specification.
 """
 
@@ -82,7 +82,7 @@ def compute_create2_contract_address(
 
     Returns
     -------
-    address: `ethereum.forks.monad_next.fork_types.Address`
+    address: `ethereum.forks.monad_nine.fork_types.Address`
         The computed address of the new account.
 
     """

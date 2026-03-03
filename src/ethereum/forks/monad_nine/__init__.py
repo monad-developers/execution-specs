@@ -1,5 +1,5 @@
 """
-MONAD_NEXT fork introduces Monad specific changes to the Ethereum protocol.
+MONAD_NINE fork introduces Monad specific changes to the Ethereum protocol.
 """
 
 from ethereum.fork_criteria import ByTimestamp, ForkCriteria

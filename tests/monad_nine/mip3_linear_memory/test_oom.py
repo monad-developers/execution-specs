@@ -45,7 +45,7 @@ outer_memory_offset = 0x100
 outer_marker_value = 0xDEADBEEF
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_NEXT"),
+    pytest.mark.valid_from("MONAD_NINE"),
     pytest.mark.pre_alloc_group(
         "mip3_tests",
         reason="Tests linear memory MIP-3",
