@@ -62,7 +62,8 @@ class CallScenario(Enum):
         """Return whether this scenario results in a successful call."""
         return self == CallScenario.SUCCESS
 
-    def error_message(self, gas: int = Spec.GAS_COST) -> bytes | None:
+    @property
+    def error_message(self) -> bytes | None:
         """Return raw ASCII error bytes for this scenario, or None."""
         match self:
             case (
@@ -72,9 +73,7 @@ class CallScenario(Enum):
             ):
                 return None
             case CallScenario.WRONG_SELECTOR | CallScenario.SHORT_CALLDATA:
-                if gas >= Spec.GAS_ERROR_THRESHOLD:
-                    return Spec.ERROR_METHOD_NOT_SUPPORTED.encode()
-                return None
+                return Spec.ERROR_METHOD_NOT_SUPPORTED.encode()
             case CallScenario.EXTRA_CALLDATA:
                 return Spec.ERROR_INPUT_INVALID.encode()
             case CallScenario.NONZERO_VALUE:
@@ -193,12 +192,10 @@ def _mload_of(msg: bytes) -> int:
         pytest.param(SpecMIP3.MAX_TX_MEMORY_USAGE, id="max"),
     ],
 )
-@pytest.mark.parametrize("gas", [Spec.GAS_COST, Spec.GAS_ERROR_THRESHOLD])
 def test_input_size(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     input_size: int,
-    gas: int,
     fork: Fork,
 ) -> None:
     """
@@ -212,7 +209,7 @@ def test_input_size(
         + Op.SSTORE(
             slot_call_success,
             Op.CALL(
-                gas=gas,
+                gas=10000,
                 address=Spec.RESERVE_BALANCE_PRECOMPILE,
                 args_offset=0,
                 args_size=input_size,
@@ -237,10 +234,8 @@ def test_input_size(
         expected_return_size = 32
     elif input_size > 4:
         expected_return_size = len(Spec.ERROR_INPUT_INVALID)
-    elif gas >= Spec.GAS_ERROR_THRESHOLD:
-        expected_return_size = len(Spec.ERROR_METHOD_NOT_SUPPORTED)
     else:
-        expected_return_size = 0
+        expected_return_size = len(Spec.ERROR_METHOD_NOT_SUPPORTED)
 
     blockchain_test(
         pre=pre,
@@ -266,12 +261,10 @@ def test_input_size(
         pytest.param(0x3A61584F, id="off_by_one"),
     ],
 )
-@pytest.mark.parametrize("gas", [Spec.GAS_COST, Spec.GAS_ERROR_THRESHOLD])
 def test_selector(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     selector: int,
-    gas: int,
     fork: Fork,
 ) -> None:
     """
@@ -286,7 +279,7 @@ def test_selector(
         + Op.SSTORE(
             slot_call_success,
             Op.CALL(
-                gas=gas,
+                gas=10000,
                 address=Spec.RESERVE_BALANCE_PRECOMPILE,
                 args_offset=28,
                 args_size=4,
@@ -307,20 +300,15 @@ def test_selector(
 
     should_succeed = selector == Spec.DIPPED_INTO_RESERVE_SELECTOR
 
-    if should_succeed:
-        expected_return_size = 32
-    elif gas >= Spec.GAS_ERROR_THRESHOLD:
-        expected_return_size = len(Spec.ERROR_METHOD_NOT_SUPPORTED)
-    else:
-        expected_return_size = 0
-
     blockchain_test(
         pre=pre,
         post={
             contract_address: Account(
                 storage={
                     slot_call_success: 1 if should_succeed else 0,
-                    slot_return_size: expected_return_size,
+                    slot_return_size: 32
+                    if should_succeed
+                    else len(Spec.ERROR_METHOD_NOT_SUPPORTED),
                     slot_code_worked: value_code_worked,
                 }
             ),
@@ -471,7 +459,7 @@ def test_revert_returns(
         sender=pre.fund_eoa(),
     )
 
-    err = scenario.error_message(gas)
+    err = scenario.error_message
     expected_return_size = (
         32 if scenario.should_succeed else (len(err) if err else 0)
     )
@@ -633,7 +621,6 @@ _CHECK_ORDER_PAIRS = [
 ]
 
 
-@pytest.mark.parametrize("gas", [Spec.GAS_COST, Spec.GAS_ERROR_THRESHOLD])
 @pytest.mark.parametrize("scenario1,scenario2", _CHECK_ORDER_PAIRS)
 def test_check_order(
     blockchain_test: BlockchainTestFiller,
@@ -641,7 +628,6 @@ def test_check_order(
     fork: Fork,
     scenario1: CallScenario,
     scenario2: CallScenario,
-    gas: int,
 ) -> None:
     """
     Test precompile check priority with enum-driven failure pairs.
@@ -650,7 +636,7 @@ def test_check_order(
     derives the expected outcome from the higher-priority failure.
     """
     prevailing = min(scenario1, scenario2, key=lambda s: s.check_priority)
-    expected_msg = prevailing.error_message(gas) or b""
+    expected_msg = prevailing.error_message or b""
 
     # Memory layout: non-overlapping buffers; args are at mem[0:64].
     ret_offset = 96
@@ -662,7 +648,6 @@ def test_check_order(
             call_code(
                 scenario1,
                 scenario2,
-                gas=gas,
                 ret_offset=ret_offset,
                 ret_size=32,
             ),

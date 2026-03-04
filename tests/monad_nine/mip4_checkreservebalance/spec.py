@@ -26,9 +26,6 @@ class Spec:
 
     # Aligns with G_WARM_ACCOUNT_ACCESS at time of MIP-4.
     GAS_COST = 100
-    # If gas is at or above this, ERROR_METHOD_NOT_SUPPORTED may
-    # be returned on revert.
-    GAS_ERROR_THRESHOLD = 40000
 
     # keccak256("dippedIntoReserve()")[:4].hex() == "3a61584e"
     DIPPED_INTO_RESERVE_SELECTOR = bytes.fromhex("3A61584E")

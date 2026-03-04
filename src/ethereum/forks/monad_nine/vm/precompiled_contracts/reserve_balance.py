@@ -11,7 +11,7 @@ Introduction
 Implementation of the RESERVE BALANCE precompiled contract for MIP-4.
 """
 
-from ethereum_types.numeric import U256, Uint
+from ethereum_types.numeric import U256
 
 from ...vm import Evm
 from ...vm.exceptions import InvalidParameter, RevertInMonadPrecompile
@@ -20,8 +20,6 @@ from ...vm.gas import GAS_WARM_ACCESS, charge_gas
 # Function selector for dippedIntoReserve()
 # keccak256("dippedIntoReserve()")[:4].hex() == "3a61584e"
 DIPPED_INTO_RESERVE_SELECTOR = bytes.fromhex("3a61584e")
-
-GAS_ERROR_THRESHOLD = Uint(40000)
 
 
 def _is_call(evm: Evm) -> bool:
@@ -48,12 +46,9 @@ def reserve_balance(evm: Evm) -> None:
     "value is nonzero" when called with a nonzero value.
 
     Calldata must be exactly the 4-byte function selector (0x3a61584e).
-    If the selector does not match or calldata is shorter than 4 bytes,
-    the precompile reverts. The error message "method not supported" is
-    only included when the gas provided to the call frame is at least
-    GAS_ERROR_THRESHOLD; otherwise the revert carries no return data.
-    If extra calldata is appended beyond the selector, the precompile
-    reverts with "input is invalid".
+    If the selector does not match, the precompile reverts with "method
+    not supported". If extra calldata is appended beyond the selector,
+    the precompile reverts with "input is invalid".
 
     Reverts consume all gas provided to the call frame.
 
@@ -75,17 +70,11 @@ def reserve_balance(evm: Evm) -> None:
     charge_gas(evm, GAS_WARM_ACCESS)
 
     if len(data) < 4:
-        if evm.message.gas >= GAS_ERROR_THRESHOLD:
-            evm.output = b"method not supported"
-        else:
-            evm.output = b""
+        evm.output = b"method not supported"
         raise RevertInMonadPrecompile
 
     if data[:4] != DIPPED_INTO_RESERVE_SELECTOR:
-        if evm.message.gas >= GAS_ERROR_THRESHOLD:
-            evm.output = b"method not supported"
-        else:
-            evm.output = b""
+        evm.output = b"method not supported"
         raise RevertInMonadPrecompile
 
     if evm.message.value != 0:
