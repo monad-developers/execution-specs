@@ -42,7 +42,7 @@ slot_violation_after_stage2 = 0x12
 slot_violation_after_stage3 = 0x13
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_NEXT"),
+    pytest.mark.valid_from("MONAD_NINE"),
     pytest.mark.pre_alloc_group(
         "mip4_checkreservebalance_tests",
         reason="Tests reserve balance precompile",

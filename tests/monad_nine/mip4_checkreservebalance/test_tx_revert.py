@@ -15,7 +15,7 @@ from execution_testing import (
     Op,
     Transaction,
 )
-from execution_testing.forks import MONAD_NEXT
+from execution_testing.forks import MONAD_NINE
 from execution_testing.forks.helpers import Fork
 
 from .helpers import (
@@ -86,7 +86,7 @@ def test_precompile_does_not_alter_revert_mechanism(
     if violation_for_check:
         contract_code += Op.CALL(address=sender)
 
-    if fork >= MONAD_NEXT:
+    if fork >= MONAD_NINE:
         contract_code += Op.SSTORE(
             slot_violation_result, call_dipped_into_reserve()
         )
@@ -108,7 +108,7 @@ def test_precompile_does_not_alter_revert_mechanism(
         storage = {}
     else:
         storage = {slot_code_worked: value_code_worked}
-        if fork >= MONAD_NEXT:
+        if fork >= MONAD_NINE:
             storage[slot_violation_result] = 1 if violation_for_check else 0
 
     blockchain_test(

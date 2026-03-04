@@ -161,7 +161,7 @@ def call_code(
 
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_NEXT"),
+    pytest.mark.valid_from("MONAD_NINE"),
     pytest.mark.pre_alloc_group(
         "mip4_checkreservebalance_tests",
         reason="Tests reserve balance precompile",

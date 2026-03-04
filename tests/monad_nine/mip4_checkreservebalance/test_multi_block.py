@@ -29,7 +29,7 @@ value_code_worked = 0x1234
 slot_violation_result = 0x2
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_NEXT"),
+    pytest.mark.valid_from("MONAD_NINE"),
     pytest.mark.pre_alloc_group(
         "mip4_reserve_balance_introspection_tests",
         reason="Tests reserve balance introspection",
