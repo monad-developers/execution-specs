@@ -54,6 +54,7 @@ from ..vm.eoa_delegation import (
     set_delegation,
 )
 from ..vm.gas import GAS_CODE_DEPOSIT, charge_gas
+from ..vm.precompiled_contracts import MONAD_PRECOMPILE_ADDRESSES
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
 from . import Evm
 from .exceptions import (
@@ -329,6 +330,10 @@ def process_message(message: Message) -> Evm:
                 evm_trace(evm, PrecompileStart(evm.message.code_address))
                 PRE_COMPILED_CONTRACTS[evm.message.code_address](evm)
                 evm_trace(evm, PrecompileEnd())
+            elif evm.message.code_address in MONAD_PRECOMPILE_ADDRESSES:
+                # Calling a precompile via delegation and it's a Monad
+                # precompile => revert.
+                raise RevertInMonadPrecompile
         else:
             while evm.running and evm.pc < ulen(evm.code):
                 try:

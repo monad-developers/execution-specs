@@ -13,7 +13,9 @@ from enum import Enum, auto, unique
 import pytest
 from execution_testing import (
     Account,
+    Address,
     Alloc,
+    AuthorizationTuple,
     Block,
     BlockchainTestFiller,
     Bytecode,
@@ -54,6 +56,7 @@ class CallScenario(Enum):
     SHORT_CALLDATA = auto()
     EXTRA_CALLDATA = auto()
     NOT_CALL = auto()
+    DELEGATE_TO_PRECOMPILE = auto()
     NONZERO_VALUE = auto()
     LOW_GAS = auto()
 
@@ -69,6 +72,7 @@ class CallScenario(Enum):
             case (
                 CallScenario.SUCCESS
                 | CallScenario.NOT_CALL
+                | CallScenario.DELEGATE_TO_PRECOMPILE
                 | CallScenario.LOW_GAS
             ):
                 return b""
@@ -86,6 +90,7 @@ class CallScenario(Enum):
             raise AssertionError("SUCCESS has no check priority")
         order = [
             CallScenario.NOT_CALL,
+            CallScenario.DELEGATE_TO_PRECOMPILE,
             CallScenario.LOW_GAS,
             CallScenario.SHORT_CALLDATA,
             CallScenario.WRONG_SELECTOR,
@@ -101,6 +106,7 @@ def call_code(
     gas: int | Bytecode = Spec.GAS_COST,
     ret_offset: int = 0,
     ret_size: int = 0,
+    delegating_eoa: Address | None = None,
 ) -> Bytecode:
     """
     Generate setup + call bytecode for one or more combined scenarios.
@@ -148,9 +154,17 @@ def call_code(
     else:
         opcode = Op.CALL
 
+    if CallScenario.DELEGATE_TO_PRECOMPILE in scenario_set:
+        assert delegating_eoa is not None, (
+            "delegating_eoa required for DELEGATE_TO_PRECOMPILE"
+        )
+        call_address = delegating_eoa
+    else:
+        call_address = Spec.RESERVE_BALANCE_PRECOMPILE
+
     return setup + opcode(
         gas=gas,
-        address=Spec.RESERVE_BALANCE_PRECOMPILE,
+        address=call_address,
         value=value,
         args_offset=args_offset,
         args_size=args_size,
@@ -440,10 +454,28 @@ def test_revert_returns(
     ret_offset = 96
     rdc_offset = 128
 
+    delegating_eoa: Address | None = None
+    authorization_list = None
+    if scenario == CallScenario.DELEGATE_TO_PRECOMPILE:
+        delegating_eoa = pre.fund_eoa()
+        authorization_list = [
+            AuthorizationTuple(
+                address=Spec.RESERVE_BALANCE_PRECOMPILE,
+                nonce=0,
+                signer=delegating_eoa,
+            )
+        ]
+
     contract = (
         Op.SSTORE(
             slot_call_success,
-            call_code(scenario, gas=gas, ret_offset=ret_offset, ret_size=32),
+            call_code(
+                scenario,
+                gas=gas,
+                ret_offset=ret_offset,
+                ret_size=32,
+                delegating_eoa=delegating_eoa,
+            ),
         )
         + Op.SSTORE(slot_return_size, Op.RETURNDATASIZE)
         + Op.SSTORE(slot_ret_buffer_value, Op.MLOAD(ret_offset))
@@ -457,6 +489,7 @@ def test_revert_returns(
         gas_limit=generous_gas(fork),
         to=contract_address,
         sender=pre.fund_eoa(),
+        authorization_list=authorization_list,
     )
 
     err = scenario.error_message
@@ -500,11 +533,26 @@ def test_revert_consumes_all_gas(
     gas_limit = generous_gas(fork)
     gas_threshold = gas_limit // 64
 
+    delegating_eoa: Address | None = None
+    authorization_list = None
+    if scenario == CallScenario.DELEGATE_TO_PRECOMPILE:
+        delegating_eoa = pre.fund_eoa()
+        authorization_list = [
+            AuthorizationTuple(
+                address=Spec.RESERVE_BALANCE_PRECOMPILE,
+                nonce=0,
+                signer=delegating_eoa,
+            )
+        ]
+
     contract = (
         Op.SSTORE(slot_code_worked, value_code_worked)
         + Op.SSTORE(slot_call_success, 1)
         + Op.SSTORE(slot_all_gas_consumed, 1)
-        + Op.SSTORE(slot_call_success, call_code(scenario, gas=Op.GAS))
+        + Op.SSTORE(
+            slot_call_success,
+            call_code(scenario, gas=Op.GAS, delegating_eoa=delegating_eoa),
+        )
         + Op.SSTORE(slot_all_gas_consumed, Op.LT(Op.GAS, gas_threshold))
     )
     contract_address = pre.deploy_contract(contract, balance=1)
@@ -513,6 +561,7 @@ def test_revert_consumes_all_gas(
         gas_limit=gas_limit,
         to=contract_address,
         sender=pre.fund_eoa(),
+        authorization_list=authorization_list,
     )
 
     blockchain_test(
@@ -647,6 +696,18 @@ def test_check_order(
     ret_offset = 96
     rdc_offset = 128
 
+    delegating_eoa: Address | None = None
+    authorization_list = None
+    if CallScenario.DELEGATE_TO_PRECOMPILE in {scenario1, scenario2}:
+        delegating_eoa = pre.fund_eoa()
+        authorization_list = [
+            AuthorizationTuple(
+                address=Spec.RESERVE_BALANCE_PRECOMPILE,
+                nonce=0,
+                signer=delegating_eoa,
+            )
+        ]
+
     contract = (
         Op.SSTORE(
             slot_call_success,
@@ -655,6 +716,7 @@ def test_check_order(
                 scenario2,
                 ret_offset=ret_offset,
                 ret_size=32,
+                delegating_eoa=delegating_eoa,
             ),
         )
         + Op.SSTORE(slot_return_size, Op.RETURNDATASIZE)
@@ -668,6 +730,7 @@ def test_check_order(
         gas_limit=generous_gas(fork),
         to=contract_address,
         sender=pre.fund_eoa(),
+        authorization_list=authorization_list,
     )
 
     expected_return_size = len(expected_msg)

@@ -8,6 +8,7 @@ import pytest
 from execution_testing import (
     AccessList,
     Account,
+    Address,
     Alloc,
     AuthorizationTuple,
     Block,
@@ -533,7 +534,7 @@ def test_pointer_to_precompile(
     pre: Alloc,
     sender_delegated: bool,
     sender_is_auth_signer: bool,
-    precompile: int,
+    precompile: Address,
 ) -> None:
     """
     Tx -> call -> pointer A -> precompile contract.
@@ -544,11 +545,15 @@ def test_pointer_to_precompile(
     with no execution given enough gas.
 
     So call to a pointer that points to a precompile is like call to an empty
-    account
+    account.
     """
     env = Environment()
 
     storage: Storage = Storage()
+
+    # Monad-specific precompiles (address >= 0x1000) revert when called via
+    # a delegating EOA instead of succeeding as empty code.
+    is_monad_precompile = int.from_bytes(precompile, "big") >= 0x1000
 
     if sender_delegated:
         sender_delegation_target = pre.deploy_contract(Op.STOP)
@@ -575,6 +580,8 @@ def test_pointer_to_precompile(
         + Op.RETURN(0, 32)
     )
 
+    pointer_call_result = 0 if is_monad_precompile else 1
+
     contract_a = pre.deploy_contract(
         code=Op.CALL(
             gas=1_000_000,
@@ -594,10 +601,11 @@ def test_pointer_to_precompile(
             ret_offset=1000,
             ret_size=32,
         )
-        # pointer call to a precompile with 0 gas always return 1 as if calling
-        # empty address
+        # pointer call to a precompile with 0 gas always return 1 as if
+        # calling empty address, except for Monad precompiles which revert.
         + Op.SSTORE(
-            storage.store_next(1, "pointer_call_result"), Op.MLOAD(1000)
+            storage.store_next(pointer_call_result, "pointer_call_result"),
+            Op.MLOAD(1000),
         )
     )
     nonce = (
