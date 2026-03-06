@@ -63,15 +63,15 @@ class CallScenario(Enum):
         return self == CallScenario.SUCCESS
 
     @property
-    def error_message(self) -> bytes | None:
-        """Return raw ASCII error bytes for this scenario, or None."""
+    def error_message(self) -> bytes:
+        """Return raw ASCII error bytes for this scenario."""
         match self:
             case (
                 CallScenario.SUCCESS
                 | CallScenario.NOT_CALL
                 | CallScenario.LOW_GAS
             ):
-                return None
+                return b""
             case CallScenario.WRONG_SELECTOR | CallScenario.SHORT_CALLDATA:
                 return Spec.ERROR_METHOD_NOT_SUPPORTED.encode()
             case CallScenario.EXTRA_CALLDATA:
@@ -603,7 +603,6 @@ def test_call_with_value(
 
 _INCOMPATIBLE_SCENARIOS = {
     frozenset({CallScenario.SHORT_CALLDATA, CallScenario.EXTRA_CALLDATA}),
-    frozenset({CallScenario.LOW_GAS, CallScenario.NONZERO_VALUE}),
 }
 
 _CHECK_ORDER_PAIRS = [
@@ -635,8 +634,14 @@ def test_check_order(
     Each combination triggers exactly two failure causes. The test
     derives the expected outcome from the higher-priority failure.
     """
-    prevailing = min(scenario1, scenario2, key=lambda s: s.check_priority)
-    expected_msg = prevailing.error_message or b""
+    if frozenset({scenario1, scenario2}) == frozenset(
+        {CallScenario.LOW_GAS, CallScenario.NONZERO_VALUE}
+    ):
+        # Edge case, where call gas stipend overrides low gas
+        expected_msg = CallScenario.NONZERO_VALUE.error_message
+    else:
+        prevailing = min(scenario1, scenario2, key=lambda s: s.check_priority)
+        expected_msg = prevailing.error_message or b""
 
     # Memory layout: non-overlapping buffers; args are at mem[0:64].
     ret_offset = 96
