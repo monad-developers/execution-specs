@@ -776,12 +776,6 @@ def test_credit_same_tx(
     expected_violation = (
         1 if violation and value > same_tx_funded_balance else 0
     )
-    print(
-        value > same_tx_funded_balance,
-        value,
-        same_tx_funded_balance,
-        balance - value < Spec.RESERVE_BALANCE,
-    )
     storage = {
         slot_violation_result: expected_violation,
         slot_code_worked: value_code_worked,
