@@ -73,7 +73,7 @@ def test_exception_rule(
     fork: Fork,
 ) -> None:
     """
-    Test reserve balance violations for an EOA sending txs with vaious values,
+    Test reserve balance violations for an EOA sending txs with various values,
     where the exception rules are enforced based on txs in various block
     positions.
     """
