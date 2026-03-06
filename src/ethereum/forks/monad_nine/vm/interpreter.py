@@ -63,6 +63,7 @@ from .exceptions import (
     InvalidOpcode,
     OutOfGasError,
     Revert,
+    RevertInMonadPrecompile,
     RevertOnReserveBalance,
     StackDepthLimitError,
 )
@@ -341,6 +342,11 @@ def process_message(message: Message) -> Evm:
 
             evm_trace(evm, EvmStop(Ops.STOP))
 
+    except RevertInMonadPrecompile as error:
+        evm_trace(evm, OpException(error))
+        evm.gas_left = Uint(0)
+        # evm.output preserved — contains the raw error message
+        evm.error = error
     except ExceptionalHalt as error:
         evm_trace(evm, OpException(error))
         evm.gas_left = Uint(0)

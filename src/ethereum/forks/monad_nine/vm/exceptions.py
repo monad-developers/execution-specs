@@ -134,6 +134,17 @@ class InvalidParameter(ExceptionalHalt):
     pass
 
 
+class RevertInMonadPrecompile(ExceptionalHalt):
+    """
+    Raised by a Monad precompile to revert with an error message.
+
+    Consumes all gas like ExceptionalHalt but preserves evm.output
+    so the caller sees the revert reason.
+    """
+
+    pass
+
+
 class InvalidContractPrefix(ExceptionalHalt):
     """
     Raised when the new contract code starts with 0xEF.
