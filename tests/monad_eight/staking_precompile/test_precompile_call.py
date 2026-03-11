@@ -1109,7 +1109,7 @@ def test_syscall_rejected(
             contract_address: Account(
                 storage={
                     slot_call_success: 0,
-                    slot_return_size: 0,
+                    slot_return_size: len(ERROR_METHOD_NOT_SUPPORTED),
                     slot_code_worked: value_code_worked,
                 }
             ),

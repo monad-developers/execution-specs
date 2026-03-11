@@ -350,7 +350,8 @@ def staking(evm: Evm) -> None:
 
     # Syscall selectors are always rejected from regular user calls
     if selector in _SYSCALL_SELECTORS:
-        raise InvalidParameter
+        evm.output = b"method not supported"
+        raise RevertInMonadPrecompile
 
     # Non-payable functions reject nonzero value
     if not is_payable and evm.message.value != 0:
@@ -375,8 +376,5 @@ def staking(evm: Evm) -> None:
             evm.output = _abi_encode_uint256(0)
         else:
             evm.output = Bytes(b"")
-    elif selector in _SYSCALL_SELECTORS:
-        # Syscall stubs: reject non-system calls
-        raise InvalidParameter
     else:
         raise InvalidParameter
