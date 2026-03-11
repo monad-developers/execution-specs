@@ -124,7 +124,7 @@ ALL_FUNCTIONS = [
         True,
         "addValidator",
         32,  # returns uint64
-        1,  # validator id = 1
+        0,  # validator id = 0 (no validator created)
     ),
     FunctionInfo(
         SELECTOR_DELEGATE,
@@ -269,7 +269,7 @@ ALL_FUNCTIONS = [
         False,
         "getEpoch",
         32 * 2,  # epoch + inBoundaryDelay
-        1,  # epoch=1
+        0,  # epoch=0 (no epochs occurred)
     ),
     FunctionInfo(
         SELECTOR_GET_PROPOSER_VAL_ID,
@@ -278,7 +278,7 @@ ALL_FUNCTIONS = [
         False,
         "getProposerValId",
         32,  # uint64
-        1,  # validator_id=1
+        0,  # validator_id=0 (no validators registered)
     ),
 ]
 

@@ -17,7 +17,7 @@ from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U256, Uint
 
 from ...vm import Evm
-from ...vm.exceptions import InvalidParameter
+from ...vm.exceptions import InvalidParameter, RevertInMonadPrecompile
 from ...vm.gas import charge_gas
 
 # Gas costs per function (from staking spec)
@@ -196,20 +196,20 @@ def _handle_get_epoch(evm: Evm) -> None:
     """
     Handle getEpoch() call.
 
-    Return stub: epoch=1, in_boundary_delay=false.
+    Return stub: epoch=0, in_boundary_delay=false.
     """
     # Returns (uint64 epoch, bool inBoundaryDelay)
-    evm.output = _abi_encode_uint256(1) + _abi_encode_bool(False)
+    evm.output = _abi_encode_uint256(0) + _abi_encode_bool(False)
 
 
 def _handle_get_proposer_val_id(evm: Evm) -> None:
     """
     Handle getProposerValId() call.
 
-    Return stub: validator_id=1.
+    Return stub: validator_id=0 (no validators registered).
     """
     # Returns uint64
-    evm.output = _abi_encode_uint256(1)
+    evm.output = _abi_encode_uint256(0)
 
 
 def _handle_get_validator(evm: Evm) -> None:
@@ -325,10 +325,14 @@ def staking(evm: Evm) -> None:
     """
     data = evm.message.data
 
+    # Must be invoked via CALL only
+    _validate_call_type(evm)
+
     # Must have at least 4 bytes for the selector
     if len(data) < 4:
         charge_gas(evm, GAS_UNKNOWN_SELECTOR)
-        raise InvalidParameter
+        evm.output = b"method not supported"
+        raise RevertInMonadPrecompile
 
     selector = bytes(data[:4])
 
@@ -336,23 +340,27 @@ def staking(evm: Evm) -> None:
     info = _SELECTOR_INFO.get(selector)
     if info is None:
         charge_gas(evm, GAS_UNKNOWN_SELECTOR)
-        raise InvalidParameter
+        evm.output = b"method not supported"
+        raise RevertInMonadPrecompile
 
     gas_cost, is_payable, expected_size = info
 
     # GAS
     charge_gas(evm, gas_cost)
 
-    # Must be invoked via CALL only
-    _validate_call_type(evm)
+    # Syscall selectors are always rejected from regular user calls
+    if selector in _SYSCALL_SELECTORS:
+        raise InvalidParameter
 
     # Non-payable functions reject nonzero value
     if not is_payable and evm.message.value != 0:
-        raise InvalidParameter
+        evm.output = b"value is nonzero"
+        raise RevertInMonadPrecompile
 
     # Validate calldata size
     if len(data) != expected_size:
-        raise InvalidParameter
+        evm.output = b"invalid input"
+        raise RevertInMonadPrecompile
 
     # Dispatch
     if selector in _GETTER_SELECTORS:
@@ -363,8 +371,8 @@ def staking(evm: Evm) -> None:
         # Return empty output (setters don't return data except
         # addValidator which returns a uint64)
         if selector == SELECTOR_ADD_VALIDATOR:
-            # addValidator returns the new validator ID
-            evm.output = _abi_encode_uint256(1)
+            # addValidator returns validator ID; 0 = no validator created
+            evm.output = _abi_encode_uint256(0)
         else:
             evm.output = Bytes(b"")
     elif selector in _SYSCALL_SELECTORS:

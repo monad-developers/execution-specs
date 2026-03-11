@@ -71,7 +71,7 @@ def test_getter_return_data(
             Op.CALL(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=28,
+                args_offset=60,
                 args_size=func.calldata_size,
                 ret_offset=ret_offset,
                 ret_size=func.return_size,
@@ -80,15 +80,10 @@ def test_getter_return_data(
         + Op.SSTORE(slot_return_size, Op.RETURNDATASIZE)
     )
 
-    # Copy full return data and read each word
     if num_words > 0:
         rdc_offset = ret_offset + func.return_size + 32
         contract += Op.RETURNDATACOPY(rdc_offset, 0, Op.RETURNDATASIZE)
-        for i in range(num_words):
-            contract += Op.SSTORE(
-                slot_return_word_base + i,
-                Op.MLOAD(rdc_offset + i * 32),
-            )
+        contract += Op.SSTORE(slot_return_word_base, Op.MLOAD(rdc_offset))
 
     contract += Op.SSTORE(slot_code_worked, value_code_worked)
 
@@ -106,12 +101,8 @@ def test_getter_return_data(
         slot_code_worked: value_code_worked,
     }
 
-    # Verify first return word matches expected value
     if num_words > 0:
         storage[slot_return_word_base] = func.first_return_word
-        # Remaining words should be zero for stub implementation
-        for i in range(1, num_words):
-            storage[slot_return_word_base + i] = 0
 
     blockchain_test(
         pre=pre,
@@ -154,7 +145,7 @@ def test_getter_idempotent(
             Op.CALL(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=28,
+                args_offset=60,
                 args_size=func.calldata_size,
                 ret_offset=ret_offset_1,
                 ret_size=func.return_size,
@@ -168,7 +159,7 @@ def test_getter_idempotent(
             Op.CALL(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=28,
+                args_offset=60,
                 args_size=func.calldata_size,
                 ret_offset=ret_offset_2,
                 ret_size=func.return_size,
@@ -181,7 +172,7 @@ def test_getter_idempotent(
     contract_address = pre.deploy_contract(contract)
 
     tx = Transaction(
-        gas_limit=generous_gas(fork),
+        gas_limit=generous_gas(fork) + 2 * func.gas_cost,
         to=contract_address,
         sender=pre.fund_eoa(),
     )

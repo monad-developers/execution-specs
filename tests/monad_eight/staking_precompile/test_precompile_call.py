@@ -10,6 +10,7 @@ Tests cover:
 """
 
 from enum import Enum, auto, unique
+from typing import Any
 
 import pytest
 from execution_testing import (
@@ -24,6 +25,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.forks.forks import MONAD_NINE
 from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.receipt_types import TransactionReceipt
 
@@ -55,9 +57,7 @@ slot_all_gas_consumed = 0x6
 
 def _calldata_mem_end(calldata_size: int) -> int:
     """Return the first memory offset after build_calldata's writes."""
-    margin = 1
-    extra_words = max(0, (calldata_size - 4 + margin + 31) // 32)
-    return 32 + extra_words * 32
+    return 60 + calldata_size + 1
 
 
 def _mload_of(msg: bytes) -> int:
@@ -148,14 +148,16 @@ def call_code(
     scenario_set = set(scenarios)
 
     # Memory layout: non-overlapping buffers
-    #   build_calldata(selector, size) -> selector at mem[28:32]
-    #   MSTORE(32, 0xDEADBEEF) -> wrong selector at mem[60:64]
-    correct_sel_args_offset = 28
-    wrong_sel_args_offset = 60
+    #   MSTORE(0, 0xDEADBEEF) -> wrong selector at mem[28:32]
+    #   build_calldata(selector, size) -> selector at mem[60:64]
+    wrong_sel_args_offset = 28
+    correct_sel_args_offset = 60
 
+    # NOTE: in case of wrong selector scenario, we do not include any
+    # extra calldata for (non-existent) function arguments
     setup: Bytecode = build_calldata(
         func.selector, func.calldata_size
-    ) + Op.MSTORE(32, 0xDEADBEEF)
+    ) + Op.MSTORE(0, 0xDEADBEEF)
 
     if CallScenario.WRONG_SELECTOR in scenario_set:
         args_offset = wrong_sel_args_offset
@@ -179,7 +181,13 @@ def call_code(
         )
 
     if CallScenario.LOW_GAS in scenario_set:
-        gas = func.gas_cost - 1
+        if (
+            CallScenario.WRONG_SELECTOR in scenario_set
+            or CallScenario.TRUNCATED_SELECTOR in scenario_set
+        ):
+            gas = GAS_UNKNOWN_SELECTOR - 1
+        else:
+            gas = func.gas_cost - 1
 
     if CallScenario.NONZERO_VALUE in scenario_set:
         value = 1
@@ -219,30 +227,26 @@ pytestmark = [
 ]
 
 
+def input_size_delta(fork: Fork) -> Any:
+    """Input size delta, large input allowed for linear memory forks."""
+    yield pytest.param(-1, id="short")
+    yield pytest.param(0, id="correct")
+    yield pytest.param(1, id="byte_extra")
+    yield pytest.param(32, id="word_extra")
+    if fork >= MONAD_NINE:
+        yield pytest.param(7 * 1024 * 1024, id="7MB_extra")
+
+
 @pytest.mark.parametrize(
     "func",
     [pytest.param(f, id=f.name) for f in ALL_FUNCTIONS],
 )
-@pytest.mark.parametrize(
-    "input_size",
-    [
-        pytest.param(0, id="empty"),
-        pytest.param(3, id="three_bytes"),
-        pytest.param(4, id="selector_only"),
-        pytest.param(5, id="five_bytes"),
-        pytest.param(36, id="one_param"),
-        pytest.param(37, id="one_param_plus"),
-        pytest.param(68, id="two_params"),
-        pytest.param(69, id="two_params_plus"),
-        pytest.param(100, id="three_params"),
-        pytest.param(101, id="three_params_plus"),
-    ],
-)
+@pytest.mark.parametrize_by_fork("input_size_delta", input_size_delta)
 def test_input_size(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     func: FunctionInfo,
-    input_size: int,
+    input_size_delta: int,
     fork: Fork,
 ) -> None:
     """
@@ -250,15 +254,14 @@ def test_input_size(
 
     Calldata must be exactly the expected size for the function.
     """
+    input_size = func.calldata_size + input_size_delta
     if input_size < 4:
-        calldata_setup = Op.PUSH32(b"\xff" * 32) + Op.PUSH1(0) + Op.MSTORE
-        args_offset = 32 - input_size
         gas = GAS_UNKNOWN_SELECTOR + 10000
     else:
-        mem_size = max(input_size, func.calldata_size)
-        calldata_setup = build_calldata(func.selector, mem_size)
-        args_offset = 28
         gas = func.gas_cost + 10000
+    calldata_setup = build_calldata(
+        func.selector, func.calldata_size + input_size_delta
+    )
 
     contract = (
         calldata_setup
@@ -267,7 +270,7 @@ def test_input_size(
             Op.CALL(
                 gas=gas,
                 address=STAKING_PRECOMPILE,
-                args_offset=args_offset,
+                args_offset=60,
                 args_size=input_size,
                 ret_offset=0,
                 ret_size=32,
@@ -338,7 +341,7 @@ def test_selector(
         should_succeed = True
         expected_return_size = func.return_size
     else:
-        calldata_setup = Op.PUSH4(selector) + Op.PUSH1(0) + Op.MSTORE
+        calldata_setup = Op.MSTORE(32, selector)
         args_size = 4
         gas = GAS_UNKNOWN_SELECTOR + 10000
         should_succeed = False
@@ -351,7 +354,7 @@ def test_selector(
             Op.CALL(
                 gas=gas,
                 address=STAKING_PRECOMPILE,
-                args_offset=28,
+                args_offset=60,
                 args_size=args_size,
                 ret_offset=0,
                 ret_size=32,
@@ -407,7 +410,7 @@ def test_gas(
             Op.CALL(
                 gas=gas,
                 address=STAKING_PRECOMPILE,
-                args_offset=28,
+                args_offset=60,
                 args_size=func.calldata_size,
                 ret_offset=0,
                 ret_size=32,
@@ -461,7 +464,7 @@ def test_call_opcodes(
             call_opcode(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=28,
+                args_offset=60,
                 args_size=func.calldata_size,
                 ret_offset=0,
                 ret_size=32,
@@ -505,27 +508,20 @@ def test_call_opcodes(
     "scenario",
     [s for s in CallScenario if s != CallScenario.LOW_GAS],
 )
-@pytest.mark.parametrize(
-    "gas",
-    [
-        pytest.param(None, id="func_gas"),
-        pytest.param(10000, id="10k"),
-        pytest.param(40000, id="40k"),
-    ],
-)
 def test_revert_returns(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     fork: Fork,
     func: FunctionInfo,
     scenario: CallScenario,
-    gas: int | None,
 ) -> None:
     """
     Test return data on success and on each revert reason.
     """
-    if gas is None:
-        gas = func.gas_cost + 10000
+    # Always provide enough gas regardless of scenario:
+    # TRUNCATED_SELECTOR/WRONG_SELECTOR charge GAS_UNKNOWN_SELECTOR
+    # before the function's own gas cost is known.
+    gas = max(func.gas_cost, GAS_UNKNOWN_SELECTOR) + 10000
 
     mem_end = _calldata_mem_end(func.calldata_size)
     ret_offset = max(mem_end, 96)
@@ -572,7 +568,12 @@ def test_revert_returns(
 
     ok = scenario.should_succeed(func)
 
-    err = scenario.error_message
+    if scenario == CallScenario.SHORT_CALLDATA and func.calldata_size == 4:
+        # SHORT_CALLDATA on a 4-byte function sends 3 bytes, hitting the
+        # truncated-selector path rather than the size-mismatch path.
+        err = ERROR_METHOD_NOT_SUPPORTED.encode()
+    else:
+        err = scenario.error_message
     expected_return_size = func.return_size if ok else (len(err) if err else 0)
     expected_mload = (
         func.first_return_word if ok else _mload_of(err) if err else 0
@@ -703,7 +704,7 @@ def test_call_with_value(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
                 value=value,
-                args_offset=28,
+                args_offset=60,
                 args_size=func.calldata_size,
                 ret_offset=ret_offset,
                 ret_size=32,
@@ -787,14 +788,44 @@ def test_check_order(
     Each combination triggers exactly two failure causes. The test
     derives the expected outcome from the higher-priority failure.
     """
-    if frozenset({scenario1, scenario2}) == frozenset(
+    scenarios_set = frozenset({scenario1, scenario2})
+    call_succeeds = False
+
+    if scenarios_set == frozenset(
         {CallScenario.LOW_GAS, CallScenario.NONZERO_VALUE}
     ):
-        # Edge case: call gas stipend overrides low gas
-        expected_msg = CallScenario.NONZERO_VALUE.error_message
+        if func.is_payable:
+            # EVM adds 2300 stipend for value>0, overcoming LOW_GAS;
+            # payable func accepts value -> call succeeds
+            expected_msg = b""
+            call_succeeds = True
+        else:
+            expected_msg = CallScenario.NONZERO_VALUE.error_message
+    elif CallScenario.LOW_GAS in scenarios_set and (
+        CallScenario.TRUNCATED_SELECTOR in scenarios_set
+        or CallScenario.WRONG_SELECTOR in scenarios_set
+    ):
+        # gas = GAS_UNKNOWN_SELECTOR-1 < GAS_UNKNOWN_SELECTOR -> OOG
+        expected_msg = b""
     else:
         prevailing = min(scenario1, scenario2, key=lambda s: s.check_priority)
         expected_msg = prevailing.error_message or b""
+        if prevailing == CallScenario.NONZERO_VALUE:
+            if (
+                CallScenario.SHORT_CALLDATA in scenarios_set
+                and func.calldata_size == 4
+            ):
+                # SHORT on a 4-byte func sends 3 bytes -> truncated
+                # selector path -> "method not supported"
+                expected_msg = ERROR_METHOD_NOT_SUPPORTED.encode()
+            elif func.is_payable:
+                # Payable accepts value; the other scenario fires
+                other = (
+                    scenario1
+                    if scenario1 != CallScenario.NONZERO_VALUE
+                    else scenario2
+                )
+                expected_msg = other.error_message or b""
 
     mem_end = _calldata_mem_end(func.calldata_size)
     ret_offset = max(mem_end, 96)
@@ -819,6 +850,7 @@ def test_check_order(
                 scenario1,
                 scenario2,
                 func=func,
+                gas=max(func.gas_cost, GAS_UNKNOWN_SELECTOR) + 10000,
                 ret_offset=ret_offset,
                 ret_size=32,
                 delegating_eoa=delegating_eoa,
@@ -846,7 +878,7 @@ def test_check_order(
         post={
             contract_address: Account(
                 storage={
-                    slot_call_success: 0,
+                    slot_call_success: 1 if call_succeeds else 0,
                     slot_return_size: expected_return_size,
                     slot_return_value: expected_mload,
                     slot_code_worked: value_code_worked,
@@ -944,9 +976,14 @@ def test_tx_revert_scenarios(
         ),
     )
 
-    post: dict = {
-        sender: Account(balance=value),
-    }
+    if scenario.should_succeed(func):
+        # Value was transferred to precompile
+        post = {
+            sender: Account(balance=0),
+            STAKING_PRECOMPILE: Account(balance=value) if value > 0 else None,
+        }
+    else:
+        post = {sender: Account(balance=value)}
 
     state_test(
         pre=pre,
@@ -1049,7 +1086,7 @@ def test_syscall_rejected(
             Op.CALL(
                 gas=100000,
                 address=STAKING_PRECOMPILE,
-                args_offset=28,
+                args_offset=60,
                 args_size=36,
                 ret_offset=0,
                 ret_size=32,

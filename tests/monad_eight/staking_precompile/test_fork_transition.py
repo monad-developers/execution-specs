@@ -14,6 +14,8 @@ from execution_testing import (
     Op,
     Transaction,
 )
+from execution_testing.forks import get_transition_fork_predecessor
+from execution_testing.forks.forks.forks import MONAD_EIGHT
 from execution_testing.forks.helpers import Fork
 
 from .helpers import build_calldata, generous_gas
@@ -43,13 +45,17 @@ def test_fork_transition(
     """
     sender = pre.fund_eoa()
 
+    # True when the fork before the transition already has the staking
+    # precompile (e.g. MONAD_EIGHT → MONAD_NINE transition).
+    staking_pre = get_transition_fork_predecessor(fork) >= MONAD_EIGHT
+
     # Use getProposerValId() — minimal calldata (4 bytes), low gas
     callee_code = (
         build_calldata(SELECTOR_GET_PROPOSER_VAL_ID, 4)
         + Op.CALL(
             gas=GAS_GET_PROPOSER_VAL_ID + 10000,
             address=STAKING_PRECOMPILE,
-            args_offset=28,
+            args_offset=60,
             args_size=4,
             ret_offset=0,
             ret_size=32,
@@ -120,8 +126,8 @@ def test_fork_transition(
             ),
             callee_address: Account(
                 storage={
-                    # Precompile not available, RETURNDATASIZE==0
-                    14_999: 0,
+                    # Pre-transition: available iff predecessor >= MONAD_EIGHT
+                    14_999: 1 if staking_pre else 0,
                     # Precompile available, RETURNDATASIZE==32
                     15_000: 1,
                     # Precompile continues to work
