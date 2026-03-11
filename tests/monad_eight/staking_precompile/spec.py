@@ -15,6 +15,11 @@ class ReferenceSpec:
 
 ref_spec_staking = ReferenceSpec("staking/staking-precompile", "main")
 
+# Error messages returned as raw ASCII revert data
+ERROR_METHOD_NOT_SUPPORTED = "method not supported"
+ERROR_INVALID_INPUT = "invalid input"
+ERROR_VALUE_NONZERO = "value is nonzero"
+
 # Precompile address for staking
 STAKING_PRECOMPILE = Address(0x1000)
 
@@ -279,6 +284,15 @@ ALL_FUNCTIONS = [
 
 GETTER_FUNCTIONS = [f for f in ALL_FUNCTIONS if f.name.startswith("get")]
 SETTER_FUNCTIONS = [f for f in ALL_FUNCTIONS if not f.name.startswith("get")]
+PAYABLE_FUNCTIONS = [f for f in ALL_FUNCTIONS if f.is_payable]
+NON_PAYABLE_FUNCTIONS = [f for f in ALL_FUNCTIONS if not f.is_payable]
+
+# Representative subset to limit parametrization explosion
+REPRESENTATIVE_FUNCTIONS = [
+    f
+    for f in ALL_FUNCTIONS
+    if f.name in ("delegate", "undelegate", "getEpoch", "getValidator")
+]
 
 # Lookup table: selector -> FunctionInfo
 FUNC_BY_SELECTOR = {f.selector: f for f in ALL_FUNCTIONS}
