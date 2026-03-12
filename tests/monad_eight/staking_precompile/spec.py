@@ -18,7 +18,10 @@ ref_spec_staking = ReferenceSpec("staking/staking-precompile", "main")
 # Error messages returned as raw ASCII revert data
 ERROR_METHOD_NOT_SUPPORTED = "method not supported"
 ERROR_INVALID_INPUT = "invalid input"
+ERROR_INPUT_TOO_SHORT = "input too short"
 ERROR_VALUE_NONZERO = "value is nonzero"
+ERROR_UNKNOWN_VALIDATOR = "unknown validator"
+ERROR_UNKNOWN_WITHDRAWAL_ID = "unknown withdrawal id"
 
 # Precompile address for staking
 STAKING_PRECOMPILE = Address(0x1000)
@@ -72,7 +75,7 @@ GAS_GET_PROPOSER_VAL_ID = 100
 GAS_UNKNOWN_SELECTOR = 40000
 
 # Expected calldata sizes (selector + ABI-encoded params)
-CALLDATA_SIZE_ADD_VALIDATOR = 100  # 4 + 32*3 (three offset words)
+CALLDATA_SIZE_ADD_VALIDATOR = 196  # 4 + 32*3 offsets + 32*3 lengths
 CALLDATA_SIZE_DELEGATE = 36  # 4 + 32 (uint64)
 CALLDATA_SIZE_UNDELEGATE = 100  # 4 + 32*3
 CALLDATA_SIZE_WITHDRAW = 68  # 4 + 32*2
@@ -112,6 +115,7 @@ class FunctionInfo:
     name: str
     return_size: int
     first_return_word: int
+    empty_state_error: str = ""
 
 
 # All functions with their metadata
@@ -132,8 +136,8 @@ ALL_FUNCTIONS = [
         CALLDATA_SIZE_DELEGATE,
         True,
         "delegate",
-        0,
-        0,
+        32,
+        1,
     ),
     FunctionInfo(
         SELECTOR_UNDELEGATE,
@@ -141,8 +145,8 @@ ALL_FUNCTIONS = [
         CALLDATA_SIZE_UNDELEGATE,
         False,
         "undelegate",
-        0,
-        0,
+        32,
+        1,
     ),
     FunctionInfo(
         SELECTOR_WITHDRAW,
@@ -152,6 +156,7 @@ ALL_FUNCTIONS = [
         "withdraw",
         0,
         0,
+        empty_state_error=ERROR_UNKNOWN_WITHDRAWAL_ID,
     ),
     FunctionInfo(
         SELECTOR_COMPOUND,
@@ -159,8 +164,8 @@ ALL_FUNCTIONS = [
         CALLDATA_SIZE_COMPOUND,
         False,
         "compound",
-        0,
-        0,
+        32,
+        1,
     ),
     FunctionInfo(
         SELECTOR_CLAIM_REWARDS,
@@ -168,8 +173,8 @@ ALL_FUNCTIONS = [
         CALLDATA_SIZE_CLAIM_REWARDS,
         False,
         "claimRewards",
-        0,
-        0,
+        32,
+        1,
     ),
     FunctionInfo(
         SELECTOR_CHANGE_COMMISSION,
@@ -179,6 +184,7 @@ ALL_FUNCTIONS = [
         "changeCommission",
         0,
         0,
+        empty_state_error=ERROR_UNKNOWN_VALIDATOR,
     ),
     FunctionInfo(
         SELECTOR_EXTERNAL_REWARD,
@@ -188,6 +194,7 @@ ALL_FUNCTIONS = [
         "externalReward",
         0,
         0,
+        empty_state_error=ERROR_UNKNOWN_VALIDATOR,
     ),
     # Getters
     FunctionInfo(
@@ -196,7 +203,7 @@ ALL_FUNCTIONS = [
         CALLDATA_SIZE_GET_VALIDATOR,
         False,
         "getValidator",
-        32 * 20,  # 20 zero words
+        32 * 18,  # 18 zero words
         0,
     ),
     FunctionInfo(
@@ -205,7 +212,7 @@ ALL_FUNCTIONS = [
         CALLDATA_SIZE_GET_DELEGATOR,
         False,
         "getDelegator",
-        32 * 10,  # 10 zero words
+        32 * 7,  # 7 zero words
         0,
     ),
     FunctionInfo(

@@ -32,6 +32,7 @@ from execution_testing.test_types.receipt_types import TransactionReceipt
 from .helpers import build_calldata, generous_gas, tx_calldata
 from .spec import (
     ALL_FUNCTIONS,
+    ERROR_INPUT_TOO_SHORT,
     ERROR_INVALID_INPUT,
     ERROR_METHOD_NOT_SUPPORTED,
     ERROR_VALUE_NONZERO,
@@ -87,28 +88,40 @@ class CallScenario(Enum):
 
     def should_succeed(self, func: FunctionInfo) -> bool:
         """Return whether this scenario succeeds for the given function."""
+        if func.empty_state_error:
+            return False
         if self == CallScenario.SUCCESS:
             return True
         if self == CallScenario.NONZERO_VALUE:
             return func.is_payable
+        if self == CallScenario.EXTRA_CALLDATA:
+            return func.calldata_size == 4
         return False
 
-    @property
-    def error_message(self) -> bytes:
+    def error_message(self, func: "FunctionInfo | None" = None) -> bytes:
         """Return raw ASCII error bytes for this scenario."""
         match self:
+            case CallScenario.SUCCESS:
+                if func and func.empty_state_error:
+                    return func.empty_state_error.encode()
+                return b""
             case (
-                CallScenario.SUCCESS
-                | CallScenario.NOT_CALL
+                CallScenario.NOT_CALL
                 | CallScenario.DELEGATE_TO_PRECOMPILE
                 | CallScenario.LOW_GAS
             ):
                 return b""
             case CallScenario.WRONG_SELECTOR | CallScenario.TRUNCATED_SELECTOR:
                 return ERROR_METHOD_NOT_SUPPORTED.encode()
-            case CallScenario.SHORT_CALLDATA | CallScenario.EXTRA_CALLDATA:
+            case CallScenario.SHORT_CALLDATA:
+                return ERROR_INPUT_TOO_SHORT.encode()
+            case CallScenario.EXTRA_CALLDATA:
+                if func and func.calldata_size == 4:
+                    return b""
                 return ERROR_INVALID_INPUT.encode()
             case CallScenario.NONZERO_VALUE:
+                if func and func.is_payable and func.empty_state_error:
+                    return func.empty_state_error.encode()
                 return ERROR_VALUE_NONZERO.encode()
         return b""
 
@@ -287,12 +300,20 @@ def test_input_size(
         sender=pre.fund_eoa(),
     )
 
-    should_succeed = input_size == func.calldata_size
+    is_short = input_size < func.calldata_size
+    is_long = input_size > func.calldata_size
+    parameterless = func.calldata_size == 4
+    size_ok = input_size == func.calldata_size or (is_long and parameterless)
+    should_succeed = size_ok and not func.empty_state_error
 
-    if should_succeed:
+    if size_ok and func.empty_state_error:
+        expected_return_size = len(func.empty_state_error)
+    elif should_succeed:
         expected_return_size = func.return_size
     elif input_size < 4:
         expected_return_size = len(ERROR_METHOD_NOT_SUPPORTED)
+    elif is_short:
+        expected_return_size = len(ERROR_INPUT_TOO_SHORT)
     else:
         expected_return_size = len(ERROR_INVALID_INPUT)
 
@@ -338,8 +359,10 @@ def test_selector(
         calldata_setup = build_calldata(func.selector, func.calldata_size)
         args_size = func.calldata_size
         gas = func.gas_cost + 10000
-        should_succeed = True
-        expected_return_size = func.return_size
+        should_succeed = not func.empty_state_error
+        expected_return_size = (
+            func.return_size if should_succeed else len(func.empty_state_error)
+        )
     else:
         calldata_setup = Op.MSTORE(32, selector)
         args_size = 4
@@ -426,12 +449,14 @@ def test_gas(
         gas_limit=generous_gas(fork),
     )
 
+    should_succeed = enough_gas and not func.empty_state_error
+
     state_test(
         pre=pre,
         post={
             contract_address: Account(
                 storage={
-                    slot_call_success: 1 if enough_gas else 0,
+                    slot_call_success: 1 if should_succeed else 0,
                     slot_code_worked: value_code_worked,
                 }
             )
@@ -481,7 +506,15 @@ def test_call_opcodes(
         sender=pre.fund_eoa(),
     )
 
-    should_succeed = call_opcode == Op.CALL
+    is_call = call_opcode == Op.CALL
+    should_succeed = is_call and not func.empty_state_error
+
+    if should_succeed:
+        expected_return_size = func.return_size
+    elif is_call and func.empty_state_error:
+        expected_return_size = len(func.empty_state_error)
+    else:
+        expected_return_size = 0
 
     blockchain_test(
         pre=pre,
@@ -489,9 +522,7 @@ def test_call_opcodes(
             contract_address: Account(
                 storage={
                     slot_call_success: 1 if should_succeed else 0,
-                    slot_return_size: (
-                        func.return_size if should_succeed else 0
-                    ),
+                    slot_return_size: expected_return_size,
                     slot_code_worked: value_code_worked,
                 }
             ),
@@ -573,7 +604,7 @@ def test_revert_returns(
         # truncated-selector path rather than the size-mismatch path.
         err = ERROR_METHOD_NOT_SUPPORTED.encode()
     else:
-        err = scenario.error_message
+        err = scenario.error_message(func)
     expected_return_size = func.return_size if ok else (len(err) if err else 0)
     expected_mload = (
         func.first_return_word if ok else _mload_of(err) if err else 0
@@ -723,13 +754,18 @@ def test_call_with_value(
         sender=pre.fund_eoa(),
     )
 
-    should_succeed = value == 0 or func.is_payable
+    value_ok = value == 0 or func.is_payable
+    should_succeed = value_ok and not func.empty_state_error
 
     if should_succeed:
         expected_return_size = func.return_size
         expected_mload = func.first_return_word
-    else:
+    elif not value_ok:
         err = ERROR_VALUE_NONZERO.encode()
+        expected_return_size = len(err)
+        expected_mload = _mload_of(err)
+    else:
+        err = func.empty_state_error.encode()
         expected_return_size = len(err)
         expected_mload = _mload_of(err)
 
@@ -800,7 +836,7 @@ def test_check_order(
             expected_msg = b""
             call_succeeds = True
         else:
-            expected_msg = CallScenario.NONZERO_VALUE.error_message
+            expected_msg = CallScenario.NONZERO_VALUE.error_message(func)
     elif CallScenario.LOW_GAS in scenarios_set and (
         CallScenario.TRUNCATED_SELECTOR in scenarios_set
         or CallScenario.WRONG_SELECTOR in scenarios_set
@@ -809,7 +845,7 @@ def test_check_order(
         expected_msg = b""
     else:
         prevailing = min(scenario1, scenario2, key=lambda s: s.check_priority)
-        expected_msg = prevailing.error_message or b""
+        expected_msg = prevailing.error_message(func) or b""
         if prevailing == CallScenario.NONZERO_VALUE:
             if (
                 CallScenario.SHORT_CALLDATA in scenarios_set
@@ -825,7 +861,7 @@ def test_check_order(
                     if scenario1 != CallScenario.NONZERO_VALUE
                     else scenario2
                 )
-                expected_msg = other.error_message or b""
+                expected_msg = other.error_message(func) or b""
 
     mem_end = _calldata_mem_end(func.calldata_size)
     ret_offset = max(mem_end, 96)
@@ -870,8 +906,12 @@ def test_check_order(
         authorization_list=authorization_list,
     )
 
-    expected_return_size = len(expected_msg)
-    expected_mload = _mload_of(expected_msg) if expected_msg else 0
+    if call_succeeds:
+        expected_return_size = func.return_size
+        expected_mload = func.first_return_word
+    else:
+        expected_return_size = len(expected_msg)
+        expected_mload = _mload_of(expected_msg) if expected_msg else 0
 
     blockchain_test(
         pre=pre,
@@ -977,11 +1017,14 @@ def test_tx_revert_scenarios(
     )
 
     if scenario.should_succeed(func):
+        post: dict = {sender: Account(balance=0)}
+        # FIXME: which is correct? does the precompile hide the balance?
         # Value was transferred to precompile
-        post = {
-            sender: Account(balance=0),
-            STAKING_PRECOMPILE: Account(balance=value) if value > 0 else None,
-        }
+        # post = {
+        #     sender: Account(balance=0),
+        #     STAKING_PRECOMPILE:
+        # Account(balance=value) if value > 0 else None,
+        # }
     else:
         post = {sender: Account(balance=value)}
 

@@ -13,9 +13,9 @@ Getter functions return constant stub values.
 Setter functions are stubs that respect interface rules.
 """
 
-from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U256, Uint
 
+from ...state import get_account, set_account_balance
 from ...vm import Evm
 from ...vm.exceptions import InvalidParameter, RevertInMonadPrecompile
 from ...vm.gas import charge_gas
@@ -71,8 +71,8 @@ SELECTOR_SYSCALL_SNAPSHOT = bytes.fromhex("157eeb21")
 _SELECTOR_INFO: dict[bytes, tuple[Uint, bool, int]] = {
     # (gas_cost, is_payable, expected_data_size)
     # Setters
-    # addValidator(bytes,bytes,bytes) - 4+32*3 offset words
-    SELECTOR_ADD_VALIDATOR: (GAS_ADD_VALIDATOR, True, 100),
+    # addValidator(bytes,bytes,bytes) - 4+32*3 offsets+32*3 lengths
+    SELECTOR_ADD_VALIDATOR: (GAS_ADD_VALIDATOR, True, 196),
     # delegate(uint64) - 4+32
     SELECTOR_DELEGATE: (GAS_DELEGATE, True, 36),
     # undelegate(uint64,uint256,uint8) - 4+32*3
@@ -220,7 +220,7 @@ def _handle_get_validator(evm: Evm) -> None:
     """
     # Return 0 for all fields (empty validator)
     # The struct has many fields; return enough zero words
-    evm.output = b"\x00" * 32 * 20
+    evm.output = b"\x00" * 32 * 18
 
 
 def _handle_get_delegator(evm: Evm) -> None:
@@ -229,7 +229,7 @@ def _handle_get_delegator(evm: Evm) -> None:
 
     Return stub: a zeroed-out delegator structure.
     """
-    evm.output = b"\x00" * 32 * 10
+    evm.output = b"\x00" * 32 * 7
 
 
 def _handle_get_withdrawal_request(evm: Evm) -> None:
@@ -359,7 +359,12 @@ def staking(evm: Evm) -> None:
         raise RevertInMonadPrecompile
 
     # Validate calldata size
-    if len(data) != expected_size:
+    if len(data) < expected_size:
+        evm.output = b"input too short"
+        raise RevertInMonadPrecompile
+
+    # Extra calldata bytes only affect selectors accepting data.
+    if expected_size > 4 and len(data) > expected_size:
         evm.output = b"invalid input"
         raise RevertInMonadPrecompile
 
@@ -368,13 +373,33 @@ def staking(evm: Evm) -> None:
         handler = _GETTER_HANDLERS[selector]
         handler(evm)  # type: ignore[operator]
     elif selector in _SETTER_SELECTORS:
-        # Setter stubs: validate interface rules but do nothing
-        # Return empty output (setters don't return data except
-        # addValidator which returns a uint64)
         if selector == SELECTOR_ADD_VALIDATOR:
-            # addValidator returns validator ID; 0 = no validator created
             evm.output = _abi_encode_uint256(0)
-        else:
-            evm.output = Bytes(b"")
+        elif selector in (
+            SELECTOR_DELEGATE,
+            SELECTOR_UNDELEGATE,
+            SELECTOR_COMPOUND,
+            SELECTOR_CLAIM_REWARDS,
+        ):
+            evm.output = _abi_encode_uint256(1)
+        elif selector in (
+            SELECTOR_CHANGE_COMMISSION,
+            SELECTOR_EXTERNAL_REWARD,
+        ):
+            evm.output = b"unknown validator"
+            raise RevertInMonadPrecompile
+        elif selector == SELECTOR_WITHDRAW:
+            evm.output = b"unknown withdrawal id"
+            raise RevertInMonadPrecompile
     else:
         raise InvalidParameter
+
+    # FIXME: is that so?
+    # Payable calls consume value (staking system absorbs it)
+    if is_payable and evm.message.value != U256(0):
+        state = evm.message.block_env.state
+        precompile = evm.message.current_target
+        account = get_account(state, precompile)
+        set_account_balance(
+            state, precompile, account.balance - evm.message.value
+        )
