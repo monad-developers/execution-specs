@@ -717,7 +717,7 @@ def test_revert_consumes_all_gas(
     "func",
     [pytest.param(f, id=f.name) for f in ALL_FUNCTIONS],
 )
-@pytest.mark.parametrize("value", [0, 1])
+@pytest.mark.parametrize("value", [0, 1, 2**128])
 def test_call_with_value(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -785,18 +785,24 @@ def test_call_with_value(
         expected_return_size = len(err)
         expected_mload = _mload_of(err)
 
+    post: dict = {
+        contract_address: Account(
+            storage={
+                slot_call_success: 1 if should_succeed else 0,
+                slot_return_size: expected_return_size,
+                slot_return_value: expected_mload,
+                slot_code_worked: value_code_worked,
+            },
+            balance=0 if should_succeed else value,
+        ),
+        STAKING_PRECOMPILE: Account(balance=value)
+        if should_succeed and value > 0
+        else None,
+    }
+
     blockchain_test(
         pre=pre,
-        post={
-            contract_address: Account(
-                storage={
-                    slot_call_success: 1 if should_succeed else 0,
-                    slot_return_size: expected_return_size,
-                    slot_return_value: expected_mload,
-                    slot_code_worked: value_code_worked,
-                }
-            ),
-        },
+        post=post,
         blocks=[Block(txs=[tx])],
     )
 
