@@ -93,7 +93,7 @@ class CallScenario(Enum):
         if self == CallScenario.SUCCESS:
             return True
         if self == CallScenario.NONZERO_VALUE:
-            return func.is_payable
+            return func.is_payable and not func.nonzero_value_error
         if self == CallScenario.EXTRA_CALLDATA:
             return func.calldata_size == 4
         return False
@@ -114,12 +114,18 @@ class CallScenario(Enum):
             case CallScenario.WRONG_SELECTOR | CallScenario.TRUNCATED_SELECTOR:
                 return ERROR_METHOD_NOT_SUPPORTED.encode()
             case CallScenario.SHORT_CALLDATA:
+                if func and func.overrides_size_errors:
+                    return func.empty_state_error.encode()
                 return ERROR_INPUT_TOO_SHORT.encode()
             case CallScenario.EXTRA_CALLDATA:
+                if func and func.overrides_size_errors:
+                    return func.empty_state_error.encode()
                 if func and func.calldata_size == 4:
                     return b""
                 return ERROR_INVALID_INPUT.encode()
             case CallScenario.NONZERO_VALUE:
+                if func and func.nonzero_value_error:
+                    return func.nonzero_value_error.encode()
                 if func and func.is_payable and func.empty_state_error:
                     return func.empty_state_error.encode()
                 return ERROR_VALUE_NONZERO.encode()
@@ -306,7 +312,9 @@ def test_input_size(
     size_ok = input_size == func.calldata_size or (is_long and parameterless)
     should_succeed = size_ok and not func.empty_state_error
 
-    if size_ok and func.empty_state_error:
+    if func.overrides_size_errors and input_size >= 4:
+        expected_return_size = len(func.empty_state_error)
+    elif size_ok and func.empty_state_error:
         expected_return_size = len(func.empty_state_error)
     elif should_succeed:
         expected_return_size = func.return_size
@@ -755,13 +763,21 @@ def test_call_with_value(
     )
 
     value_ok = value == 0 or func.is_payable
-    should_succeed = value_ok and not func.empty_state_error
+    should_succeed = (
+        value_ok
+        and not func.empty_state_error
+        and not (value > 0 and func.nonzero_value_error)
+    )
 
     if should_succeed:
         expected_return_size = func.return_size
         expected_mload = func.first_return_word
     elif not value_ok:
         err = ERROR_VALUE_NONZERO.encode()
+        expected_return_size = len(err)
+        expected_mload = _mload_of(err)
+    elif value > 0 and func.nonzero_value_error:
+        err = func.nonzero_value_error.encode()
         expected_return_size = len(err)
         expected_mload = _mload_of(err)
     else:
@@ -830,11 +846,13 @@ def test_check_order(
     if scenarios_set == frozenset(
         {CallScenario.LOW_GAS, CallScenario.NONZERO_VALUE}
     ):
-        if func.is_payable:
+        if func.is_payable and not func.nonzero_value_error:
             # EVM adds 2300 stipend for value>0, overcoming LOW_GAS;
             # payable func accepts value -> call succeeds
             expected_msg = b""
             call_succeeds = True
+        elif func.is_payable:
+            expected_msg = func.nonzero_value_error.encode()
         else:
             expected_msg = CallScenario.NONZERO_VALUE.error_message(func)
     elif CallScenario.LOW_GAS in scenarios_set and (
@@ -855,7 +873,7 @@ def test_check_order(
                 # selector path -> "method not supported"
                 expected_msg = ERROR_METHOD_NOT_SUPPORTED.encode()
             elif func.is_payable:
-                # Payable accepts value; the other scenario fires
+                # Payable accepts value check; the other scenario fires
                 other = (
                     scenario1
                     if scenario1 != CallScenario.NONZERO_VALUE

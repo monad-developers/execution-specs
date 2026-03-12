@@ -358,15 +358,15 @@ def staking(evm: Evm) -> None:
         evm.output = b"value is nonzero"
         raise RevertInMonadPrecompile
 
-    # Validate calldata size
-    if len(data) < expected_size:
-        evm.output = b"input too short"
-        raise RevertInMonadPrecompile
-
-    # Extra calldata bytes only affect selectors accepting data.
-    if expected_size > 4 and len(data) > expected_size:
-        evm.output = b"invalid input"
-        raise RevertInMonadPrecompile
+    # Validate calldata size (addValidator does ABI validation instead)
+    if selector != SELECTOR_ADD_VALIDATOR:
+        if len(data) < expected_size:
+            evm.output = b"input too short"
+            raise RevertInMonadPrecompile
+        # Extra calldata bytes only affect selectors accepting data.
+        if expected_size > 4 and len(data) > expected_size:
+            evm.output = b"invalid input"
+            raise RevertInMonadPrecompile
 
     # Dispatch
     if selector in _GETTER_SELECTORS:
@@ -374,7 +374,11 @@ def staking(evm: Evm) -> None:
         handler(evm)  # type: ignore[operator]
     elif selector in _SETTER_SELECTORS:
         if selector == SELECTOR_ADD_VALIDATOR:
-            evm.output = _abi_encode_uint256(0)
+            evm.output = b"length mismatch"
+            raise RevertInMonadPrecompile
+        elif selector == SELECTOR_DELEGATE and evm.message.value != U256(0):
+            evm.output = b"unknown validator"
+            raise RevertInMonadPrecompile
         elif selector in (
             SELECTOR_DELEGATE,
             SELECTOR_UNDELEGATE,

@@ -22,6 +22,7 @@ ERROR_INPUT_TOO_SHORT = "input too short"
 ERROR_VALUE_NONZERO = "value is nonzero"
 ERROR_UNKNOWN_VALIDATOR = "unknown validator"
 ERROR_UNKNOWN_WITHDRAWAL_ID = "unknown withdrawal id"
+ERROR_LENGTH_MISMATCH = "length mismatch"
 
 # Precompile address for staking
 STAKING_PRECOMPILE = Address(0x1000)
@@ -116,6 +117,8 @@ class FunctionInfo:
     return_size: int
     first_return_word: int
     empty_state_error: str = ""
+    overrides_size_errors: bool = False
+    nonzero_value_error: str = ""
 
 
 # All functions with their metadata
@@ -127,8 +130,10 @@ ALL_FUNCTIONS = [
         CALLDATA_SIZE_ADD_VALIDATOR,
         True,
         "addValidator",
-        32,  # returns uint64
-        0,  # validator id = 0 (no validator created)
+        0,
+        0,
+        empty_state_error=ERROR_LENGTH_MISMATCH,
+        overrides_size_errors=True,
     ),
     FunctionInfo(
         SELECTOR_DELEGATE,
@@ -138,6 +143,7 @@ ALL_FUNCTIONS = [
         "delegate",
         32,
         1,
+        nonzero_value_error=ERROR_UNKNOWN_VALIDATOR,
     ),
     FunctionInfo(
         SELECTOR_UNDELEGATE,
