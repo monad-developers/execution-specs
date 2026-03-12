@@ -1035,14 +1035,11 @@ def test_tx_revert_scenarios(
     )
 
     if scenario.should_succeed(func):
-        post: dict = {sender: Account(balance=0)}
-        # FIXME: which is correct? does the precompile hide the balance?
         # Value was transferred to precompile
-        # post = {
-        #     sender: Account(balance=0),
-        #     STAKING_PRECOMPILE:
-        # Account(balance=value) if value > 0 else None,
-        # }
+        post = {
+            sender: Account(balance=0),
+            STAKING_PRECOMPILE: Account(balance=value) if value > 0 else None,
+        }
     else:
         post = {sender: Account(balance=value)}
 

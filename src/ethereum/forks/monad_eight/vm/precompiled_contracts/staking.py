@@ -15,7 +15,6 @@ Setter functions are stubs that respect interface rules.
 
 from ethereum_types.numeric import U256, Uint
 
-from ...state import get_account, set_account_balance
 from ...vm import Evm
 from ...vm.exceptions import InvalidParameter, RevertInMonadPrecompile
 from ...vm.gas import charge_gas
@@ -397,13 +396,3 @@ def staking(evm: Evm) -> None:
             raise RevertInMonadPrecompile
     else:
         raise InvalidParameter
-
-    # FIXME: is that so?
-    # Payable calls consume value (staking system absorbs it)
-    if is_payable and evm.message.value != U256(0):
-        state = evm.message.block_env.state
-        precompile = evm.message.current_target
-        account = get_account(state, precompile)
-        set_account_balance(
-            state, precompile, account.balance - evm.message.value
-        )
