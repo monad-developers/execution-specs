@@ -71,7 +71,7 @@ def test_fork_transition(
     caller_address = pre.deploy_contract(
         code=Op.SSTORE(
             Op.TIMESTAMP,
-            Op.CALL(gas=0xFFFF, address=callee_address),
+            Op.CALL(gas=Op.GAS, address=callee_address),
         ),
         storage={14_999: "0xdeadbeef"},
     )
@@ -114,16 +114,7 @@ def test_fork_transition(
         pre=pre,
         blocks=blocks,
         post={
-            caller_address: Account(
-                storage={
-                    # Call succeeds (precompile just returns empty)
-                    14_999: 1,
-                    # Call succeeds on fork transition block
-                    15_000: 1,
-                    # Call continues to succeed after transition
-                    15_001: 1,
-                }
-            ),
+            caller_address: Account(storage={14_999: 1, 15_000: 1, 15_001: 1}),
             callee_address: Account(
                 storage={
                     # Pre-transition: available iff predecessor >= MONAD_EIGHT
