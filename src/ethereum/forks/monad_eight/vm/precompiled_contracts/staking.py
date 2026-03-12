@@ -385,7 +385,7 @@ def staking(evm: Evm) -> None:
             SELECTOR_COMPOUND,
             SELECTOR_CLAIM_REWARDS,
         ):
-            evm.output = _abi_encode_uint256(1)
+            evm.output = _abi_encode_bool(True)
         elif selector in (
             SELECTOR_CHANGE_COMMISSION,
             SELECTOR_EXTERNAL_REWARD,
