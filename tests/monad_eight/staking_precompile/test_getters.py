@@ -16,7 +16,12 @@ from execution_testing import (
 )
 from execution_testing.forks.helpers import Fork
 
-from .helpers import build_calldata, generous_gas
+from .helpers import (
+    CORRECT_SEL_ARGS_OFFSET,
+    build_calldata,
+    calldata_mem_end,
+    generous_gas,
+)
 from .spec import (
     GETTER_FUNCTIONS,
     STAKING_PRECOMPILE,
@@ -60,10 +65,8 @@ def test_getter_return_data(
     word of the return data.
     """
     num_words = func.return_size // 32
+    rdc_offset = calldata_mem_end(func.calldata_size)
 
-    # Build contract: call getter, store RETURNDATASIZE, then
-    # copy return data and store each word
-    ret_offset = 256
     contract = (
         build_calldata(func.selector, func.calldata_size)
         + Op.SSTORE(
@@ -71,17 +74,14 @@ def test_getter_return_data(
             Op.CALL(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=func.calldata_size,
-                ret_offset=ret_offset,
-                ret_size=func.return_size,
             ),
         )
         + Op.SSTORE(slot_return_size, Op.RETURNDATASIZE)
     )
 
     if num_words > 0:
-        rdc_offset = ret_offset + func.return_size + 32
         contract += Op.RETURNDATACOPY(rdc_offset, 0, Op.RETURNDATASIZE)
         contract += Op.SSTORE(slot_return_word_base, Op.MLOAD(rdc_offset))
 
@@ -132,41 +132,36 @@ def test_getter_idempotent(
     slot_success_1 = 0x24
     slot_success_2 = 0x25
 
-    ret_offset_1 = 256
-    ret_offset_2 = ret_offset_1 + func.return_size + 64
-
-    calldata_setup = build_calldata(func.selector, func.calldata_size)
+    rdc_offset = calldata_mem_end(func.calldata_size)
 
     contract = (
-        calldata_setup
+        build_calldata(func.selector, func.calldata_size)
         # First call
         + Op.SSTORE(
             slot_success_1,
             Op.CALL(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=func.calldata_size,
-                ret_offset=ret_offset_1,
-                ret_size=func.return_size,
             ),
         )
         + Op.SSTORE(slot_size_1, Op.RETURNDATASIZE)
-        + Op.SSTORE(slot_word_1, Op.MLOAD(ret_offset_1))
+        + Op.RETURNDATACOPY(rdc_offset, 0, Op.RETURNDATASIZE)
+        + Op.SSTORE(slot_word_1, Op.MLOAD(rdc_offset))
         # Second call (same calldata still in memory)
         + Op.SSTORE(
             slot_success_2,
             Op.CALL(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=func.calldata_size,
-                ret_offset=ret_offset_2,
-                ret_size=func.return_size,
             ),
         )
         + Op.SSTORE(slot_size_2, Op.RETURNDATASIZE)
-        + Op.SSTORE(slot_word_2, Op.MLOAD(ret_offset_2))
+        + Op.RETURNDATACOPY(rdc_offset, 0, Op.RETURNDATASIZE)
+        + Op.SSTORE(slot_word_2, Op.MLOAD(rdc_offset))
         + Op.SSTORE(slot_code_worked, value_code_worked)
     )
     contract_address = pre.deploy_contract(contract)
