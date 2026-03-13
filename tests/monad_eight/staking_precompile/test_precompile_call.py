@@ -34,6 +34,7 @@ from execution_testing.test_types.receipt_types import TransactionReceipt
 
 from .helpers import (
     CORRECT_SEL_ARGS_OFFSET,
+    CORRECT_SEL_MSTORE_OFFSET,
     WRONG_SEL_ARGS_OFFSET,
     WRONG_SEL_MSTORE_OFFSET,
     build_calldata,
@@ -532,7 +533,7 @@ def test_selector(
         args_size = func.calldata_size
         gas = func.gas_cost + 10000
     else:
-        calldata_setup = Op.MSTORE(32, selector)
+        calldata_setup = Op.MSTORE(CORRECT_SEL_MSTORE_OFFSET, selector)
         args_size = 4
         gas = GAS_UNKNOWN_SELECTOR + 10000
 

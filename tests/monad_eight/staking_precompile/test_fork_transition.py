@@ -18,7 +18,7 @@ from execution_testing.forks import get_transition_fork_predecessor
 from execution_testing.forks.forks.forks import MONAD_EIGHT
 from execution_testing.forks.helpers import Fork
 
-from .helpers import build_calldata, generous_gas
+from .helpers import CORRECT_SEL_ARGS_OFFSET, build_calldata, generous_gas
 from .spec import (
     GAS_GET_PROPOSER_VAL_ID,
     SELECTOR_GET_PROPOSER_VAL_ID,
@@ -55,7 +55,7 @@ def test_fork_transition(
         + Op.CALL(
             gas=GAS_GET_PROPOSER_VAL_ID + 10000,
             address=STAKING_PRECOMPILE,
-            args_offset=60,
+            args_offset=CORRECT_SEL_ARGS_OFFSET,
             args_size=4,
             ret_offset=0,
             ret_size=32,

@@ -357,7 +357,7 @@ def staking(evm: Evm) -> None:
         evm.output = b"value is nonzero"
         raise RevertInMonadPrecompile
 
-    # Validate calldata size (addValidator does ABI validation instead)
+    # Validate calldata size (addValidator defers to its handler)
     if selector != SELECTOR_ADD_VALIDATOR:
         if len(data) < expected_size:
             evm.output = b"input too short"
@@ -394,5 +394,7 @@ def staking(evm: Evm) -> None:
         elif selector == SELECTOR_WITHDRAW:
             evm.output = b"unknown withdrawal id"
             raise RevertInMonadPrecompile
+        else:
+            raise AssertionError(f"unhandled setter: {selector.hex()}")
     else:
         raise InvalidParameter
