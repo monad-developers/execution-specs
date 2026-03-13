@@ -1031,10 +1031,11 @@ def test_check_order(
 
 def _pairwise_compatible(
     scenarios: tuple[CallScenario, ...],
+    incompatible: set[frozenset[CallScenario]] = _INCOMPATIBLE_SCENARIOS,
 ) -> bool:
     """Check that no pair in the tuple is incompatible."""
     return all(
-        frozenset({a, b}) not in _INCOMPATIBLE_SCENARIOS
+        frozenset({a, b}) not in incompatible
         for i, a in enumerate(scenarios)
         for b in scenarios[i + 1 :]
     )
@@ -1310,6 +1311,92 @@ def test_tx_revert_scenario_pairs(
         expected_receipt=TransactionReceipt(
             status=0x1
             if outcome1.call_success and outcome2.call_success
+            else 0x0
+        ),
+    )
+
+    post: dict = {
+        sender: Account(balance=value),
+    }
+
+    state_test(
+        pre=pre,
+        post=post,
+        tx=tx,
+    )
+
+
+_TX_SCENARIO_TRIPLES = [
+    pytest.param(
+        s1,
+        s2,
+        s3,
+        id=f"{s1.name.lower()}__{s2.name.lower()}__{s3.name.lower()}",
+    )
+    for s1 in CallScenario
+    for s2 in CallScenario
+    for s3 in CallScenario
+    if CallScenario.SUCCESS not in {s1, s2, s3}
+    and CallScenario.NOT_CALL not in {s1, s2, s3}
+    and s1.check_priority < s2.check_priority < s3.check_priority
+    and _pairwise_compatible((s1, s2, s3), _TX_INCOMPATIBLE_SCENARIOS)
+]
+
+
+@pytest.mark.parametrize(
+    "func",
+    [pytest.param(f, id=f.name) for f in REPRESENTATIVE_FUNCTIONS],
+)
+@pytest.mark.parametrize("scenario1,scenario2,scenario3", _TX_SCENARIO_TRIPLES)
+def test_tx_revert_scenario_triples(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    func: FunctionInfo,
+    scenario1: CallScenario,
+    scenario2: CallScenario,
+    scenario3: CallScenario,
+) -> None:
+    """
+    Test when the precompile is called directly as transaction
+    `to` with 3 reasons to revert.
+    """
+    normalized = {
+        _normalize(s, func) for s in (scenario1, scenario2, scenario3)
+    }
+    if not _pairwise_compatible(tuple(normalized), _TX_INCOMPATIBLE_SCENARIOS):
+        pytest.skip("normalized scenarios are incompatible")
+
+    gas_price = 10
+
+    calldata, value, to, gas_limit = _tx_params(
+        scenario1,
+        scenario2,
+        scenario3,
+        func=func,
+        pre=pre,
+        fork=fork,
+    )
+    gas_cost = gas_limit * gas_price
+    sender = pre.fund_eoa(gas_cost + value)
+
+    outcome1 = resolve_outcome(func, scenario1)
+    outcome2 = resolve_outcome(func, scenario2)
+    outcome3 = resolve_outcome(func, scenario3)
+
+    tx = Transaction(
+        gas_limit=gas_limit,
+        max_fee_per_gas=gas_price,
+        max_priority_fee_per_gas=gas_price,
+        to=to,
+        sender=sender,
+        data=calldata,
+        value=value,
+        expected_receipt=TransactionReceipt(
+            status=0x1
+            if outcome1.call_success
+            and outcome2.call_success
+            and outcome3.call_success
             else 0x0
         ),
     )
