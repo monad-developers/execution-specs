@@ -50,6 +50,8 @@ from .spec import (
 REFERENCE_SPEC_GIT_PATH = ref_spec_staking.git_path
 REFERENCE_SPEC_VERSION = ref_spec_staking.version
 
+GAS_STIPEND = 2300
+
 slot_code_worked = 0x1
 value_code_worked = 0x1234
 slot_call_success = 0x2
@@ -238,6 +240,32 @@ def resolve_outcome(
     raise ValueError(f"Unknown scenario: {scenario}")
 
 
+def _stipend_neutralizes_low_gas(
+    func: FunctionInfo,
+    scenario_set: set[CallScenario],
+) -> bool:
+    """
+    Check if the EVM value-transfer stipend overcomes how little
+    gas is provided in LOW_GAS scenarios.
+    """
+    if not (
+        {CallScenario.LOW_GAS, CallScenario.NONZERO_VALUE} <= scenario_set
+    ):
+        return False
+
+    # Given how LOW_GAS gas is calculated, unknown selector
+    # scenarios can never have stipend compensate for gas
+    # shortage.
+    assert GAS_UNKNOWN_SELECTOR > GAS_STIPEND
+    known_selector = scenario_set.isdisjoint(
+        {
+            CallScenario.TRUNCATED_SELECTOR,
+            CallScenario.WRONG_SELECTOR,
+        }
+    )
+    return known_selector and func.gas_cost <= GAS_STIPEND
+
+
 def resolve_outcome_pair(
     func: FunctionInfo,
     scenario1: CallScenario,
@@ -257,12 +285,10 @@ def resolve_outcome_pair(
     if scenario1.check_priority > scenario2.check_priority:
         scenario1, scenario2 = scenario2, scenario1
 
-    # EVM adds 2300 stipend for value>0; if the stipend covers the
-    # function's gas cost, the call succeeds despite LOW_GAS.
-    if (
-        scenario1 == CallScenario.LOW_GAS
-        and scenario2 == CallScenario.NONZERO_VALUE
-        and func.gas_cost <= 2300
+    if _stipend_neutralizes_low_gas(
+        # True iff `scenario1 == LOW_GAS and scenario2 == NONZERO_VALUE`
+        func,
+        {scenario1, scenario2},
     ):
         return resolve_outcome(func, scenario2)
 
@@ -283,6 +309,28 @@ def resolve_outcome_pair(
         return resolve_outcome(func, scenario2)
 
     return resolve_outcome(func, scenario1)
+
+
+def resolve_outcome_triple(
+    func: FunctionInfo,
+    s1: CallScenario,
+    s2: CallScenario,
+    s3: CallScenario,
+) -> ExpectedOutcome:
+    """Resolve expected outcome for three combined scenarios."""
+    scenarios = sorted(
+        [_normalize(s, func) for s in (s1, s2, s3)],
+        key=lambda s: s.check_priority,
+    )
+    if _stipend_neutralizes_low_gas(func, set(scenarios)):
+        scenarios.remove(CallScenario.LOW_GAS)
+
+    if scenarios[0] == CallScenario.NONZERO_VALUE and func.is_payable:
+        scenarios = scenarios[1:]
+
+    if len(scenarios) == 1:
+        return resolve_outcome(func, scenarios[0])
+    return resolve_outcome_pair(func, scenarios[0], scenarios[1])
 
 
 def scenario_call_code(
@@ -337,7 +385,12 @@ def scenario_call_code(
 
     if gas is None:
         if CallScenario.LOW_GAS in scenario_set:
-            gas = min(func.gas_cost, GAS_UNKNOWN_SELECTOR) - 1
+            gas = max(
+                0,
+                # Subtracting also the stipend in case the
+                # value sent would cause stipend to be added.
+                min(func.gas_cost, GAS_UNKNOWN_SELECTOR) - GAS_STIPEND - 1,
+            )
         else:
             gas = max(func.gas_cost, GAS_UNKNOWN_SELECTOR)
 
@@ -959,6 +1012,122 @@ def test_check_order(
     )
 
     outcome = resolve_outcome_pair(func, scenario1, scenario2)
+
+    blockchain_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage={
+                    slot_call_success: outcome.call_success,
+                    slot_return_size: outcome.return_size,
+                    slot_return_value: outcome.return_word,
+                    slot_code_worked: value_code_worked,
+                }
+            ),
+        },
+        blocks=[Block(txs=[tx])],
+    )
+
+
+def _pairwise_compatible(
+    scenarios: tuple[CallScenario, ...],
+) -> bool:
+    """Check that no pair in the tuple is incompatible."""
+    return all(
+        frozenset({a, b}) not in _INCOMPATIBLE_SCENARIOS
+        for i, a in enumerate(scenarios)
+        for b in scenarios[i + 1 :]
+    )
+
+
+_CHECK_ORDER_TRIPLES = [
+    pytest.param(
+        s1,
+        s2,
+        s3,
+        id=f"{s1.name.lower()}__{s2.name.lower()}__{s3.name.lower()}",
+    )
+    for s1 in CallScenario
+    for s2 in CallScenario
+    for s3 in CallScenario
+    if CallScenario.SUCCESS not in {s1, s2, s3}
+    and s1.check_priority < s2.check_priority < s3.check_priority
+    and _pairwise_compatible((s1, s2, s3))
+]
+
+
+@pytest.mark.parametrize(
+    "func",
+    [pytest.param(f, id=f.name) for f in REPRESENTATIVE_FUNCTIONS],
+)
+@pytest.mark.parametrize("scenario1,scenario2,scenario3", _CHECK_ORDER_TRIPLES)
+def test_check_order_triple(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    func: FunctionInfo,
+    scenario1: CallScenario,
+    scenario2: CallScenario,
+    scenario3: CallScenario,
+) -> None:
+    """
+    Test precompile check priority with three combined failures.
+
+    Each combination triggers exactly three failure causes. The test
+    derives the expected outcome from the priority interactions.
+    """
+    normalized = {
+        _normalize(s, func) for s in (scenario1, scenario2, scenario3)
+    }
+    if not _pairwise_compatible(tuple(normalized)):
+        pytest.skip("normalized scenarios are incompatible")
+
+    mem_end = _calldata_mem_end(func.calldata_size)
+    ret_offset = max(mem_end, 96)
+    rdc_offset = ret_offset + 32
+
+    scenarios = {scenario1, scenario2, scenario3}
+
+    delegating_eoa: Address | None = None
+    authorization_list = None
+    if CallScenario.DELEGATE_TO_PRECOMPILE in scenarios:
+        delegating_eoa = pre.fund_eoa()
+        authorization_list = [
+            AuthorizationTuple(
+                address=STAKING_PRECOMPILE,
+                nonce=0,
+                signer=delegating_eoa,
+            )
+        ]
+
+    contract = (
+        Op.SSTORE(
+            slot_call_success,
+            scenario_call_code(
+                scenario1,
+                scenario2,
+                scenario3,
+                func=func,
+                ret_offset=ret_offset,
+                ret_size=32,
+                delegating_eoa=delegating_eoa,
+            ),
+        )
+        + Op.SSTORE(slot_return_size, Op.RETURNDATASIZE)
+        + Op.RETURNDATACOPY(rdc_offset, 0, Op.RETURNDATASIZE)
+        + Op.SSTORE(slot_return_value, Op.MLOAD(rdc_offset))
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+    )
+    contract_address = pre.deploy_contract(contract, balance=1)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+        authorization_list=authorization_list,
+    )
+
+    outcome = resolve_outcome_triple(func, scenario1, scenario2, scenario3)
 
     blockchain_test(
         pre=pre,
