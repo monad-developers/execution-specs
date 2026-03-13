@@ -32,7 +32,15 @@ from execution_testing.forks.forks.forks import MONAD_NINE
 from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.receipt_types import TransactionReceipt
 
-from .helpers import build_calldata, generous_gas, tx_calldata
+from .helpers import (
+    CORRECT_SEL_ARGS_OFFSET,
+    WRONG_SEL_ARGS_OFFSET,
+    WRONG_SEL_MSTORE_OFFSET,
+    build_calldata,
+    calldata_mem_end,
+    generous_gas,
+    tx_calldata,
+)
 from .spec import (
     ALL_FUNCTIONS,
     ERROR_INPUT_TOO_SHORT,
@@ -59,11 +67,6 @@ slot_return_size = 0x3
 slot_return_value = 0x4
 slot_ret_buffer_value = 0x5
 slot_all_gas_consumed = 0x6
-
-
-def _calldata_mem_end(calldata_size: int) -> int:
-    """Return the first memory offset after build_calldata's writes."""
-    return 60 + calldata_size + 1
 
 
 def _mload_of(msg: bytes) -> int:
@@ -350,32 +353,24 @@ def scenario_call_code(
     """
     scenario_set = set(scenarios)
 
-    # Memory layout: non-overlapping buffers
-    #   MSTORE(0, 0xDEADBEEF) -> wrong selector at mem[28:32]
-    #   build_calldata(selector, size) -> selector at mem[60:64]
-    wrong_sel_args_offset = 28
-    correct_sel_args_offset = 60
-
-    # NOTE: in case of wrong selector scenario, we do not include any
-    # extra calldata for (non-existent) function arguments
     setup: Bytecode = build_calldata(
         func.selector, func.calldata_size
-    ) + Op.MSTORE(0, 0xDEADBEEF)
+    ) + Op.MSTORE(WRONG_SEL_MSTORE_OFFSET, 0xDEADBEEF)
 
     if CallScenario.WRONG_SELECTOR in scenario_set:
-        args_offset = wrong_sel_args_offset
+        args_offset = WRONG_SEL_ARGS_OFFSET
         args_size = 4
     elif CallScenario.TRUNCATED_SELECTOR in scenario_set:
-        args_offset = correct_sel_args_offset
+        args_offset = CORRECT_SEL_ARGS_OFFSET
         args_size = 3
     elif CallScenario.SHORT_CALLDATA in scenario_set:
-        args_offset = correct_sel_args_offset
+        args_offset = CORRECT_SEL_ARGS_OFFSET
         args_size = func.calldata_size - 1
     elif CallScenario.EXTRA_CALLDATA in scenario_set:
-        args_offset = correct_sel_args_offset
+        args_offset = CORRECT_SEL_ARGS_OFFSET
         args_size = func.calldata_size + 1
     else:
-        args_offset = correct_sel_args_offset
+        args_offset = CORRECT_SEL_ARGS_OFFSET
         args_size = func.calldata_size
 
     if ret_size > 0:
@@ -475,7 +470,7 @@ def test_input_size(
             Op.CALL(
                 gas=gas,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=input_size,
                 ret_offset=0,
                 ret_size=32,
@@ -548,7 +543,7 @@ def test_selector(
             Op.CALL(
                 gas=gas,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=args_size,
                 ret_offset=0,
                 ret_size=32,
@@ -606,7 +601,7 @@ def test_gas(
             Op.CALL(
                 gas=gas,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=func.calldata_size,
                 ret_offset=0,
                 ret_size=32,
@@ -666,7 +661,7 @@ def test_call_opcodes(
             call_opcode(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=func.calldata_size,
                 ret_offset=0,
                 ret_size=32,
@@ -718,8 +713,7 @@ def test_revert_returns(
     """
     Test return data on success and on each revert reason.
     """
-    mem_end = _calldata_mem_end(func.calldata_size)
-    ret_offset = max(mem_end, 96)
+    ret_offset = calldata_mem_end(func.calldata_size)
     rdc_offset = ret_offset + 32
 
     delegating_eoa: Address | None = None
@@ -875,8 +869,7 @@ def test_call_with_value(
     Payable functions accept value; non-payable functions revert with
     "value is nonzero".
     """
-    mem_end = _calldata_mem_end(func.calldata_size)
-    ret_offset = max(mem_end, 96)
+    ret_offset = calldata_mem_end(func.calldata_size)
     rdc_offset = ret_offset + 32
 
     contract = (
@@ -887,7 +880,7 @@ def test_call_with_value(
                 gas=func.gas_cost + 10000,
                 address=STAKING_PRECOMPILE,
                 value=value,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=func.calldata_size,
                 ret_offset=ret_offset,
                 ret_size=32,
@@ -969,8 +962,7 @@ def test_check_order(
     Each combination triggers exactly two failure causes. The test
     derives the expected outcome from the higher-priority failure.
     """
-    mem_end = _calldata_mem_end(func.calldata_size)
-    ret_offset = max(mem_end, 96)
+    ret_offset = calldata_mem_end(func.calldata_size)
     rdc_offset = ret_offset + 32
 
     delegating_eoa: Address | None = None
@@ -1083,8 +1075,7 @@ def test_check_order_triple(
     if not _pairwise_compatible(tuple(normalized)):
         pytest.skip("normalized scenarios are incompatible")
 
-    mem_end = _calldata_mem_end(func.calldata_size)
-    ret_offset = max(mem_end, 96)
+    ret_offset = calldata_mem_end(func.calldata_size)
     rdc_offset = ret_offset + 32
 
     scenarios = {scenario1, scenario2, scenario3}
@@ -1439,7 +1430,7 @@ def test_syscall_rejected(
             Op.CALL(
                 gas=100000,
                 address=STAKING_PRECOMPILE,
-                args_offset=60,
+                args_offset=CORRECT_SEL_ARGS_OFFSET,
                 args_size=36,
                 ret_offset=0,
                 ret_size=32,
