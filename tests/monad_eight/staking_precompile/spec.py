@@ -300,11 +300,26 @@ SETTER_FUNCTIONS = [f for f in ALL_FUNCTIONS if not f.name.startswith("get")]
 PAYABLE_FUNCTIONS = [f for f in ALL_FUNCTIONS if f.is_payable]
 NON_PAYABLE_FUNCTIONS = [f for f in ALL_FUNCTIONS if not f.is_payable]
 
-# Representative subset to limit parametrization explosion
+# Representative subset to limit parametrization explosion.
+# One function per behavioral equivalence class:
+#   addValidator    — payable + overrides_size_errors
+#   delegate        — payable + nonzero_value_error
+#   externalReward  — payable + empty_state_error (no nonzero_value_error)
+#   withdraw        — non-payable + empty_state_error
+#   undelegate      — non-payable, no special errors
+#   getEpoch        — parameterless (calldata_size==4) + gas <= stipend
 REPRESENTATIVE_FUNCTIONS = [
     f
     for f in ALL_FUNCTIONS
-    if f.name in ("delegate", "undelegate", "getEpoch", "getValidator")
+    if f.name
+    in (
+        "addValidator",
+        "delegate",
+        "externalReward",
+        "withdraw",
+        "undelegate",
+        "getEpoch",
+    )
 ]
 
 # Lookup table: selector -> FunctionInfo
