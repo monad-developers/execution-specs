@@ -355,7 +355,7 @@ def test_credit(
 ) -> None:
     """
     Test reserve balance violations for an EOA sending txs with various values,
-    where the exception rules are not enforced based on txs in invalid block.
+    but also receiving a refill of entire reserve balance in the meantime.
     """
     # gas spend by transactions send in setup blocks
     prepare_tx_gas = (
@@ -452,6 +452,139 @@ def test_credit(
 
     any_delegation = pre_delegated or delegate_pos or undelegate_pos
     reverted = violation and (any_delegation or send_pos) and not credit_pos
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={contract_address: Account(storage=storage)},
+        blocks=blocks,
+    )
+
+
+@pytest.mark.parametrize("pre_delegated", [True, False])
+@pytest.mark.parametrize("send_pos", [(0, 0), (2, 0)])
+@pytest.mark.parametrize("credit_pos", [(0, 0), (0, 1), (1, 0), (2, 1)])
+@pytest.mark.parametrize(
+    "send_value",
+    [
+        pytest.param(0, id="send_zero"),
+        pytest.param(1, id="send_one"),
+        pytest.param(Spec.RESERVE_BALANCE, id="send_reserve"),
+    ],
+)
+@pytest.mark.parametrize(
+    "credit_value",
+    [
+        pytest.param(0, id="credit_zero"),
+        pytest.param(1, id="credit_one"),
+        pytest.param(Spec.RESERVE_BALANCE, id="credit_reserve"),
+    ],
+)
+@pytest.mark.parametrize("credit_statically_visible", [True, False])
+def test_credit_with_value(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    pre_delegated: bool,
+    send_pos: Tuple[int, int],
+    credit_pos: Tuple[int, int],
+    send_value: int,
+    credit_value: int,
+    credit_statically_visible: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test reserve balance where sender transfers value in a setup tx
+    and receives credit of varying amounts via direct transfer or
+    SELFDESTRUCT contract.
+
+    Uses 4 blocks so send in block 0 falls outside the k=3 window,
+    making the emptying exception reachable for undelegated senders.
+    """
+    prepare_tx_gas = fork.gas_costs().G_TRANSACTION
+    prepare_tx_fee = GAS_PRICE * prepare_tx_gas
+    initial_balance = Spec.RESERVE_BALANCE + send_value + prepare_tx_fee
+
+    target_address = Address(0x1111)
+    if pre_delegated:
+        test_sender = pre.fund_eoa(initial_balance, delegation=target_address)
+    else:
+        test_sender = pre.fund_eoa(initial_balance)
+
+    contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
+    contract_address = pre.deploy_contract(contract)
+
+    nblocks = 4
+    blocks = []
+    test_sender_nonce = int(test_sender.nonce)
+    for nblock in range(nblocks):
+        txs = []
+        for ntx in range(2):
+            pos = (nblock, ntx)
+
+            if send_pos == pos:
+                sender = test_sender
+                nonce = test_sender_nonce
+                test_sender_nonce += 1
+            else:
+                sender = pre.fund_eoa()
+                nonce = 0
+
+            prepare_tx = Transaction(
+                gas_limit=prepare_tx_gas,
+                max_fee_per_gas=GAS_PRICE,
+                max_priority_fee_per_gas=GAS_PRICE,
+                to=Address(0x7873),
+                nonce=nonce,
+                sender=sender,
+                value=send_value,
+            )
+            txs.append(prepare_tx)
+
+            if credit_pos == pos:
+                if credit_statically_visible:
+                    credit_tx = Transaction(
+                        gas_limit=prepare_tx_gas,
+                        max_fee_per_gas=GAS_PRICE,
+                        max_priority_fee_per_gas=GAS_PRICE,
+                        to=test_sender,
+                        value=credit_value,
+                        sender=pre.fund_eoa(),
+                    )
+                else:
+                    credit_contract = pre.deploy_contract(
+                        Op.SELFDESTRUCT(address=test_sender),
+                        balance=credit_value,
+                    )
+                    credit_tx = Transaction(
+                        gas_limit=generous_gas(fork),
+                        max_fee_per_gas=GAS_PRICE,
+                        max_priority_fee_per_gas=GAS_PRICE,
+                        to=credit_contract,
+                        sender=pre.fund_eoa(),
+                    )
+                txs.append(credit_tx)
+        if nblock < nblocks - 1:
+            blocks.append(Block(txs=txs))
+            del txs
+
+    value = 1
+    test_tx = Transaction(
+        gas_limit=generous_gas(fork),
+        max_fee_per_gas=GAS_PRICE,
+        max_priority_fee_per_gas=GAS_PRICE,
+        to=contract_address,
+        nonce=test_sender_nonce,
+        value=value,
+        sender=test_sender,
+    )
+    txs.append(test_tx)
+    blocks.append(Block(txs=txs))
+
+    # Sender balance at test time: RESERVE_BALANCE + credit_value.
+    violation = credit_value < value
+    recent_send = send_pos[0] > 0
+    is_exception = not pre_delegated and not recent_send
+    reverted = violation and not is_exception
     storage = {} if reverted else {slot_code_worked: value_code_worked}
 
     blockchain_test(
