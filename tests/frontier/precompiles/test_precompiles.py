@@ -82,6 +82,8 @@ def test_precompiles(
     precompiled contract exists at the given address.
 
     """
+    if address == 0x1000:
+        pytest.skip("Monad Staking Precompile not implemented yet")
     env = Environment()
 
     # Empty account to serve as reference

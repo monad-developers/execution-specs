@@ -31,6 +31,7 @@ from . import (
     MODEXP_ADDRESS,
     P256VERIFY_ADDRESS,
     POINT_EVALUATION_ADDRESS,
+    RESERVE_BALANCE_ADDRESS,
     RIPEMD160_ADDRESS,
     SHA256_ADDRESS,
 )
@@ -52,6 +53,7 @@ from .identity import identity
 from .modexp import modexp
 from .p256verify import p256verify
 from .point_evaluation import point_evaluation
+from .reserve_balance import reserve_balance
 from .ripemd160 import ripemd160
 from .sha256 import sha256
 
@@ -74,4 +76,5 @@ PRE_COMPILED_CONTRACTS: Dict[Address, Callable] = {
     BLS12_MAP_FP_TO_G1_ADDRESS: bls12_map_fp_to_g1,
     BLS12_MAP_FP2_TO_G2_ADDRESS: bls12_map_fp2_to_g2,
     P256VERIFY_ADDRESS: p256verify,
+    RESERVE_BALANCE_ADDRESS: reserve_balance,
 }

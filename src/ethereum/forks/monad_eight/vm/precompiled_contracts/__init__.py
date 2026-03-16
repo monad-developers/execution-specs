@@ -33,6 +33,8 @@ __all__ = (
     "BLS12_MAP_FP_TO_G1_ADDRESS",
     "BLS12_MAP_FP2_TO_G2_ADDRESS",
     "P256VERIFY_ADDRESS",
+    "STAKING_ADDRESS",
+    "MONAD_PRECOMPILE_ADDRESSES",
 )
 
 ECRECOVER_ADDRESS = hex_to_address("0x01")
@@ -53,3 +55,12 @@ BLS12_PAIRING_ADDRESS = hex_to_address("0x0f")
 BLS12_MAP_FP_TO_G1_ADDRESS = hex_to_address("0x10")
 BLS12_MAP_FP2_TO_G2_ADDRESS = hex_to_address("0x11")
 P256VERIFY_ADDRESS = hex_to_address("0x100")
+STAKING_ADDRESS = hex_to_address("0x1000")
+
+# Monad-specific precompile addresses: calling these via a delegating EOA
+# must revert rather than execute as empty code.
+MONAD_PRECOMPILE_ADDRESSES: frozenset = frozenset(
+    {
+        STAKING_ADDRESS,
+    }
+)

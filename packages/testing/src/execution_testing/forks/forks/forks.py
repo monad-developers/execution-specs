@@ -3386,8 +3386,12 @@ class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
     def precompiles(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> List[Address]:
-        """Return spec from explicit parent."""
-        return MONAD_EIGHT.precompiles(
+        """
+        Return spec from explicit parent plus reserve balance precompile.
+        """
+        return [
+            Address(0x1001, label="RESERVE_BALANCE"),
+        ] + MONAD_EIGHT.precompiles(
             block_number=block_number, timestamp=timestamp
         )
 

@@ -2893,7 +2893,7 @@ def test_set_code_to_log(
 def test_set_code_to_precompile(
     state_test: StateTestFiller,
     pre: Alloc,
-    precompile: int,
+    precompile: Address,
     call_opcode: Op,
 ) -> None:
     """
@@ -2901,6 +2901,11 @@ def test_set_code_to_precompile(
     all call opcodes.
     """
     auth_signer = pre.fund_eoa(auth_account_start_balance)
+
+    # Monad-specific precompiles (address >= 0x1000) revert when called via
+    # a delegating EOA instead of succeeding as empty code.
+    is_monad_precompile = int.from_bytes(precompile, "big") >= 0x1000
+    expected_success = not is_monad_precompile
 
     if "value" in call_opcode.kwargs:
         call_bytecode = call_opcode(address=auth_signer, gas=0, value=1)
@@ -2912,7 +2917,7 @@ def test_set_code_to_precompile(
     caller_code = (
         Op.SSTORE(
             caller_code_storage.store_next(
-                call_return_code(opcode=call_opcode, success=True)
+                call_return_code(opcode=call_opcode, success=expected_success)
             ),
             call_bytecode,
         )
@@ -2955,7 +2960,7 @@ def test_set_code_to_precompile_not_enough_gas_for_precompile_execution(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
-    precompile: int,
+    precompile: Address,
 ) -> None:
     """
     Test set code to precompile and making direct call in same transaction with
@@ -2984,13 +2989,18 @@ def test_set_code_to_precompile_not_enough_gas_for_precompile_execution(
         expected_receipt=TransactionReceipt(gas_used=intrinsic_gas),
     )
 
+    # Monad-specific precompiles (address >= 0x1000) revert when called via
+    # a delegating EOA, so the value transfer is rolled back.
+    is_monad_precompile = int.from_bytes(precompile, "big") >= 0x1000
+    expected_balance = 1 if is_monad_precompile else 2
+
     state_test(
         pre=pre,
         tx=tx,
         post={
             auth_signer: Account(
                 # implicitly checks no OOG, successful tx transfers ``value=1``
-                balance=2,
+                balance=expected_balance,
                 code=Spec.delegation_designation(Address(precompile)),
                 nonce=1,
             ),
