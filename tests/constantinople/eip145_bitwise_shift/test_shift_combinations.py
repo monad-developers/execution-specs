@@ -60,6 +60,7 @@ combinations = list(itertools.product(list_of_args, repeat=2))
     ],
     pr=["https://github.com/ethereum/execution-spec-tests/pull/1683"],
 )
+@pytest.mark.json_loader
 def test_combinations(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -87,7 +88,7 @@ def test_combinations(
     gas_costs = fork.gas_costs()
     # Gas required depends on count and cost of SSTOREs used.
     sstore_gas = len(combinations) * (
-        gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
+        gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
     )
 
     tx = Transaction(

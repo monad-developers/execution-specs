@@ -172,8 +172,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
-        "mainnet: Specialty tests crafted for running on mainnet and sanity "
-        "checking.",
+        "mainnet: Tests crafted for running on mainnet and sanity checking.",
     )
     config.addinivalue_line(
         "markers",
@@ -183,6 +182,25 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "pre_alloc_mutable: Marks a test to allow impossible mutations in the "
         "pre-state.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "fixture_format_id: ID used to describe the fixture format.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "transition_tool_cache_key: Key used to match the transition tool "
+        "cache for the test during fill.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "fixture_subfolder(level, prefix): "
+        "Signal that fixtures should be placed in a subfolder",
+    )
+    config.addinivalue_line(
+        "markers",
+        "json_loader: tests forming a minimized test set that is used by "
+        "tests/json_loader/",
     )
 
 
@@ -293,6 +311,27 @@ def alloc_flags(
     override this behavior.
     """
     return alloc_flags_from_test_markers
+
+
+@pytest.fixture(scope="function")
+def is_tx_gas_heavy_test(request: pytest.FixtureRequest) -> bool:
+    """
+    Check, given the test node properties, whether the test is gas-heavy
+    for transaction execution.
+    """
+    node = request.node
+    has_slow_marker = node.get_closest_marker("slow") is not None
+    has_benchmark_marker = node.get_closest_marker("benchmark") is not None
+    return has_slow_marker or has_benchmark_marker
+
+
+@pytest.fixture(scope="function")
+def is_exception_test(request: pytest.FixtureRequest) -> bool:
+    """
+    Check, given the test node properties, whether the test is an exception
+    test (invalid block, invalid transaction).
+    """
+    return request.node.get_closest_marker("exception_test") is not None
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

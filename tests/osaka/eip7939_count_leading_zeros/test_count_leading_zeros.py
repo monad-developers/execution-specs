@@ -86,10 +86,10 @@ def generous_gas(fork: Fork, sstore_count: int = 1) -> int:
     """
     gas_costs = fork.gas_costs()
     sstore_cost = sstore_count * (
-        gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
+        gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
     )
     intrinsic_cost = fork.transaction_intrinsic_cost_calculator()()
-    access_cost = gas_costs.G_COLD_ACCOUNT_ACCESS
+    access_cost = gas_costs.GAS_COLD_ACCOUNT_ACCESS
     return access_cost + sstore_cost + intrinsic_cost + 50_000
 
 
@@ -389,6 +389,7 @@ def test_clz_fork_transition(
 @pytest.mark.parametrize("valid_jump", [True, False])
 @pytest.mark.parametrize("jumpi_condition", [True, False])
 @pytest.mark.parametrize("bits", [0, 16, 64, 128, 255])
+@pytest.mark.json_loader
 def test_clz_jump_operation(
     state_test: StateTestFiller,
     pre: Alloc,

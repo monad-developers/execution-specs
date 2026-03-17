@@ -69,11 +69,17 @@ class Load(BaseLoad):
 
         for address_hex, account_state in raw.items():
             address = self.fork.hex_to_address(address_hex)
+            nonce = hex_to_uint(account_state.get("nonce", "0x0"))
+            balance = U256(hex_to_uint(account_state.get("balance", "0x0")))
+            code = hex_to_bytes(account_state.get("code", ""))
+
+            code_hash = self.fork.store_code(state, code)
             account = self.fork.Account(
-                nonce=hex_to_uint(account_state.get("nonce", "0x0")),
-                balance=U256(hex_to_uint(account_state.get("balance", "0x0"))),
-                code=hex_to_bytes(account_state.get("code", "")),
+                nonce=nonce,
+                balance=balance,
+                code_hash=code_hash,
             )
+
             if self.fork.proof_of_stake and account == EMPTY_ACCOUNT:
                 raise StateWithEmptyAccount(f"Empty account at {address_hex}.")
 

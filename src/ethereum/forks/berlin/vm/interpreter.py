@@ -18,6 +18,7 @@ from ethereum_types.bytes import Bytes0
 from ethereum_types.numeric import U256, Uint, ulen
 
 from ethereum.exceptions import EthereumException
+from ethereum.state import Address
 from ethereum.trace import (
     EvmStop,
     OpEnd,
@@ -30,14 +31,12 @@ from ethereum.trace import (
 )
 
 from ..blocks import Log
-from ..fork_types import Address
 from ..state import (
     account_exists_and_is_empty,
     account_has_code_or_nonce,
     account_has_storage,
     begin_transaction,
     commit_transaction,
-    destroy_storage,
     increment_nonce,
     mark_account_created,
     move_ether,
@@ -46,7 +45,7 @@ from ..state import (
     touch_account,
 )
 from ..vm import Message
-from ..vm.gas import GAS_CODE_DEPOSIT, charge_gas
+from ..vm.gas import GAS_CODE_DEPOSIT_PER_BYTE, charge_gas
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
 from . import Evm
 from .exceptions import (
@@ -111,7 +110,12 @@ def process_message_call(message: Message) -> MessageCallOutput:
         ) or account_has_storage(block_env.state, message.current_target)
         if is_collision:
             return MessageCallOutput(
-                Uint(0), U256(0), tuple(), set(), set(), AddressCollision()
+                gas_left=Uint(0),
+                refund_counter=U256(0),
+                logs=tuple(),
+                accounts_to_delete=set(),
+                touched_accounts=set(),
+                error=AddressCollision(),
             )
         else:
             evm = process_create_message(message)
@@ -166,25 +170,16 @@ def process_create_message(message: Message) -> Evm:
     # take snapshot of state before processing the message
     begin_transaction(state)
 
-    # If the address where the account is being created has storage, it is
-    # destroyed. This can only happen in the following highly unlikely
-    # circumstances:
-    # * The address created by a `CREATE` call collides with a subsequent
-    #   `CREATE` or `CREATE2` call.
-    # * The first `CREATE` happened before Spurious Dragon and left empty
-    #   code.
-    destroy_storage(state, message.current_target)
-
-    # In the previously mentioned edge case the preexisting storage is ignored
-    # for gas refund purposes. In order to do this we must track created
-    # accounts.
+    # The list of created accounts is used by `get_storage_original`.
     mark_account_created(state, message.current_target)
 
     increment_nonce(state, message.current_target)
     evm = process_message(message)
     if not evm.error:
         contract_code = evm.output
-        contract_code_gas = Uint(len(contract_code)) * GAS_CODE_DEPOSIT
+        contract_code_gas = (
+            Uint(len(contract_code)) * GAS_CODE_DEPOSIT_PER_BYTE
+        )
         try:
             charge_gas(evm, contract_code_gas)
             if len(contract_code) > MAX_CODE_SIZE:

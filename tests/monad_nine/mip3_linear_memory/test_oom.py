@@ -1148,10 +1148,10 @@ def test_charge_gas_before_oom_check(
         call_value = 1
         inner_offset = 32
         inner_gas = (
-            7 * gas_costs.G_VERY_LOW
-            + gas_costs.G_WARM_ACCOUNT_ACCESS
-            + gas_costs.G_CALL_VALUE
-            + gas_costs.G_NEW_ACCOUNT
+            7 * gas_costs.GAS_VERY_LOW
+            + gas_costs.GAS_WARM_ACCOUNT_ACCESS
+            + gas_costs.GAS_CALL_VALUE
+            + gas_costs.GAS_NEW_ACCOUNT
             + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
             - 1
         )
@@ -1161,20 +1161,20 @@ def test_charge_gas_before_oom_check(
         call_value = 1 if trigger_oog else 0
         inner_offset = 32
         inner_gas = (
-            7 * gas_costs.G_VERY_LOW
-            + gas_costs.G_WARM_ACCOUNT_ACCESS
-            + gas_costs.G_CALL_VALUE
+            7 * gas_costs.GAS_VERY_LOW
+            + gas_costs.GAS_WARM_ACCOUNT_ACCESS
+            + gas_costs.GAS_CALL_VALUE
             + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
             - 1
         )
         warm_target = True
     elif gas_cost_type == "access_cost":
-        target = pre.empty_account()
+        target = pre.nonexistent_account()
         call_value = 0
         inner_offset = 32
         inner_gas = (
-            7 * gas_costs.G_VERY_LOW
-            + gas_costs.G_COLD_ACCOUNT_ACCESS
+            7 * gas_costs.GAS_VERY_LOW
+            + gas_costs.GAS_COLD_ACCOUNT_ACCESS
             + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
             - 1
         )
@@ -1185,8 +1185,8 @@ def test_charge_gas_before_oom_check(
         inner_offset = 1024 * 1024 if trigger_oog else 32
         inner_gas = (
             7
-            + gas_costs.G_VERY_LOW
-            + gas_costs.G_WARM_ACCOUNT_ACCESS
+            + gas_costs.GAS_VERY_LOW
+            + gas_costs.GAS_WARM_ACCOUNT_ACCESS
             + fork.memory_expansion_gas_calculator()(new_bytes=1024 * 1024)
             - 1
         )
@@ -1223,9 +1223,9 @@ def test_charge_gas_before_oom_check(
             slot_inner_gas_consumed,
             Op.LT(
                 inner_gas
-                + gas_costs.G_WARM_ACCOUNT_ACCESS
-                + gas_costs.G_VERY_LOW * 8
-                + gas_costs.G_COPY,
+                + gas_costs.GAS_WARM_ACCOUNT_ACCESS
+                + gas_costs.GAS_VERY_LOW * 8
+                + gas_costs.GAS_COPY,
                 Op.SUB(Op.MLOAD(mem_gas), Op.GAS),
             ),
         )
@@ -1273,7 +1273,7 @@ def test_static_check_after_oom_check(
         Spec.MAX_TX_MEMORY_USAGE if exceed else Spec.MAX_TX_MEMORY_USAGE - 32
     )
     gas_threshold = gas_limit // 64
-    warm_account = pre.empty_account()
+    warm_account = pre.nonexistent_account()
 
     # ret_size=32 is allocating the extra 32 bytes to cause OOM if exceed.
     inner_contract = Op.CALL(
@@ -1337,7 +1337,7 @@ def test_returndatacopy_check_after_oom_check(
         else Spec.MAX_TX_MEMORY_USAGE - returner_size - 32
     )
     gas_threshold = gas_limit // 64
-    pre.empty_account()
+    pre.nonexistent_account()
 
     returner_address = pre.deploy_contract(Op.RETURN(0, returner_size))
 
@@ -1401,7 +1401,7 @@ def test_balance_check_after_oom_check(
     )
     gas_threshold = gas_limit // 64
 
-    warm_account = pre.empty_account()
+    warm_account = pre.nonexistent_account()
     # ret_size=32 is allocating the extra 32 bytes to cause OOM if exceed.
     inner_contract = Op.CALL(
         gas=0,

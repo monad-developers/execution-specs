@@ -25,6 +25,6 @@ def fork_extra_gas(fork: Fork) -> int:
     amount of gas required is a very rough estimate.
     """
     gas_costs = fork.gas_costs()
-    sstore_cost = 5 * (gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD)
-    cold_access_cost = 5 * gas_costs.G_COLD_ACCOUNT_ACCESS
+    sstore_cost = 5 * (gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD)
+    cold_access_cost = 5 * gas_costs.GAS_COLD_ACCOUNT_ACCESS
     return sstore_cost + cold_access_cost

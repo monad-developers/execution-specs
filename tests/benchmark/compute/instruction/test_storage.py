@@ -29,7 +29,7 @@ from execution_testing import (
     compute_create_address,
 )
 
-from tests.benchmark.compute.helpers import StorageAction, TransactionResult
+from ..helpers import StorageAction, TransactionResult
 
 
 @pytest.mark.repricing(fixed_key=True, fixed_value=True)
@@ -501,7 +501,9 @@ def test_storage_access_warm_benchmark(
     """
     match storage_action:
         case StorageAction.WRITE_SAME_VALUE:
-            attack_block = Op.SSTORE(Op.PUSH0, Op.PUSH0)
+            # Timestamp is nonzero (no txs run in Genesis block),
+            # Always writes to the zero key a nonzero, constant value
+            attack_block = Op.SSTORE(Op.PUSH0, Op.TIMESTAMP)
         case StorageAction.WRITE_NEW_VALUE:
             attack_block = Op.SSTORE(Op.PUSH0, Op.GAS)
         case StorageAction.READ:

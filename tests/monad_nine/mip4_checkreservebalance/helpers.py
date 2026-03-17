@@ -41,10 +41,10 @@ def generous_gas(fork: Fork) -> int:
     """Return generous parametrized gas to always be enough."""
     constant = 100_000
     gas_costs = fork.gas_costs()
-    sstore_cost = gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
-    deploy_cost = gas_costs.G_CODE_DEPOSIT_BYTE * len(Op.STOP)
-    access_cost = gas_costs.G_COLD_ACCOUNT_ACCESS
-    selfdestruct_cost = gas_costs.G_SELF_DESTRUCT
+    sstore_cost = gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
+    deploy_cost = gas_costs.GAS_CODE_DEPOSIT_PER_BYTE * len(Op.STOP)
+    access_cost = gas_costs.GAS_COLD_ACCOUNT_ACCESS
+    selfdestruct_cost = gas_costs.GAS_SELF_DESTRUCT
     return (
         constant
         + 5 * sstore_cost

@@ -66,6 +66,7 @@ def prepare_suffix(opcode: Opcode) -> Bytecode:
     pr=["https://github.com/ethereum/execution-spec-tests/pull/748"],
 )
 @pytest.mark.valid_from("Frontier")
+@pytest.mark.json_loader
 def test_all_opcodes(
     state_test: StateTestFiller, pre: Alloc, fork: Fork
 ) -> None:
@@ -116,9 +117,9 @@ def test_all_opcodes(
 
     gas_costs = fork.gas_costs()
     sstore_cost = (len(code_contract) + 1) * (
-        gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
+        gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
     )
-    access_cost = len(code_contract) * gas_costs.G_COLD_ACCOUNT_ACCESS
+    access_cost = len(code_contract) * gas_costs.GAS_COLD_ACCOUNT_ACCESS
 
     subcall_cost = (
         len(code_contract) - len(fork.valid_opcodes())
@@ -162,6 +163,7 @@ def fork_opcodes_increasing_stack(
 
 @pytest.mark.parametrize_by_fork("opcode", fork_opcodes_increasing_stack)
 @pytest.mark.parametrize("fails", [True, False])
+@pytest.mark.json_loader
 def test_stack_overflow(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -238,6 +240,7 @@ def constant_gas_opcodes(fork: Fork) -> Generator[ParameterSet, None, None]:
 
 @pytest.mark.valid_from("Berlin")
 @pytest.mark.parametrize_by_fork("opcode", constant_gas_opcodes)
+@pytest.mark.json_loader
 def test_constant_gas(
     state_test: StateTestFiller,
     pre: Alloc,

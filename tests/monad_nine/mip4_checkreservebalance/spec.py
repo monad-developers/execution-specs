@@ -24,7 +24,7 @@ class Spec:
 
     RESERVE_BALANCE_PRECOMPILE = Address(0x1001)
 
-    # Aligns with G_WARM_ACCOUNT_ACCESS at time of MIP-4.
+    # Aligns with GAS_WARM_ACCOUNT_ACCESS at time of MIP-4.
     GAS_COST = 100
 
     # keccak256("dippedIntoReserve()")[:4].hex() == "3a61584e"

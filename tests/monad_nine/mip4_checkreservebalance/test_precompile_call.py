@@ -341,7 +341,7 @@ def test_gas(
     """
     Test that precompile consumes expected gas.
     """
-    gas_warm_sload = fork.gas_costs().G_WARM_SLOAD
+    gas_warm_sload = fork.gas_costs().GAS_WARM_SLOAD
     gas = gas_warm_sload if enough_gas else gas_warm_sload - 1
 
     contract = (

@@ -3,6 +3,8 @@ Benchmark operations that force the inclusion of max size bytecodes.
 This scenario is relevant in forks that have unchunkified bytecode.
 """
 
+from typing import List
+
 import pytest
 from execution_testing import (
     Account,
@@ -19,7 +21,7 @@ from execution_testing import (
     While,
 )
 
-from tests.benchmark.compute.helpers import CustomSizedContractFactory
+from ..helpers import ContractDeploymentTransaction, CustomSizedContractFactory
 
 
 @pytest.mark.parametrize(
@@ -40,6 +42,7 @@ def test_unchunkified_bytecode(
     fork: Fork,
     opcode: Op,
     gas_benchmark_value: int,
+    fixed_opcode_count: float | None,
 ) -> None:
     """Benchmark scenario of accessing max-code size bytecode."""
     # The attack gas limit represents the transaction gas limit cap or
@@ -115,44 +118,61 @@ def test_unchunkified_bytecode(
     attack_address = pre.deploy_contract(code=attack_code)
 
     # Calculate the number of contracts to be targeted.
-    num_contracts = sum(
-        attack_code.tx_iterations_by_gas_limit(
-            fork=fork,
-            gas_limit=attack_gas_limit,
-            calldata=calldata,
+    if fixed_opcode_count is not None:
+        # Fixed opcode count mode
+        num_contracts = int(fixed_opcode_count * 1000)
+    else:
+        # Gas limit mode
+        num_contracts = sum(
+            attack_code.tx_iterations_by_gas_limit(
+                fork=fork,
+                gas_limit=attack_gas_limit,
+                calldata=calldata,
+            )
         )
-    )
 
     # Deploy num_contracts via multiple txs (each capped by tx gas limit).
+    post = {}
     with TestPhaseManager.setup():
         setup_sender = pre.fund_eoa()
-        contracts_deployment_txs = list(
+        contracts_deployment_txs: List[ContractDeploymentTransaction] = []
+        for contract_creating_tx in (
             custom_sized_contract_factory.transactions_by_total_contract_count(
                 fork=fork,
                 sender=setup_sender,
                 contract_count=num_contracts,
             )
-        )
+        ):
+            contracts_deployment_txs.append(contract_creating_tx)
+            if custom_sized_contract_factory.contract_size > 0:
+                post[contract_creating_tx.deployed_contracts[-1]] = Account(
+                    nonce=1
+                )
 
     with TestPhaseManager.execution():
         attack_sender = pre.fund_eoa()
-        attack_txs = list(
-            attack_code.transactions_by_gas_limit(
-                fork=fork,
-                gas_limit=attack_gas_limit,
-                sender=attack_sender,
-                to=attack_address,
-                calldata=calldata,
+        if fixed_opcode_count is not None:
+            # Fixed opcode count mode.
+            attack_txs = list(
+                attack_code.transactions_by_total_iteration_count(
+                    fork=fork,
+                    total_iterations=int(fixed_opcode_count * 1000),
+                    sender=attack_sender,
+                    to=attack_address,
+                    calldata=calldata,
+                )
             )
-        )
+        else:
+            attack_txs = list(
+                attack_code.transactions_by_gas_limit(
+                    fork=fork,
+                    gas_limit=attack_gas_limit,
+                    sender=attack_sender,
+                    to=attack_address,
+                    calldata=calldata,
+                )
+            )
         total_gas_cost = sum(tx.gas_cost for tx in attack_txs)
-
-    post = {}
-    for i in range(num_contracts):
-        deployed_contract_address = (
-            custom_sized_contract_factory.created_contract_address(salt=i)
-        )
-        post[deployed_contract_address] = Account(nonce=1)
 
     benchmark_test(
         pre=pre,
@@ -161,5 +181,6 @@ def test_unchunkified_bytecode(
             Block(txs=contracts_deployment_txs),
             Block(txs=attack_txs),
         ],
+        target_opcode=opcode,
         expected_benchmark_gas_used=total_gas_cost,
     )

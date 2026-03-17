@@ -5,6 +5,7 @@ Loader for code from the relevant fork.
 from inspect import signature
 from typing import Any, Final
 
+from ethereum.state import EMPTY_ACCOUNT
 from ethereum_spec_tools.forks import Hardfork
 
 
@@ -23,6 +24,26 @@ class ForkLoad:
     def _module(self, name: str) -> Any:
         """Imports a module from the fork."""
         return self.hardfork.module(name)
+
+    def tx_types(self) -> list[int]:
+        """Return the transaction types supported by the given fork."""
+        transactions = self._module("transactions")
+        tx_types = [0]
+
+        for tx_type, attribute in (
+            (1, "AccessListTransaction"),
+            (2, "FeeMarketTransaction"),
+            (3, "BlobTransaction"),
+            (4, "SetCodeTransaction"),
+        ):
+            if hasattr(transactions, attribute):
+                tx_types.append(tx_type)
+
+        return tx_types
+
+    def supports_tx_type(self, tx_type: int) -> bool:
+        """Return whether the given fork supports the provided tx type."""
+        return tx_type in self.tx_types()
 
     @property
     def proof_of_stake(self) -> bool:
@@ -122,24 +143,22 @@ class ForkLoad:
 
     @property
     def build_block_access_list(self) -> Any:
-        """Build function of the fork."""
+        """build_block_access_list function of the fork."""
         return self._module("block_access_lists").build_block_access_list
 
     @property
-    def compute_block_access_list_hash(self) -> Any:
-        """compute_block_access_list_hash function of the fork."""
-        return self._module(
-            "block_access_lists"
-        ).compute_block_access_list_hash
+    def hash_block_access_list(self) -> Any:
+        """hash_block_access_list function of the fork."""
+        return self._module("block_access_lists").hash_block_access_list
 
     @property
-    def has_block_access_list_hash(self) -> bool:
-        """Check if the fork has a `block_access_list_hash` function."""
+    def has_hash_block_access_list(self) -> bool:
+        """Check if the fork has a `hash_block_access_list` function."""
         try:
             module = self._module("block_access_lists")
         except ModuleNotFoundError:
             return False
-        return hasattr(module, "compute_block_access_list_hash")
+        return hasattr(module, "hash_block_access_list")
 
     @property
     def signing_hash_2930(self) -> Any:
@@ -203,7 +222,7 @@ class ForkLoad:
     @property
     def EMPTY_ACCOUNT(self) -> Any:
         """EMPTY_ACCOUNT of the fork."""
-        return self._module("fork_types").EMPTY_ACCOUNT
+        return EMPTY_ACCOUNT
 
     @property
     def Header(self) -> Any:
@@ -279,6 +298,15 @@ class ForkLoad:
         return hasattr(self._module("transactions"), "decode_transaction")
 
     @property
+    def has_block_state(self) -> bool:
+        """Check if the fork uses BlockState instead of State."""
+        try:
+            module = self._module("state_tracker")
+        except ModuleNotFoundError:
+            return False
+        return hasattr(module, "BlockState")
+
+    @property
     def State(self) -> Any:
         """State class of the fork."""
         return self._module("state").State
@@ -297,6 +325,11 @@ class ForkLoad:
     def set_account(self) -> Any:
         """set_account function of the fork."""
         return self._module("state").set_account
+
+    @property
+    def store_code(self) -> Any:
+        """store_code function of the fork."""
+        return getattr(self._module("state"), "store_code", None)
 
     @property
     def set_storage(self) -> Any:

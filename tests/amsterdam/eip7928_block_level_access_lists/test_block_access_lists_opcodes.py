@@ -123,15 +123,16 @@ def test_bal_sstore_and_oog(
 
     intrinsic_gas_cost = fork.transaction_intrinsic_cost_calculator()()
 
-    # Full cost: PUSHes + SSTORE (G_COLD_SLOAD + G_STORAGE_SET)
+    # Full cost: PUSHes + SSTORE (GAS_COLD_SLOAD + GAS_STORAGE_SET)
     full_cost = storage_contract_code.gas_cost(fork)
 
     # Push cost for stipend boundary calculations
     push_code = Op.PUSH1(0x42) + Op.PUSH1(0x01)
     push_cost = push_code.gas_cost(fork)
 
-    # G_CALL_STIPEND is a threshold check, not a gas cost — keep from gas_costs
-    stipend = fork.gas_costs().G_CALL_STIPEND
+    # GAS_CALL_STIPEND is a threshold check, not a gas cost
+    # Keep from gas_costs
+    stipend = fork.gas_costs().GAS_CALL_STIPEND
 
     if out_of_gas_at == OutOfGasAt.EIP_2200_STIPEND:
         # 2300 after PUSHes (fails stipend check: 2300 <= 2300)
@@ -350,7 +351,6 @@ def test_bal_extcodesize_and_oog(
     intrinsic_gas_cost = fork.transaction_intrinsic_cost_calculator()()
 
     tx_gas_limit = intrinsic_gas_cost + codesize_checker_code.gas_cost(fork)
-
     if fails_at_extcodesize:
         # subtract 1 gas to ensure OOG at EXTCODESIZE
         tx_gas_limit -= 1
@@ -421,7 +421,7 @@ def test_bal_call_no_delegation_and_oog_before_target_access(
     alice = pre.fund_eoa()
 
     target = (
-        pre.empty_account()
+        pre.nonexistent_account()
         if target_is_empty
         else pre.deploy_contract(code=Op.STOP)
     )
@@ -538,6 +538,7 @@ def test_bal_call_no_delegation_and_oog_before_target_access(
 @pytest.mark.parametrize(
     "memory_expansion", [False, True], ids=["no_memory", "with_memory"]
 )
+@pytest.mark.json_loader
 def test_bal_call_no_delegation_oog_after_target_access(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -559,14 +560,14 @@ def test_bal_call_no_delegation_oog_after_target_access(
         - target is always empty - required for create cost
         - value=1 (greater than 0) - required for create cost
 
-    The create_cost (G_NEW_ACCOUNT = 25000) is charged only for value transfers
-    to empty accounts, creating the gap tested here.
+    The create_cost (GAS_NEW_ACCOUNT = 25000) is charged only for value
+    transfers to empty accounts, creating the gap tested here.
 
     """
     alice = pre.fund_eoa()
 
     # empty target required for create_cost gap
-    target = pre.empty_account()
+    target = pre.nonexistent_account()
     # value > 0 required for create_cost
     value = 1
 

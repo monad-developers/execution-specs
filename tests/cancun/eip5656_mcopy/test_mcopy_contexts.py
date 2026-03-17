@@ -147,7 +147,7 @@ def tx(  # noqa: D103
     sstore_gas = (
         len(initial_memory)
         // 0x20
-        * (gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD)
+        * (gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD)
     )
     return Transaction(
         sender=pre.fund_eoa(),
