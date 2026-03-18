@@ -325,7 +325,21 @@ def process_message(message: Message) -> Evm:
         if message.depth == 0 and message.tx_env.index_in_block is not None:
             for addr in set(state._main_trie._data.keys()):
                 acc = get_account(state, addr)
-                if acc.code == b"" or is_valid_delegation(acc.code):
+                # For creation txs, code hasn't been set yet on the new
+                # contract (set_code runs after process_message returns). Use
+                # evm.output which holds the code to be deployed.
+                if (
+                    isinstance(message.target, Bytes0)
+                    and addr == message.current_target
+                ):
+                    code = evm.output
+                else:
+                    code = acc.code
+
+                # NOTE: this also matches initcode ending with empty code
+                # deployments via `Op.STOP` or `Op.RETURN(0, 0)`, but this
+                # aligns with Monad EVM implementation.
+                if code == b"" or is_valid_delegation(code):
                     original_balance = get_balance_original(state, addr)
                     if message.tx_env.origin == addr:
                         # gas_fees already deducted, need to re-add if sender
@@ -339,9 +353,13 @@ def process_message(message: Message) -> Evm:
                         threshold = reserve - gas_fees
                     else:
                         threshold = RESERVE_BALANCE
-                    is_exception = not is_sender_authority(
-                        state, addr
-                    ) and not is_valid_delegation(acc.code)
+
+                    is_exception = (
+                        message.tx_env.origin == addr
+                        and not is_sender_authority(state, addr)
+                        and not is_valid_delegation(code)
+                    )
+
                     if (
                         acc.balance < original_balance
                         and acc.balance < threshold
