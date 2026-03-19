@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -30,6 +32,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_contract_creation_spam(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -633,8 +636,14 @@ def test_contract_creation_spam(
         gas_limit=10000000,
     )
 
+    # The contract loops doing CALLs until gas is exhausted, then
+    # stores the iteration count. On Monad forks the initial cold
+    # SLOAD costs 6000 more gas (GAS_COLD_SLOAD = 8100 vs 2100),
+    # so ~40 fewer iterations complete (~150 gas per iteration).
+    expected_iterations = 0x10BF8 if fork >= MONAD_EIGHT else 0x10C20
+
     post = {
-        contract: Account(storage={0: 0x10C20}),
+        contract: Account(storage={0: expected_iterations}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)
