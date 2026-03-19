@@ -18,6 +18,7 @@ from ethereum_types.bytes import Bytes, Bytes0
 from ethereum_types.numeric import U256, Uint, ulen
 
 from ethereum.exceptions import EthereumException
+from ethereum.state import Address
 from ethereum.trace import (
     EvmStop,
     OpEnd,
@@ -30,15 +31,14 @@ from ethereum.trace import (
 )
 
 from ..blocks import Log
-from ..fork_types import Address
 from ..state import (
     account_has_code_or_nonce,
     account_has_storage,
     begin_transaction,
     commit_transaction,
-    destroy_storage,
     get_account,
     get_balance_original,
+    get_code,
     increment_nonce,
     is_sender_authority,
     mark_account_created,
@@ -52,7 +52,7 @@ from ..vm.eoa_delegation import (
     is_valid_delegation,
     set_delegation,
 )
-from ..vm.gas import GAS_CODE_DEPOSIT, charge_gas
+from ..vm.gas import GAS_CODE_DEPOSIT_PER_BYTE, charge_gas
 from ..vm.precompiled_contracts import MONAD_PRECOMPILE_ADDRESSES
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
 from . import Evm
@@ -124,12 +124,12 @@ def process_message_call(message: Message) -> MessageCallOutput:
         ) or account_has_storage(block_env.state, message.current_target)
         if is_collision:
             return MessageCallOutput(
-                Uint(0),
-                U256(0),
-                tuple(),
-                set(),
-                AddressCollision(),
-                Bytes(b""),
+                gas_left=Uint(0),
+                refund_counter=U256(0),
+                logs=tuple(),
+                accounts_to_delete=set(),
+                error=AddressCollision(),
+                return_data=Bytes(b""),
             )
         else:
             evm = process_create_message(message)
@@ -141,7 +141,10 @@ def process_message_call(message: Message) -> MessageCallOutput:
         if delegated_address is not None:
             message.disable_precompiles = True
             message.accessed_addresses.add(delegated_address)
-            message.code = get_account(block_env.state, delegated_address).code
+            message.code = get_code(
+                block_env.state,
+                get_account(block_env.state, delegated_address).code_hash,
+            )
             message.code_address = delegated_address
             message.disable_create_opcodes = True
 
@@ -190,18 +193,8 @@ def process_create_message(message: Message) -> Evm:
     # take snapshot of state before processing the message
     begin_transaction(state, transient_storage)
 
-    # If the address where the account is being created has storage, it is
-    # destroyed. This can only happen in the following highly unlikely
-    # circumstances:
-    # * The address created by a `CREATE` call collides with a subsequent
-    #   `CREATE` or `CREATE2` call.
-    # * The first `CREATE` happened before Spurious Dragon and left empty
-    #   code.
-    destroy_storage(state, message.current_target)
-
-    # In the previously mentioned edge case the preexisting storage is ignored
-    # for gas refund purposes. In order to do this we must track created
-    # accounts. This tracking is also needed to respect the constraints
+    # The list of created accounts is used by `get_storage_original`.
+    # Additionally, the list is needed to respect the constraints
     # added to SELFDESTRUCT by EIP-6780.
     mark_account_created(state, message.current_target)
 
@@ -209,7 +202,9 @@ def process_create_message(message: Message) -> Evm:
     evm = process_message(message)
     if not evm.error:
         contract_code = evm.output
-        contract_code_gas = Uint(len(contract_code)) * GAS_CODE_DEPOSIT
+        contract_code_gas = (
+            Uint(len(contract_code)) * GAS_CODE_DEPOSIT_PER_BYTE
+        )
         try:
             if len(contract_code) > 0:
                 if contract_code[0] == 0xEF:
@@ -325,7 +320,8 @@ def process_message(message: Message) -> Evm:
         if message.depth == 0 and message.tx_env.index_in_block is not None:
             for addr in set(state._main_trie._data.keys()):
                 acc = get_account(state, addr)
-                if acc.code == b"" or is_valid_delegation(acc.code):
+                acc_code = get_code(state, acc.code_hash)
+                if acc_code == b"" or is_valid_delegation(acc_code):
                     original_balance = get_balance_original(state, addr)
                     if message.tx_env.origin == addr:
                         # gas_fees already deducted, need to re-add if sender
@@ -341,7 +337,7 @@ def process_message(message: Message) -> Evm:
                         threshold = RESERVE_BALANCE
                     is_exception = not is_sender_authority(
                         state, addr
-                    ) and not is_valid_delegation(acc.code)
+                    ) and not is_valid_delegation(acc_code)
                     if (
                         acc.balance < original_balance
                         and acc.balance < threshold
