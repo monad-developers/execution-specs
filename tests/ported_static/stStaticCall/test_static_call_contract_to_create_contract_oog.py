@@ -16,6 +16,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -51,6 +52,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_static_call_contract_to_create_contract_oog(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_value: int,
     expected_post: dict,
 ) -> None:
@@ -95,10 +97,17 @@ def test_static_call_contract_to_create_contract_oog(
     )
     pre[sender] = Account(balance=0x2540BE400)
 
+    gas_limit = 100000
+    # Accommodate gas repricings
+    gas_limit += (
+        fork.gas_costs().GAS_COLD_SLOAD
+        + fork.gas_costs().GAS_COLD_ACCOUNT_ACCESS
+    )
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=100000,
+        gas_limit=gas_limit,
         value=tx_value,
     )
 

@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +33,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_static_call_ecrecover0_gas3000(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -68,7 +70,7 @@ def test_static_call_ecrecover0_gas3000(
             + Op.SSTORE(
                 key=0x2,
                 value=Op.STATICCALL(
-                    gas=0xBB8,
+                    gas=fork.gas_costs().GAS_PRECOMPILE_ECRECOVER,
                     address=0x1,
                     args_offset=0x0,
                     args_size=0x80,

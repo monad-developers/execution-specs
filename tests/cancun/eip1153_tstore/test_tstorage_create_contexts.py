@@ -18,6 +18,7 @@ from execution_testing import (
     compute_create_address,
 )
 from execution_testing import Macros as Om
+from execution_testing.forks.helpers import Fork
 
 from . import CreateOpcodeParams, PytestParameterEnum
 from .spec import ref_spec_1153
@@ -270,6 +271,7 @@ class TestTransientStorageInContractCreation:
 def test_tstore_rollback_on_failed_create(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     create_opcode: Op,
 ) -> None:
     """
@@ -290,17 +292,20 @@ def test_tstore_rollback_on_failed_create(
     creation succeeds.
     """
     # Initcode:
-    #   return_size = 0x600a - TLOAD(1)
-    #   TSTORE(1, 0x6000)
+    #   return_size = exceed_value - TLOAD(1)
+    #   TSTORE(1, max_code)
     #   RETURN(offset=0, size=return_size)
     #
-    # TLOAD(1)==0:     return_size = 0x600a > max code size -> fail
-    # TLOAD(1)==0x6000: return_size = 0x0a <= max code size -> succeed
+    # TLOAD(1)==0:         return_size = exceed_value > max code size -> fail
+    # TLOAD(1)==max_code:  return_size = 0x0a <= max code size -> succeed
+    #
+    max_code = fork.max_code_size()
+    exceed_value = max_code + 0xA
     initcode = (
         Op.TLOAD(1)
-        + Op.PUSH2(0x600A)
+        + Op.PUSH3(exceed_value)
         + Op.SUB
-        + Op.TSTORE(1, 0x6000)
+        + Op.TSTORE(1, max_code)
         + Op.PUSH1(0)
         + Op.RETURN
     )

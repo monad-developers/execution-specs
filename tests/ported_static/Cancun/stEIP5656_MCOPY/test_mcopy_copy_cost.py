@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -642,6 +643,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_mcopy_copy_cost(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     tx_gas_limit: int,
     expected_post: dict,
@@ -700,11 +702,14 @@ def test_mcopy_copy_cost(
 
     tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
 
+    # Accommodate gas repricings
+    effective_gas_limit = tx_gas_limit + fork.gas_costs().GAS_COLD_SLOAD
+
     tx = Transaction(
         sender=sender,
         to=contract,
         data=tx_data,
-        gas_limit=tx_gas_limit,
+        gas_limit=effective_gas_limit,
     )
 
     post = expected_post
