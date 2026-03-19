@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -29,6 +30,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_two_ops(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Ori Pomerantz qbzzt1@gmail.com."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -3539,7 +3541,7 @@ def test_two_ops(
         sender=sender,
         to=contract,
         data=bytes.fromhex("00"),
-        gas_limit=16777216,
+        gas_limit=16777216 + 1152 * fork.gas_costs().GAS_COLD_SLOAD,
         value=1,
     )
 

@@ -65,6 +65,8 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_add(
     state_test: StateTestFiller,
     pre: Alloc,
+    vm_test_base: int,
+    remap_vm_addrs,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -96,7 +98,7 @@ def test_add(
         ),
         balance=0xBA1A9CE0BA1A9CE,
         nonce=0,
-        address=Address("0x0000000000000000000000000000000000001000"),  # noqa: E501
+        address=Address((vm_test_base + 0).to_bytes(20, "big")),
     )
     pre.deploy_contract(
         code=(
@@ -111,7 +113,7 @@ def test_add(
         ),
         balance=0xBA1A9CE0BA1A9CE,
         nonce=0,
-        address=Address("0x0000000000000000000000000000000000001001"),  # noqa: E501
+        address=Address((vm_test_base + 1).to_bytes(20, "big")),
     )
     pre.deploy_contract(
         code=(
@@ -126,13 +128,13 @@ def test_add(
         ),
         balance=0xBA1A9CE0BA1A9CE,
         nonce=0,
-        address=Address("0x0000000000000000000000000000000000001002"),  # noqa: E501
+        address=Address((vm_test_base + 2).to_bytes(20, "big")),
     )
     pre.deploy_contract(
         code=Op.SSTORE(key=0x0, value=Op.ADD(0x0, 0x0)) + Op.STOP,
         balance=0xBA1A9CE0BA1A9CE,
         nonce=0,
-        address=Address("0x0000000000000000000000000000000000001003"),  # noqa: E501
+        address=Address((vm_test_base + 3).to_bytes(20, "big")),
     )
     pre.deploy_contract(
         code=(
@@ -147,7 +149,7 @@ def test_add(
         ),
         balance=0xBA1A9CE0BA1A9CE,
         nonce=0,
-        address=Address("0x0000000000000000000000000000000000001004"),  # noqa: E501
+        address=Address((vm_test_base + 4).to_bytes(20, "big")),
     )
     pre[sender] = Account(balance=0xBA1A9CE0BA1A9CE)
     # Source: LLL
@@ -158,7 +160,7 @@ def test_add(
         code=(
             Op.CALL(
                 gas=0xFFFFFF,
-                address=Op.ADD(0x1000, Op.CALLDATALOAD(offset=0x4)),
+                address=Op.ADD(vm_test_base, Op.CALLDATALOAD(offset=0x4)),
                 value=0x0,
                 args_offset=0x0,
                 args_size=0x0,
@@ -182,6 +184,6 @@ def test_add(
         value=1,
     )
 
-    post = expected_post
+    post = remap_vm_addrs(expected_post)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

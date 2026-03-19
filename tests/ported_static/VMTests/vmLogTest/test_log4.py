@@ -126,6 +126,8 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_log4(
     state_test: StateTestFiller,
     pre: Alloc,
+    vm_test_base: int,
+    remap_vm_addrs,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -370,7 +372,7 @@ def test_log4(
         code=(
             Op.DELEGATECALL(
                 gas=Op.GAS,
-                address=Op.ADD(0x1000, Op.CALLDATALOAD(offset=0x4)),
+                address=Op.ADD(vm_test_base, Op.CALLDATALOAD(offset=0x4)),
                 args_offset=0x0,
                 args_size=0x0,
                 ret_offset=0x0,
@@ -394,6 +396,6 @@ def test_log4(
         value=1,
     )
 
-    post = expected_post
+    post = remap_vm_addrs(expected_post)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

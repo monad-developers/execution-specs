@@ -86,6 +86,8 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_return(
     state_test: StateTestFiller,
     pre: Alloc,
+    vm_test_base: int,
+    remap_vm_addrs,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -193,7 +195,7 @@ def test_return(
             Op.POP(
                 Op.DELEGATECALL(
                     gas=0xFFFFFF,
-                    address=Op.ADD(0x1000, Op.CALLDATALOAD(offset=0x4)),
+                    address=Op.ADD(vm_test_base, Op.CALLDATALOAD(offset=0x4)),
                     args_offset=0x0,
                     args_size=0x0,
                     ret_offset=0x0,
@@ -220,6 +222,6 @@ def test_return(
         value=1,
     )
 
-    post = expected_post
+    post = remap_vm_addrs(expected_post)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

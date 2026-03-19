@@ -170,6 +170,9 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_byte(
     state_test: StateTestFiller,
     pre: Alloc,
+    vm_test_base: int,
+    remap_vm_addrs,
+    remap_vm_tx_data,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -377,7 +380,9 @@ def test_byte(
         address=Address("0xcccccccccccccccccccccccccccccccccccccccc"),  # noqa: E501
     )
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    tx_data = remap_vm_tx_data(
+        bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    )
 
     tx = Transaction(
         sender=sender,
@@ -387,6 +392,6 @@ def test_byte(
         value=1,
     )
 
-    post = expected_post
+    post = remap_vm_addrs(expected_post)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

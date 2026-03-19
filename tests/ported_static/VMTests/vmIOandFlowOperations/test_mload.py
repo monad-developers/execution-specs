@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -61,6 +63,9 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_mload(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
+    vm_test_base: int,
+    remap_vm_addrs,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -113,7 +118,7 @@ def test_mload(
         code=(
             Op.DELEGATECALL(
                 gas=Op.GAS,
-                address=Op.ADD(0x1000, Op.CALLDATALOAD(offset=0x4)),
+                address=Op.ADD(vm_test_base, Op.CALLDATALOAD(offset=0x4)),
                 args_offset=0x0,
                 args_size=0x0,
                 ret_offset=0x0,
@@ -137,6 +142,15 @@ def test_mload(
         value=1,
     )
 
-    post = expected_post
+    # MIP-3 linear memory pricing makes MLOAD(offset=0x724825) (~7.14 MiB)
+    # succeed instead of OOGing
+    if fork >= MONAD_NINE and tx_data_hex.endswith("02"):
+        expected_post = {
+            Address("0xcccccccccccccccccccccccccccccccccccccccc"): Account(
+                storage={0: 0}
+            )
+        }
+
+    post = remap_vm_addrs(expected_post)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

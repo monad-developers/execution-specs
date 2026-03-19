@@ -29,6 +29,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_not(
     state_test: StateTestFiller,
     pre: Alloc,
+    vm_test_base: int,
 ) -> None:
     """Ori Pomerantz qbzzt1@gmail.com."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -60,7 +61,7 @@ def test_not(
         code=(
             Op.CALL(
                 gas=0xFFFFFF,
-                address=Op.ADD(0x1000, Op.CALLDATALOAD(offset=0x4)),
+                address=Op.ADD(vm_test_base, Op.CALLDATALOAD(offset=0x4)),
                 value=0x0,
                 args_offset=0x0,
                 args_size=0x0,
