@@ -3350,6 +3350,7 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
             super_costs,
             GAS_PRECOMPILE_BLAKE2F_PER_ROUND=super_costs.GAS_PRECOMPILE_BLAKE2F_PER_ROUND
             * 2,
+            GAS_PRECOMPILE_ECRECOVER=super_costs.GAS_PRECOMPILE_ECRECOVER * 2,
             GAS_PRECOMPILE_ECADD=super_costs.GAS_PRECOMPILE_ECADD * 2,
             GAS_PRECOMPILE_ECMUL=super_costs.GAS_PRECOMPILE_ECMUL * 5,
             GAS_PRECOMPILE_ECPAIRING_BASE=super_costs.GAS_PRECOMPILE_ECPAIRING_BASE
