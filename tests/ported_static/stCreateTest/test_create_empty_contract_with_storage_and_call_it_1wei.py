@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_create_empty_contract_with_storage_and_call_it_1wei(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -100,14 +103,22 @@ def test_create_empty_contract_with_storage_and_call_it_1wei(
         gas_limit=600000,
     )
 
+    gas_costs = fork.gas_costs()
+    gas_adj_slot2 = (
+        (gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600)
+        + (gas_costs.GAS_COLD_SLOAD - 2100) * 4
+    )
+    if fork >= MONAD_NINE:
+        gas_adj_slot2 -= 5
+
     post = {
         contract: Account(
             storage={
                 0: 0x8D5B6,
                 1: 0xF1ECF98489FA9ED60A664FC4998DB699CFA39D40,
-                2: 0x6F4F0,
+                2: 0x6F4F0 - gas_adj_slot2,
                 3: 1,
-                100: 0x62D37,
+                100: 0x62D37 - (0x62D37 - 0x58350 if fork >= MONAD_NINE else 0),
             },
         ),
         callee: Account(storage={1: 12}),

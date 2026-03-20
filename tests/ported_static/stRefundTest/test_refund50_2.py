@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -29,6 +30,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_refund50_2(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0xeb201d2887816e041f6e807e804f64f3a7a226fe")
@@ -66,10 +68,13 @@ def test_refund50_2(
     )
     pre[coinbase] = Account(balance=0, nonce=1)
 
+    gas_costs = fork.gas_costs()
+    gas_headroom = gas_costs.GAS_COLD_SLOAD * 6
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=100000,
+        gas_limit=100000 + gas_headroom,
     )
 
     post = {

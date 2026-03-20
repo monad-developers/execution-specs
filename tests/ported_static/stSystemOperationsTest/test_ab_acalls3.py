@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -29,6 +31,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_ab_acalls3(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -91,9 +94,12 @@ def test_ab_acalls3(
         value=100000,
     )
 
+    # Higher cold access costs reduce recursive iteration count.
+    iter_adj = 1 if fork >= MONAD_EIGHT else 0
+
     post = {
-        contract: Account(storage={0: 52}),
-        callee: Account(storage={0: 52}),
+        contract: Account(storage={0: 52 - iter_adj}),
+        callee: Account(storage={0: 52 - iter_adj}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

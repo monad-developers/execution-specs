@@ -16,6 +16,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -47,6 +48,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_call_to_name_registrator_zeor_size_mem_expansion(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_gas_limit: int,
     expected_post: dict,
 ) -> None:
@@ -122,6 +124,12 @@ def test_call_to_name_registrator_zeor_size_mem_expansion(
         value=100000,
     )
 
-    post = expected_post
+    # Higher cold access costs shift OOG boundaries.
+    from execution_testing.forks import MONAD_EIGHT
+
+    if fork >= MONAD_EIGHT:
+        post = {}
+    else:
+        post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

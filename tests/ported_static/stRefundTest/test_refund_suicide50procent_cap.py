@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -53,6 +54,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_refund_suicide50procent_cap(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -135,6 +137,18 @@ def test_refund_suicide50procent_cap(
         gas_limit=10000000,
     )
 
-    post = expected_post
+    # Slot 23 measures gas including 9 cold account accesses.
+    gas_costs = fork.gas_costs()
+    from execution_testing.forks import MONAD_NINE
+
+    gas_adj = (gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600) * 9
+    if fork >= MONAD_NINE:
+        gas_adj -= 5
+    post = {}
+    for addr, acct in expected_post.items():
+        storage = dict(acct.storage) if acct.storage else {}
+        if 23 in storage:
+            storage[23] += gas_adj
+        post[addr] = Account(storage=storage)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -16,6 +16,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -47,6 +48,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcode_to_name_registrator_zero_mem_expanion(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_gas_limit: int,
     expected_post: dict,
 ) -> None:
@@ -122,6 +124,11 @@ def test_callcode_to_name_registrator_zero_mem_expanion(
         value=100000,
     )
 
-    post = expected_post
+    from execution_testing.forks import MONAD_EIGHT
+
+    if fork >= MONAD_EIGHT:
+        post = {}
+    else:
+        post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

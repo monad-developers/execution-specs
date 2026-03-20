@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -31,6 +33,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_call_recursive_bomb3(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -79,8 +82,11 @@ def test_call_recursive_bomb3(
         value=100000,
     )
 
+    # Higher cold SLOAD costs reduce recursive iteration count by 15.
+    iter_adj = 15 if fork >= MONAD_EIGHT else 0
+
     post = {
-        contract: Account(storage={0: 18, 1: 1}),
+        contract: Account(storage={0: 18 - iter_adj, 1: 1}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

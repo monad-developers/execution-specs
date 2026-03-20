@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -29,6 +30,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_refund_call_a(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0xeb201d2887816e041f6e807e804f64f3a7a226fe")
@@ -78,15 +80,22 @@ def test_refund_call_a(
         address=Address("0xf4c9fc42faeda49049e3b8e2b97a17cc2fe95718"),  # noqa: E501
     )
 
+    gas_costs = fork.gas_costs()
+    gas_headroom = gas_costs.GAS_COLD_SLOAD * 6
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=200000,
+        gas_limit=200000 + gas_headroom,
         value=10,
     )
 
-    post = {
-        contract: Account(storage={0: 1, 1: 1}),
-    }
+    # On MONAD_NINE, the callee OOGs due to MIP-3 memory pricing.
+    from execution_testing.forks import MONAD_NINE
+
+    if fork >= MONAD_NINE:
+        post = {contract: Account(storage={1: 1})}
+    else:
+        post = {contract: Account(storage={0: 1, 1: 1})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

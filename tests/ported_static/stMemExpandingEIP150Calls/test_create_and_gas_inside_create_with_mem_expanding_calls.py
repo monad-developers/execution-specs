@@ -83,7 +83,9 @@ def test_create_and_gas_inside_create_with_mem_expanding_calls(
             },
         ),
         Address("0xf1ecf98489fa9ed60a664fc4998db699cfa39d40"): Account(
-            storage={253: 0x7E23D},
+            storage={253: 0x7CB38 if fork >= MONAD_NINE else (
+                0x7CB2B if fork >= MONAD_EIGHT else 0x7E23D
+            )},
         ),
     }
 
