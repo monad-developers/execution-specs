@@ -309,8 +309,11 @@ def test_callcode_dynamic_code(
 
     tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
 
-    gc = fork.gas_costs()
-    gas_headroom = gc.GAS_COLD_ACCOUNT_ACCESS * 10 + gc.GAS_COLD_SLOAD * 10
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_ACCOUNT_ACCESS * 10
+        + gas_costs.GAS_COLD_SLOAD * 10
+    )
 
     tx = Transaction(
         sender=sender,

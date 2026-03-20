@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -33,6 +35,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_static_create_empty_contract_and_call_it_0wei(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -83,14 +86,26 @@ def test_static_create_empty_contract_and_call_it_0wei(
         gas_limit=600000,
     )
 
+    # Slots 0, 2, 100 store gas remaining (GAS opcode). On Monad,
+    # higher cold SLOAD costs for SSTORE(0) and SSTORE(1) consume
+    # more gas, reducing slot 2. On MONAD_NINE, MIP-3 linear memory
+    # pricing also changes STATICCALL gas dynamics via the 63/64
+    # retained gas rule, affecting slot 100.
+    gas_costs = fork.gas_costs()
+    gas_adj_slot2 = (gas_costs.GAS_COLD_SLOAD - 2100) * 2
+    gas_adj_slot100 = 0
+    if fork >= MONAD_NINE:
+        gas_adj_slot2 -= 3
+        gas_adj_slot100 = 0x6FE6E - 0x6A0B1
+
     post = {
         contract: Account(
             storage={
                 0: 0x8D5B6,
                 1: 0xF1ECF98489FA9ED60A664FC4998DB699CFA39D40,
-                2: 0x7ABF8,
+                2: 0x7ABF8 - gas_adj_slot2,
                 3: 1,
-                100: 0x6FE6E,
+                100: 0x6FE6E - gas_adj_slot100,
             },
         ),
     }

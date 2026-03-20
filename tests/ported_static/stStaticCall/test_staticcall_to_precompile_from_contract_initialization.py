@@ -18,6 +18,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -36,6 +37,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_staticcall_to_precompile_from_contract_initialization(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """STATICCALL to precompiled contracts from contract initialization..."""
     coinbase = Address("0xcafe000000000000000000000000000000000001")
@@ -75,6 +77,13 @@ def test_staticcall_to_precompile_from_contract_initialization(
         address=Address("0xa000000000000000000000000000000000000000"),  # noqa: E501
     )
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
+
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_SLOAD * 25
+        + gas_costs.GAS_COLD_ACCOUNT_ACCESS * 10
+        + gas_costs.GAS_PRECOMPILE_ECRECOVER * 2
+    )
 
     tx = Transaction(
         sender=sender,
@@ -120,7 +129,7 @@ def test_staticcall_to_precompile_from_contract_initialization(
             "e7690c43d37b4ce6cc0166fa7daa6101605260206103e8610180600060085afa60195561"  # noqa: E501
             "03e85160205500"
         ),
-        gas_limit=1000000,
+        gas_limit=1000000 + gas_headroom,
         value=100,
     )
 
@@ -169,6 +178,7 @@ def test_staticcall_to_precompile_from_contract_initialization(
 def test_staticcall_to_precompile_from_contract_initialization_from_osaka(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """STATICCALL to precompiled contracts from contract initialization..."""
     coinbase = Address("0xcafe000000000000000000000000000000000001")
@@ -208,6 +218,13 @@ def test_staticcall_to_precompile_from_contract_initialization_from_osaka(
         address=Address("0xa000000000000000000000000000000000000000"),  # noqa: E501
     )
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
+
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_SLOAD * 25
+        + gas_costs.GAS_COLD_ACCOUNT_ACCESS * 10
+        + gas_costs.GAS_PRECOMPILE_ECRECOVER * 2
+    )
 
     tx = Transaction(
         sender=sender,
@@ -253,7 +270,7 @@ def test_staticcall_to_precompile_from_contract_initialization_from_osaka(
             "e7690c43d37b4ce6cc0166fa7daa6101605260206103e8610180600060085afa60195561"  # noqa: E501
             "03e85160205500"
         ),
-        gas_limit=1000000,
+        gas_limit=1000000 + gas_headroom,
         value=100,
     )
 

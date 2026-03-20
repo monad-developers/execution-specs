@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT, MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -68,6 +70,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_static_raw_call_gas_ask(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -203,6 +206,23 @@ def test_static_raw_call_gas_ask(
         gas_limit=1000000,
     )
 
-    post = expected_post
+    # Slot 1 stores gas remaining (GAS opcode). On Monad, higher cold
+    # access costs and 63/64 retained gas rule reduce the stored value
+    # by a fixed 14883 on MONAD_EIGHT. On MONAD_NINE, MIP-3 linear
+    # memory pricing saves varying amounts depending on memory usage
+    # (cases 2,3 allocate 8000 bytes, saving ~750 gas).
+    if fork >= MONAD_NINE:
+        gas_adj = {0xE9F83: 14880, 0xE9C1B: 14133}
+    elif fork >= MONAD_EIGHT:
+        gas_adj = {0xE9F83: 14883, 0xE9C1B: 14883}
+    else:
+        gas_adj = {}
+
+    post = {}
+    for addr, acct in expected_post.items():
+        storage = dict(acct.storage) if acct.storage else {}
+        if 1 in storage and storage[1] in gas_adj:
+            storage[1] -= gas_adj[storage[1]]
+        post[addr] = Account(storage=storage)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -18,6 +18,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -36,6 +37,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_staticcall_to_precompile_from_called_contract(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """STATICCALL to precompiled contracts from contract that called..."""
     coinbase = Address("0xcafe000000000000000000000000000000000001")
@@ -362,10 +364,17 @@ def test_staticcall_to_precompile_from_called_contract(
         address=Address("0xb000000000000000000000000000000000000000"),  # noqa: E501
     )
 
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_SLOAD * 25
+        + gas_costs.GAS_COLD_ACCOUNT_ACCESS * 10
+        + gas_costs.GAS_PRECOMPILE_ECRECOVER * 2
+    )
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=1000000,
+        gas_limit=1000000 + gas_headroom,
         value=100,
     )
 
@@ -412,6 +421,7 @@ def test_staticcall_to_precompile_from_called_contract(
 def test_staticcall_to_precompile_from_called_contract_from_osaka(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """STATICCALL to precompiled contracts from contract that called..."""
     coinbase = Address("0xcafe000000000000000000000000000000000001")
@@ -738,10 +748,17 @@ def test_staticcall_to_precompile_from_called_contract_from_osaka(
         address=Address("0xb000000000000000000000000000000000000000"),  # noqa: E501
     )
 
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_SLOAD * 25
+        + gas_costs.GAS_COLD_ACCOUNT_ACCESS * 10
+        + gas_costs.GAS_PRECOMPILE_ECRECOVER * 2
+    )
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=1000000,
+        gas_limit=1000000 + gas_headroom,
         value=100,
     )
 

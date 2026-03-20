@@ -114,8 +114,11 @@ def test_callcodecallcodecallcode_abcb_recursive(
     )
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
-    gc = fork.gas_costs()
-    gas_headroom = gc.GAS_COLD_ACCOUNT_ACCESS * 4 + gc.GAS_COLD_SLOAD * 4
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_ACCOUNT_ACCESS * 4
+        + gas_costs.GAS_COLD_SLOAD * 4
+    )
 
     tx = Transaction(
         sender=sender,
