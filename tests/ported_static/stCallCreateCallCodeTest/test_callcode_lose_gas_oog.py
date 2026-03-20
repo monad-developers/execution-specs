@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -47,6 +48,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcode_lose_gas_oog(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_gas_limit: int,
     expected_post: dict,
 ) -> None:
@@ -96,10 +98,16 @@ def test_callcode_lose_gas_oog(
     )
     pre[callee] = Account(balance=7000, nonce=0)
 
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_ACCOUNT_ACCESS * 4
+        + gas_costs.GAS_COLD_SLOAD * 4
+    )
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=tx_gas_limit,
+        gas_limit=tx_gas_limit + gas_headroom,
         value=10,
     )
 

@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -53,6 +55,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcode1024_oog(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_gas_limit: int,
     expected_post: dict,
 ) -> None:
@@ -112,6 +115,16 @@ def test_callcode1024_oog(
         value=10,
     )
 
-    post = expected_post
+    # On Monad, higher cold SLOAD costs reduce the number of recursive
+    # iterations by 25. Slot 0 = iteration count, slot 2 = 1 + slot0*1000.
+    if fork >= MONAD_EIGHT:
+        post = {}
+        for addr, acct in expected_post.items():
+            storage = dict(acct.storage) if acct.storage else {}
+            storage[0] -= 25
+            storage[2] -= 25000
+            post[addr] = Account(storage=storage)
+    else:
+        post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

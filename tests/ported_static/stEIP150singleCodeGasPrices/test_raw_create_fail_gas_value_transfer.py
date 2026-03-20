@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_raw_create_fail_gas_value_transfer(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -69,8 +72,11 @@ def test_raw_create_fail_gas_value_transfer(
         value=10,
     )
 
+    # MIP-3 (MONAD_NINE) linear memory pricing saves 3 gas.
+    mip3_adj = 3 if fork >= MONAD_NINE else 0
+
     post = {
-        contract: Account(storage={1: 32022}),
+        contract: Account(storage={1: 32022 - mip3_adj}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

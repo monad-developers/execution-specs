@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -31,6 +33,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_raw_call_gas(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -82,8 +85,18 @@ def test_raw_call_gas(
         gas_limit=500000,
     )
 
+    # Slot 1 measures gas consumed by CALL (cold address) + callee's
+    # cold SLOAD. On Monad, both cost more. MIP-3 saves 3 gas on M9.
+    gas_costs = fork.gas_costs()
+    gas_adj = (
+        (gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600)
+        + (gas_costs.GAS_COLD_SLOAD - 2100)
+    )
+    if fork >= MONAD_NINE:
+        gas_adj -= 3
+
     post = {
-        contract: Account(storage={1: 24739}),
+        contract: Account(storage={1: 24739 + gas_adj}),
         callee: Account(storage={2: 29998}),
     }
 
