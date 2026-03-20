@@ -23,6 +23,7 @@ from execution_testing import (
 from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.helpers import compute_create_address
 from execution_testing.tools.tools_code.generators import Initcode
+from execution_testing.vm.bytecode import Bytecode
 
 from ...monad_eight.reserve_balance.helpers import (
     Stage1Balance,
@@ -1339,10 +1340,281 @@ def test_contract_unrestricted_with_selfdestruct(
     )
 
 
-# NOTE: skip:
-# - test_contract_unrestricted_within_initcode
-# - test_unrestricted_in_creation_tx_initcode
-# as not providing additional coverage
+@pytest.mark.parametrize(
+    ["value", "balance"],
+    [
+        pytest.param(0, Spec.RESERVE_BALANCE, id="zero_value"),
+        pytest.param(1, Spec.RESERVE_BALANCE, id="non_zero_value"),
+        pytest.param(1, Spec.RESERVE_BALANCE + 1, id="non_zero_value_good"),
+    ],
+)
+@pytest.mark.with_all_create_opcodes
+@pytest.mark.parametrize("new_address_pre_funded", [True, False])
+@pytest.mark.parametrize(
+    "selfdestruct,deploy_code",
+    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+)
+def test_contract_unrestricted_within_initcode(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    refill_factory: RefillFactory,
+    value: int,
+    balance: int,
+    create_opcode: Op,
+    new_address_pre_funded: bool,
+    selfdestruct: bool,
+    deploy_code: Bytecode | None,
+    fork: Fork,
+) -> None:
+    """
+    Test dippedIntoReserve() for contract spends done from initcode
+    context via CREATE/CREATE2.
+
+    Checks dippedIntoReserve() twice:
+    1. During initcode, right after the spend (via checker)
+    2. After initcode exits, in the factory (after CREATE)
+    """
+    assert selfdestruct == (deploy_code is None)
+    refill_call = refill_factory()
+
+    sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
+
+    target = Address(0x1231)
+    selfdestruct_target = Address(0x5656)
+
+    # Auxiliary contract: persists dippedIntoReserve() result
+    # during initcode (first check).
+    checker = pre.deploy_contract(
+        Op.SSTORE(slot_violation_result, call_dipped_into_reserve())
+    )
+
+    common_initcode = Op.CALL(value=value, address=target) + Op.CALL(
+        address=checker
+    )
+    if selfdestruct:
+        initcode = common_initcode + Op.SELFDESTRUCT(
+            address=selfdestruct_target
+        )
+    else:
+        initcode = Initcode(
+            initcode_prefix=common_initcode,
+            deploy_code=deploy_code,
+        )
+    initcode_size = len(initcode)
+
+    # Factory: copy initcode from calldata into memory, CREATE,
+    # then second dippedIntoReserve() check after initcode
+    # exits, then refill to prevent end-of-tx revert.
+    # Save CREATE result at memory[initcode_size] so
+    # refill_call can read it back via MLOAD.
+    factory = (
+        Op.CALLDATACOPY(0, 0, initcode_size)
+        + Op.MSTORE(
+            initcode_size,
+            create_opcode(
+                value=balance if not new_address_pre_funded else 0,
+                size=initcode_size,
+            ),
+        )
+        + Op.SSTORE(slot_code_worked, value_code_worked)
+        + Op.SSTORE(slot_violation_result, call_dipped_into_reserve())
+        + refill_call(Op.MLOAD(initcode_size))
+    )
+    factory_address = pre.deploy_contract(
+        factory,
+        balance=balance if not new_address_pre_funded else 0,
+    )
+
+    new_contract_address = compute_create_address(
+        address=factory_address,
+        nonce=1,
+        initcode=initcode,
+        opcode=create_opcode,
+    )
+
+    tx_1 = Transaction(
+        gas_limit=generous_gas(fork),
+        to=factory_address,
+        sender=sender,
+        data=initcode,
+    )
+
+    # First check (checker, during initcode): code=b"" on the new contract, so
+    # violation whenever pre-funded balance dips below RESERVE_BALANCE.
+    expected_violation_in_initcode = (
+        1
+        if (new_address_pre_funded and balance - value < Spec.RESERVE_BALANCE)
+        else 0
+    )
+
+    # Second check (factory, after CREATE): code is now set or explicitly
+    # selfdestructed. In case code is set to empty, the reserve balance
+    # violation is still expected.
+    expected_violation_after_create = (
+        1
+        if (
+            deploy_code is not None
+            and len(deploy_code) == 0
+            and new_address_pre_funded
+            and balance - value < Spec.RESERVE_BALANCE
+        )
+        else 0
+    )
+
+    new_balance = balance - value + Spec.RESERVE_BALANCE
+
+    txs = [tx_1]
+    if new_address_pre_funded:
+        txs.insert(
+            0,
+            Transaction(
+                to=new_contract_address,
+                value=balance,
+                sender=pre.fund_eoa(),
+            ),
+        )
+
+    blockchain_test(
+        pre=pre,
+        post={
+            checker: Account(
+                storage={
+                    slot_violation_result: expected_violation_in_initcode,
+                }
+            ),
+            factory_address: Account(
+                storage={
+                    slot_code_worked: value_code_worked,
+                    slot_violation_result: expected_violation_after_create,
+                }
+            ),
+            new_contract_address: Account(
+                balance=new_balance, code=deploy_code
+            )
+            if not selfdestruct
+            else None,
+            target: Account(balance=value) if value != 0 else None,
+            # SELFDESTRUCT runs during initcode (before factory
+            # refill), so it sends balance - value only.
+            selfdestruct_target: Account(balance=balance - value)
+            if selfdestruct
+            else None,
+        },
+        blocks=[Block(txs=txs)],
+    )
+
+
+@pytest.mark.parametrize(
+    ["value", "balance"],
+    [
+        pytest.param(0, Spec.RESERVE_BALANCE, id="zero_value"),
+        pytest.param(1, Spec.RESERVE_BALANCE, id="non_zero_value"),
+        pytest.param(1, Spec.RESERVE_BALANCE + 1, id="non_zero_value_good"),
+    ],
+)
+@pytest.mark.parametrize("new_address_pre_funded", [True, False])
+@pytest.mark.parametrize(
+    "selfdestruct,deploy_code",
+    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+)
+@pytest.mark.with_all_contract_creating_tx_types
+def test_unrestricted_in_creation_tx_initcode(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    refill_factory: RefillFactory,
+    value: int,
+    balance: int,
+    new_address_pre_funded: bool,
+    selfdestruct: bool,
+    deploy_code: Bytecode | None,
+    tx_type: int,
+    fork: Fork,
+) -> None:
+    """
+    Test dippedIntoReserve() for contract spends done from initcode
+    context created via a creation tx with to: null.
+
+    Checks dippedIntoReserve() once during initcode via checker.
+    No second check is possible (no code runs after initcode in
+    a creation tx context).
+    """
+    assert selfdestruct == (deploy_code is None)
+    refill_call = refill_factory()
+
+    sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
+    target = Address(0x1231)
+    selfdestruct_target = Address(0x5656)
+
+    # Auxiliary contract: persists dippedIntoReserve() result
+    # during initcode.
+    checker = pre.deploy_contract(
+        Op.SSTORE(slot_violation_result, call_dipped_into_reserve())
+    )
+
+    # code=b"" on the new contract, so violation whenever pre-funded balance
+    # dips below RESERVE_BALANCE.
+    expected_violation_in_initcode = (
+        1
+        if (new_address_pre_funded and balance - value < Spec.RESERVE_BALANCE)
+        else 0
+    )
+
+    common_initcode = (
+        Op.CALL(value=value, address=target)
+        + Op.CALL(address=checker)
+        + refill_call(Op.ADDRESS)
+    )
+    if selfdestruct:
+        initcode = common_initcode + Op.SELFDESTRUCT(
+            address=selfdestruct_target
+        )
+    else:
+        initcode = Initcode(
+            initcode_prefix=common_initcode,
+            deploy_code=deploy_code,
+        )
+
+    tx_1 = Transaction(
+        gas_limit=generous_gas(fork),
+        to=None,
+        ty=tx_type,
+        value=balance if not new_address_pre_funded else 0,
+        sender=sender,
+        data=initcode,
+    )
+    new_address = tx_1.created_contract
+
+    txs = [tx_1]
+    if new_address_pre_funded:
+        txs.insert(
+            0,
+            Transaction(
+                to=new_address,
+                value=balance,
+                sender=pre.fund_eoa(),
+            ),
+        )
+
+    new_balance = balance - value + Spec.RESERVE_BALANCE
+
+    blockchain_test(
+        pre=pre,
+        post={
+            checker: Account(
+                storage={
+                    slot_violation_result: expected_violation_in_initcode,
+                }
+            ),
+            new_address: Account(code=deploy_code, balance=new_balance)
+            if not selfdestruct
+            else None,
+            target: Account(balance=value) if value != 0 else None,
+            selfdestruct_target: Account(balance=new_balance)
+            if selfdestruct
+            else None,
+        },
+        blocks=[Block(txs=txs)],
+    )
 
 
 @pytest.mark.parametrize("stage1", Stage1Balance)

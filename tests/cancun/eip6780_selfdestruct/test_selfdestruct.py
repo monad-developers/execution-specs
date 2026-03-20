@@ -26,7 +26,7 @@ from execution_testing import (
     Transaction,
     compute_create_address,
 )
-from execution_testing.forks import Cancun
+from execution_testing.forks import MONAD_EIGHT, Cancun
 
 REFERENCE_SPEC_GIT_PATH = "EIPS/eip-6780.md"
 REFERENCE_SPEC_VERSION = "1b6a0e94cc47e859b9866e570391cf37dc55059a"
@@ -378,6 +378,7 @@ def test_self_destructing_initcode(
     # in the same tx
     selfdestruct_contract_initial_balance: int,
     fork_extra_gas: int,
+    fork: Fork,
 ) -> None:
     """
     Test that a contract can self-destruct in its initcode.
@@ -481,15 +482,26 @@ def test_self_destructing_initcode(
 
     entry_code_address = tx.created_contract
 
-    post: Dict[Address, Account] = {
-        entry_code_address: Account(
-            storage=entry_code_storage,
-        ),
-        selfdestruct_contract_address: Account.NONEXISTENT,  # type: ignore
-        sendall_recipient_addresses[0]: Account(
-            balance=sendall_amount, storage={0: 1}
-        ),
-    }
+    reverted = (
+        fork == MONAD_EIGHT and selfdestruct_contract_initial_balance > 0
+    )
+
+    if reverted:
+        post: Dict[Address, Account] = {
+            selfdestruct_contract_address: Account(
+                balance=selfdestruct_contract_initial_balance,
+            ),
+        }
+    else:
+        post = {
+            entry_code_address: Account(
+                storage=entry_code_storage,
+            ),
+            selfdestruct_contract_address: Account.NONEXISTENT,  # type: ignore
+            sendall_recipient_addresses[0]: Account(
+                balance=sendall_amount, storage={0: 1}
+            ),
+        }
 
     state_test(pre=pre, post=post, tx=tx)
 
@@ -509,6 +521,7 @@ def test_self_destructing_initcode_create_tx(
     sendall_recipient_addresses: List[Address],
     selfdestruct_contract_initial_balance: int,
     fork_extra_gas: int,
+    fork: Fork,
 ) -> None:
     """
     Use a Create Transaction to execute a self-destructing initcode.
@@ -537,12 +550,23 @@ def test_self_destructing_initcode_create_tx(
     # contract
     sendall_amount = selfdestruct_contract_initial_balance + tx_value
 
-    post: Dict[Address, Account] = {
-        selfdestruct_contract_address: Account.NONEXISTENT,  # type: ignore
-        sendall_recipient_addresses[0]: Account(
-            balance=sendall_amount, storage={0: 1}
-        ),
-    }
+    reverted = (
+        fork == MONAD_EIGHT and selfdestruct_contract_initial_balance > 0
+    )
+
+    if reverted:
+        post: Dict[Address, Account] = {
+            selfdestruct_contract_address: Account(
+                balance=selfdestruct_contract_initial_balance,
+            ),
+        }
+    else:
+        post = {
+            selfdestruct_contract_address: Account.NONEXISTENT,  # type: ignore
+            sendall_recipient_addresses[0]: Account(
+                balance=sendall_amount, storage={0: 1}
+            ),
+        }
 
     state_test(pre=pre, post=post, tx=tx)
 

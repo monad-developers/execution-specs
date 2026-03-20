@@ -18,9 +18,11 @@ from execution_testing import (
     Op,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
 from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.helpers import compute_create_address
 from execution_testing.tools.tools_code.generators import Initcode
+from execution_testing.vm.bytecode import Bytecode
 
 from tests.prague.eip7702_set_code_tx.spec import Spec as Spec7702
 
@@ -1255,7 +1257,10 @@ def test_access_lists(
 )
 @pytest.mark.parametrize("pre_delegated", [True, False])
 @pytest.mark.parametrize("new_address_pre_funded", [True, False])
-@pytest.mark.parametrize("selfdestruct", [True, False])
+@pytest.mark.parametrize(
+    "selfdestruct,deploy_code",
+    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+)
 @pytest.mark.with_all_contract_creating_tx_types
 def test_creation_tx(
     blockchain_test: BlockchainTestFiller,
@@ -1266,12 +1271,14 @@ def test_creation_tx(
     pre_delegated: bool,
     new_address_pre_funded: bool,
     selfdestruct: bool,
+    deploy_code: Bytecode | None,
     tx_type: int,
     fork: Fork,
 ) -> None:
     """
     Test reserve balance violations for creation txs to: null.
     """
+    assert selfdestruct == (deploy_code is None)
     pre_fund_value = 0
     if pre_delegated:
         sender = pre.fund_eoa(balance, delegation=Address(0x1111))
@@ -1282,7 +1289,7 @@ def test_creation_tx(
     initcode = (
         Op.SELFDESTRUCT(address=selfdestruct_target)
         if selfdestruct
-        else Initcode(deploy_code=Op.STOP)
+        else Initcode(deploy_code=deploy_code)
     )
 
     tx_1 = Transaction(
@@ -1305,13 +1312,15 @@ def test_creation_tx(
             ),
         )
 
-    reverted = violation and pre_delegated
+    reverted = (violation and pre_delegated) or (
+        fork == MONAD_EIGHT and selfdestruct and new_address_pre_funded
+    )
 
     blockchain_test(
         pre=pre,
         post={
             new_address: Account(
-                code=Op.STOP,
+                code=deploy_code,
                 balance=value + pre_fund_value,
             )
             if not reverted and not selfdestruct
@@ -1395,7 +1404,10 @@ def test_contract_unrestricted(
 )
 @pytest.mark.parametrize("pre_delegated", [True, False])
 @pytest.mark.parametrize("pre_funded", [True, False])
-@pytest.mark.parametrize("selfdestruct", [True, False])
+@pytest.mark.parametrize(
+    "selfdestruct,deploy_code",
+    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+)
 @pytest.mark.with_all_create_opcodes
 def test_contract_unrestricted_with_create(
     blockchain_test: BlockchainTestFiller,
@@ -1405,6 +1417,7 @@ def test_contract_unrestricted_with_create(
     pre_delegated: bool,
     pre_funded: bool,
     selfdestruct: bool,
+    deploy_code: Bytecode | None,
     create_opcode: Op,
     fork: Fork,
 ) -> None:
@@ -1412,6 +1425,7 @@ def test_contract_unrestricted_with_create(
     Test reserve balance never affects contract spends done with a
     create opcode.
     """
+    assert selfdestruct == (deploy_code is None)
     if pre_delegated:
         sender = pre.fund_eoa(
             Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
@@ -1424,7 +1438,7 @@ def test_contract_unrestricted_with_create(
     initcode = (
         Op.SELFDESTRUCT(address=selfdestruct_target)
         if selfdestruct
-        else Initcode(deploy_code=Op.STOP)
+        else Initcode(deploy_code=deploy_code)
     )
     initcode_bytes = initcode + b"\x00" * (32 - (len(initcode) % 32))
 
@@ -1457,7 +1471,7 @@ def test_contract_unrestricted_with_create(
         pre=pre,
         post={
             factory_address: Account(storage=storage, balance=balance - value),
-            new_contract_address: Account(balance=value, code=Op.STOP)
+            new_contract_address: Account(balance=value, code=deploy_code)
             if not selfdestruct
             else None,
             selfdestruct_target: Account(balance=value)
@@ -1662,7 +1676,10 @@ def test_contract_unrestricted_with_selfdestruct(
 @pytest.mark.parametrize("pre_delegated", [True, False])
 @pytest.mark.with_all_create_opcodes
 @pytest.mark.parametrize("new_address_pre_funded", [True, False])
-@pytest.mark.parametrize("selfdestruct", [True, False])
+@pytest.mark.parametrize(
+    "selfdestruct,deploy_code",
+    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+)
 def test_contract_unrestricted_within_initcode(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -1672,12 +1689,14 @@ def test_contract_unrestricted_within_initcode(
     create_opcode: Op,
     new_address_pre_funded: bool,
     selfdestruct: bool,
+    deploy_code: Bytecode | None,
     fork: Fork,
 ) -> None:
     """
     Test reserve balance never affects contract spends done from initcode
     context.
     """
+    assert selfdestruct == (deploy_code is None)
     if pre_delegated:
         sender = pre.fund_eoa(
             Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
@@ -1696,7 +1715,7 @@ def test_contract_unrestricted_within_initcode(
         if selfdestruct
         else Initcode(
             initcode_prefix=Op.CALL(value=value, address=target),
-            deploy_code=Op.STOP,
+            deploy_code=deploy_code,
         )
     )
     initcode_bytes = initcode + b"\x00" * (32 - (len(initcode) % 32))
@@ -1726,7 +1745,16 @@ def test_contract_unrestricted_within_initcode(
         to=factory_address,
         sender=sender,
     )
-    storage = {slot_code_worked: value_code_worked}
+
+    reverted = (
+        fork == MONAD_EIGHT and selfdestruct and new_address_pre_funded
+    ) or (
+        deploy_code is not None
+        and len(deploy_code) == 0
+        and new_address_pre_funded
+        and balance - value < Spec.RESERVE_BALANCE
+    )
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
 
     txs = [tx_1]
     if new_address_pre_funded:
@@ -1741,14 +1769,16 @@ def test_contract_unrestricted_within_initcode(
         pre=pre,
         post={
             factory_address: Account(storage=storage),
-            new_contract_address: Account(
-                balance=balance - value, code=Op.STOP
-            )
+            new_contract_address: Account(balance=balance)
+            if reverted and new_address_pre_funded
+            else Account(balance=balance - value, code=deploy_code)
             if not selfdestruct
             else None,
-            target: Account(balance=value) if value != 0 else None,
+            target: Account(balance=value)
+            if value != 0 and not reverted
+            else None,
             selfdestruct_target: Account(balance=balance - value)
-            if selfdestruct
+            if selfdestruct and not reverted
             else None,
         },
         blocks=[Block(txs=txs)],
@@ -1765,7 +1795,10 @@ def test_contract_unrestricted_within_initcode(
 )
 @pytest.mark.parametrize("pre_delegated", [True, False])
 @pytest.mark.parametrize("new_address_pre_funded", [True, False])
-@pytest.mark.parametrize("selfdestruct", [True, False])
+@pytest.mark.parametrize(
+    "selfdestruct,deploy_code",
+    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+)
 @pytest.mark.with_all_contract_creating_tx_types
 def test_unrestricted_in_creation_tx_initcode(
     blockchain_test: BlockchainTestFiller,
@@ -1775,6 +1808,7 @@ def test_unrestricted_in_creation_tx_initcode(
     pre_delegated: bool,
     new_address_pre_funded: bool,
     selfdestruct: bool,
+    deploy_code: Bytecode | None,
     tx_type: int,
     fork: Fork,
 ) -> None:
@@ -1782,6 +1816,7 @@ def test_unrestricted_in_creation_tx_initcode(
     Test reserve balance never affects contract spends done from initcode
     context created via a creation tx with to: null.
     """
+    assert selfdestruct == (deploy_code is None)
     if pre_delegated:
         sender = pre.fund_eoa(
             Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
@@ -1800,7 +1835,7 @@ def test_unrestricted_in_creation_tx_initcode(
         if selfdestruct
         else Initcode(
             initcode_prefix=Op.CALL(value=value, address=target),
-            deploy_code=Op.STOP,
+            deploy_code=deploy_code,
         )
     )
 
@@ -1821,15 +1856,28 @@ def test_unrestricted_in_creation_tx_initcode(
             Transaction(to=new_address, value=balance, sender=pre.fund_eoa()),
         )
 
+    reverted = (
+        fork == MONAD_EIGHT and new_address_pre_funded and selfdestruct
+    ) or (
+        deploy_code is not None
+        and len(deploy_code) == 0
+        and new_address_pre_funded
+        and balance - value < Spec.RESERVE_BALANCE
+    )
+
     blockchain_test(
         pre=pre,
         post={
-            new_address: Account(code=Op.STOP, balance=balance - value)
+            new_address: Account(balance=balance)
+            if reverted and new_address_pre_funded
+            else Account(code=deploy_code, balance=balance - value)
             if not selfdestruct
             else None,
-            target: Account(balance=value) if value != 0 else None,
+            target: Account(balance=value)
+            if value != 0 and not reverted
+            else None,
             selfdestruct_target: Account(balance=balance - value)
-            if selfdestruct
+            if selfdestruct and not reverted
             else None,
         },
         blocks=[Block(txs=txs)],
