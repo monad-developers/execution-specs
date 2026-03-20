@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcallcodecall_010_oogm_after(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """CALL -> (DELEGATE -> CALL -> CODE) OOG."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -122,8 +125,11 @@ def test_callcallcodecall_010_oogm_after(
         gas_limit=1000000,
     )
 
-    post = {
-        contract: Account(storage={11: 1}),
-    }
+    # MIP-3 linear memory makes the SHA3 over 3 MB no longer
+    # OOG, so the call chain succeeds instead of reverting.
+    if fork >= MONAD_NINE:
+        post = {contract: Account(storage={0: 1, 11: 1})}
+    else:
+        post = {contract: Account(storage={11: 1})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

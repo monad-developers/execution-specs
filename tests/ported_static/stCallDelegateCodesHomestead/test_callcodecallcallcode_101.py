@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcodecallcallcode_101(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -127,34 +130,49 @@ def test_callcodecallcallcode_101(
     )
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
+    # Add headroom for higher cold access costs across the
+    # recursive call chain.
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_ACCOUNT_ACCESS * 4
+        + gas_costs.GAS_COLD_SLOAD * 4
+    )
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=3000000,
+        gas_limit=3000000 + gas_headroom,
     )
 
-    post = {
-        callee_2: Account(
-            storage={
-                2: 1,
-                3: 1,
-                4: 0xD26E26D5A4796D450BFA296D70C05F02DBC1A4B9,
-                6: 0xD26E26D5A4796D450BFA296D70C05F02DBC1A4B9,
-                7: 1,
-                330: 0xAE5F44E50ECBF16179774393C643204383FDE833,
-                332: 0xEBAF50DEBF10E08302FE4280C32DF010463CA297,
-                336: 64,
-                338: 39,
-                340: 10,
-            },
-        ),
-        contract: Account(
-            storage={
-                0: 1,
-                1: 1,
-                5: 0xEBAF50DEBF10E08302FE4280C32DF010463CA297,
-            },
-        ),
-    }
+    # Higher cold access costs on Monad forks cause the inner
+    # DELEGATECALL chain to OOG, reverting all sub-state.
+    if fork >= MONAD_EIGHT:
+        post = {
+            contract: Account(storage={0: 0}),
+        }
+    else:
+        post = {
+            callee_2: Account(
+                storage={
+                    2: 1,
+                    3: 1,
+                    4: 0xD26E26D5A4796D450BFA296D70C05F02DBC1A4B9,
+                    6: 0xD26E26D5A4796D450BFA296D70C05F02DBC1A4B9,
+                    7: 1,
+                    330: 0xAE5F44E50ECBF16179774393C643204383FDE833,
+                    332: 0xEBAF50DEBF10E08302FE4280C32DF010463CA297,
+                    336: 64,
+                    338: 39,
+                    340: 10,
+                },
+            ),
+            contract: Account(
+                storage={
+                    0: 1,
+                    1: 1,
+                    5: 0xEBAF50DEBF10E08302FE4280C32DF010463CA297,
+                },
+            ),
+        }
 
     state_test(env=env, pre=pre, post=post, tx=tx)
