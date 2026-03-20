@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -374,6 +375,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_eip2929(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -963,6 +965,50 @@ def test_eip2929(
         value=1,
     )
 
-    post = expected_post
+    # Slot 0 measures gas consumed by various opcodes including cold
+    # account access or cold SLOAD. On Monad these costs are higher.
+    from execution_testing.forks import MONAD_EIGHT
+
+    gas_costs = fork.gas_costs()
+    cold_account_adj = gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600
+    cold_sload_adj = gas_costs.GAS_COLD_SLOAD - 2100
+    # Map base Cancun values to their Monad adjustment
+    from execution_testing.forks import MONAD_NINE
+
+    gas_adj_map: dict[int, int] = {}
+    if fork >= MONAD_EIGHT:
+        gas_adj_map = {
+            2590: cold_account_adj, 2597: cold_account_adj,
+            2605: cold_account_adj, 2608: cold_account_adj,
+            2090: cold_sload_adj, 4991: cold_sload_adj,
+            2208: 1993, 2211: 1993,
+            2711: 1493,
+        }
+    # On MONAD_NINE, MIP-3 memory pricing also changes SSTORE-related
+    # gas measurements in slots 1-2. Map (original slot0, slot1, slot2)
+    # to the M9-adjusted (slot1, slot2).
+    m9_sstore_override: dict[tuple, tuple] = {}
+    if fork >= MONAD_NINE:
+        m9_sstore_override = {
+            (2711, 90, 90): (10090, 90),
+            (2711, 211, 211): (4204, 4204),
+            (2208, 208, 208): (4201, 4201),
+            (2208, 90, 2891): (8090, 2891),
+            (2211, 211, 211): (4204, 4204),
+            (2211, 90, 208): (8090, 208),
+        }
+    post = {}
+    for addr, acct in expected_post.items():
+        storage = dict(acct.storage) if acct.storage else {}
+        orig_key = (
+            storage.get(0, 0),
+            storage.get(1, 0),
+            storage.get(2, 0),
+        )
+        if 0 in storage and storage[0] in gas_adj_map:
+            storage[0] += gas_adj_map[storage[0]]
+        if orig_key in m9_sstore_override:
+            storage[1], storage[2] = m9_sstore_override[orig_key]
+        post[addr] = Account(storage=storage)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

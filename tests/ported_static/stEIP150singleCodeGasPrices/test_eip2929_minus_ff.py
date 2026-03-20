@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -119,6 +120,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_eip2929_minus_ff(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -349,6 +351,16 @@ def test_eip2929_minus_ff(
         value=1,
     )
 
-    post = expected_post
+    # Slot 0 measures gas consumed. The cold-access case (7726)
+    # includes GAS_COLD_ACCOUNT_ACCESS which costs more on Monad.
+    # Warm-access cases (5126) are unchanged.
+    gas_costs = fork.gas_costs()
+    cold_adj = gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600
+    post = {}
+    for addr, acct in expected_post.items():
+        storage = dict(acct.storage) if acct.storage else {}
+        if 0 in storage and storage[0] == 7726:
+            storage[0] += cold_adj
+        post[addr] = Account(storage=storage)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

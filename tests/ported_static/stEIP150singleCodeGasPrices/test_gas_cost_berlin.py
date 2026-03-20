@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -1024,6 +1025,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_gas_cost_berlin(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -1159,6 +1161,25 @@ def test_gas_cost_berlin(
         value=1,
     )
 
-    post = expected_post
+    # Slot 0 measures extra gas from cold access. On Monad, cold access
+    # costs are higher, so the "extra" is non-zero.
+    gas_costs = fork.gas_costs()
+    cold_account_adj = gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600
+    cold_sload_adj = gas_costs.GAS_COLD_SLOAD - 2100
+    # Map tx_data prefixes to their cold access type
+    cold_adj_by_tx = {
+        "310a28": cold_account_adj,
+        "3b0a28": cold_account_adj,
+        "540834": cold_sload_adj,
+        "555654": cold_sload_adj,
+        "ff1db0": cold_account_adj,
+    }
+    adj = cold_adj_by_tx.get(tx_data_hex, 0)
+    post = {}
+    for addr, acct in expected_post.items():
+        storage = dict(acct.storage) if acct.storage else {}
+        if 0 in storage:
+            storage[0] += adj
+        post[addr] = Account(storage=storage)
 
     state_test(env=env, pre=pre, post=post, tx=tx)
