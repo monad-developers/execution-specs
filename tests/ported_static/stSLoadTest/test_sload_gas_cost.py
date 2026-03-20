@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -29,6 +30,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_sload_gas_cost(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -72,8 +74,11 @@ def test_sload_gas_cost(
         gas_limit=100000,
     )
 
+    # Slot 1 measures cold SLOAD gas cost.
+    gas_costs = fork.gas_costs()
+
     post = {
-        contract: Account(storage={1: 2100}),
+        contract: Account(storage={1: gas_costs.GAS_COLD_SLOAD}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

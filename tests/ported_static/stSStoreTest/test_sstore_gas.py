@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -29,6 +30,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_sstore_gas(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Ori Pomerantz qbzzt1@gmail.com."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -182,17 +184,20 @@ def test_sstore_gas(
         nonce=1,
     )
 
+    # Slot 4096 measures cold SSTORE gas cost (first access to slot).
+    gas_costs = fork.gas_costs()
+
     post = {
         contract: Account(
             storage={
-                4096: 5000,
+                4096: gas_costs.GAS_COLD_SLOAD + 2900,
                 4097: 100,
                 4098: 100,
                 4099: 100,
                 4100: 100,
-                4101: 5000,
-                4102: 22100,
-                4103: 2200,
+                4101: gas_costs.GAS_COLD_SLOAD + 2900,
+                4102: gas_costs.GAS_COLD_SLOAD + 20000,
+                4103: gas_costs.GAS_COLD_SLOAD + 100,
                 4104: 20000,
             },
         ),

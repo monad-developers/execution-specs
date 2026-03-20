@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -86,6 +87,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_return_bounds(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_gas_limit: int,
     expected_post: dict,
 ) -> None:
@@ -420,10 +422,16 @@ def test_return_bounds(
         address=Address("0xff6b6d23be161344e86eb7b174acedd4b1dc6dc7"),  # noqa: E501
     )
 
+    gas_costs = fork.gas_costs()
+    gas_headroom = (
+        gas_costs.GAS_COLD_ACCOUNT_ACCESS * 4
+        + gas_costs.GAS_COLD_SLOAD * 20
+    )
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=tx_gas_limit,
+        gas_limit=tx_gas_limit + gas_headroom,
         value=1,
     )
 

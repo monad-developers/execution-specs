@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -330,6 +331,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_oog(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -669,6 +671,17 @@ def test_oog(
         nonce=1,
     )
 
+    # Gas cost changes shift OOG boundaries for borderline cases.
+    from execution_testing.forks import MONAD_EIGHT, MONAD_NINE
+
     post = expected_post
+    if fork >= MONAD_EIGHT and tx_data_hex.endswith("0c02"):
+        # Higher cold access costs cause this case to OOG.
+        post = {contract: Account(storage={})}
+    elif fork >= MONAD_NINE and tx_data_hex.endswith("0c01"):
+        pass  # No change needed — still OOGs on MONAD_NINE.
+    elif fork >= MONAD_NINE and tx_data_hex.endswith("ffff"):
+        # Linear memory pricing makes this case succeed.
+        post = {contract: Account(storage={0: 1})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

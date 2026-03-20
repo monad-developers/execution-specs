@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_delegatecall1024_oog(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b")
@@ -88,8 +91,13 @@ def test_delegatecall1024_oog(
         value=10,
     )
 
+    # Higher cold SLOAD costs reduce recursive iteration count by 25.
+    iter_adj = 25 if fork >= MONAD_EIGHT else 0
+
     post = {
-        contract: Account(storage={0: 146, 1: 1, 2: 0x23A51}),
+        contract: Account(
+            storage={0: 146 - iter_adj, 1: 1, 2: 0x23A51 - iter_adj * 1000}
+        ),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)
