@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -33,6 +35,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_static_callcodecallcodecall_110_suicide_middle2(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -120,8 +123,19 @@ def test_static_callcodecallcodecall_110_suicide_middle2(
         gas_limit=3000000,
     )
 
+    # Slot 1 stores gas remaining (GAS opcode). On Monad, higher cold
+    # access costs consume more gas, reducing the stored value.
+    # MIP-3 (MONAD_NINE) linear memory pricing saves 10 gas.
+    gas_costs = fork.gas_costs()
+    gas_adj = (
+        (gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600) * 2
+        + (gas_costs.GAS_COLD_SLOAD - 2100)
+    )
+    if fork >= MONAD_NINE:
+        gas_adj -= 10
+
     post = {
-        contract: Account(storage={0: 1, 1: 0x2CF650}),
+        contract: Account(storage={0: 1, 1: 0x2CF650 - gas_adj}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

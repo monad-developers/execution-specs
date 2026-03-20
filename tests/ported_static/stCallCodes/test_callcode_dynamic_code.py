@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -95,6 +96,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcode_dynamic_code(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_data_hex: str,
     expected_post: dict,
 ) -> None:
@@ -110,7 +112,7 @@ def test_callcode_dynamic_code(
         timestamp=1000,
         prev_randao=0x20000,
         base_fee_per_gas=10,
-        gas_limit=1000000,
+        gas_limit=10000000,
     )
 
     # Source: LLL
@@ -307,13 +309,24 @@ def test_callcode_dynamic_code(
 
     tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
 
+    gc = fork.gas_costs()
+    gas_headroom = gc.GAS_COLD_ACCOUNT_ACCESS * 10 + gc.GAS_COLD_SLOAD * 10
+
     tx = Transaction(
         sender=sender,
         to=contract,
         data=tx_data,
-        gas_limit=1000000,
+        gas_limit=1000000 + gas_headroom,
     )
 
-    post = expected_post
+    # On Monad, the inner CALL uses hardcoded gas=800000 which is not
+    # enough with higher cold access costs, so the call OOGs and all
+    # storage changes in the target contract revert.
+    from execution_testing.forks import MONAD_EIGHT
+
+    if fork >= MONAD_EIGHT:
+        post = {}
+    else:
+        post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

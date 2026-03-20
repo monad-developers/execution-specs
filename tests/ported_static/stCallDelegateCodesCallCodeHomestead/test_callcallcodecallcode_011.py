@@ -16,6 +16,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +33,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcallcodecallcode_011(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -123,28 +125,38 @@ def test_callcallcodecallcode_011(
     )
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
+    gc = fork.gas_costs()
+    gas_headroom = gc.GAS_COLD_ACCOUNT_ACCESS * 4 + gc.GAS_COLD_SLOAD * 4
+
     tx = Transaction(
         sender=sender,
         to=contract,
-        gas_limit=3000000,
+        gas_limit=3000000 + gas_headroom,
     )
 
-    post = {
-        contract: Account(
-            storage={
-                0: 1,
-                1: 1,
-                2: 1,
-                3: 1,
-                4: 0xDB43306B16C521B9CC3667FBE7D1B697BB1F9605,
-                6: 1,
-                330: 0xDB43306B16C521B9CC3667FBE7D1B697BB1F9605,
-                332: 0xEBAF50DEBF10E08302FE4280C32DF010463CA297,
-                336: 64,
-                338: 39,
-                340: 10,
-            },
-        ),
-    }
+    # On MONAD_NINE, MIP-3 memory pricing changes cause the inner
+    # CALLCODE to OOG. Slot 2 (written inside the CALLCODE) reverts.
+    from execution_testing.forks import MONAD_NINE
+
+    if fork >= MONAD_NINE:
+        post = {contract: Account(storage={0: 1, 1: 1})}
+    else:
+        post = {
+            contract: Account(
+                storage={
+                    0: 1,
+                    1: 1,
+                    2: 1,
+                    3: 1,
+                    4: 0xDB43306B16C521B9CC3667FBE7D1B697BB1F9605,
+                    6: 1,
+                    330: 0xDB43306B16C521B9CC3667FBE7D1B697BB1F9605,
+                    332: 0xEBAF50DEBF10E08302FE4280C32DF010463CA297,
+                    336: 64,
+                    338: 39,
+                    340: 10,
+                },
+            ),
+        }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

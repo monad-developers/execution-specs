@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -55,6 +57,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_static_callcodecall_10_suicide_end2(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     tx_value: int,
     expected_post: dict,
 ) -> None:
@@ -132,6 +135,21 @@ def test_static_callcodecall_10_suicide_end2(
         value=tx_value,
     )
 
-    post = expected_post
+    # Slot 1 stores gas remaining (GAS opcode). On Monad, higher cold
+    # access costs consume more gas, reducing the stored value.
+    # MIP-3 (MONAD_NINE) linear memory pricing saves 15 gas.
+    gas_costs = fork.gas_costs()
+    gas_adj = (
+        (gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600) * 2
+        + (gas_costs.GAS_COLD_SLOAD - 2100)
+    )
+    if fork >= MONAD_NINE:
+        gas_adj -= 15
+    post = {}
+    for addr, acct in expected_post.items():
+        storage = dict(acct.storage) if acct.storage else {}
+        if 1 in storage:
+            storage[1] -= gas_adj
+        post[addr] = Account(storage=storage)
 
     state_test(env=env, pre=pre, post=post, tx=tx)

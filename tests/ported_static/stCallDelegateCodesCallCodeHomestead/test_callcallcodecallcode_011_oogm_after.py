@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_callcallcodecallcode_011_oogm_after(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """CALLCODE -> (DELEGATE -> DELEGATE -> CODE) OOG."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -121,8 +124,12 @@ def test_callcallcodecallcode_011_oogm_after(
         gas_limit=1000000,
     )
 
-    post = {
-        contract: Account(storage={11: 1}),
-    }
+    # On MONAD_NINE, MIP-3 linear memory pricing makes SHA3(0, 0x2FFFFF)
+    # cheap enough to not OOG. With CALLCODE/DELEGATECALL, all SSTOREs
+    # write to the top-level contract's storage.
+    if fork >= MONAD_NINE:
+        post = {contract: Account(storage={0: 1, 1: 1, 2: 1, 3: 1, 11: 1})}
+    else:
+        post = {contract: Account(storage={11: 1})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)
