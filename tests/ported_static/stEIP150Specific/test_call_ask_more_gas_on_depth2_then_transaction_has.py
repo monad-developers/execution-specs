@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_call_ask_more_gas_on_depth2_then_transaction_has(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -103,10 +106,14 @@ def test_call_ask_more_gas_on_depth2_then_transaction_has(
         gas_limit=600000,
     )
 
+    # Callee_1 slot 8 measures gas at depth 2. Higher cold access costs
+    # reduce gas available via the 63/64 retention rule.
+    callee_1_gas = 0x26E0D if fork >= MONAD_EIGHT else 0x2A1F6
+
     post = {
         callee: Account(storage={8: 0x30D3E, 9: 1}),
         contract: Account(storage={8: 0x8D5B6, 9: 1}),
-        callee_1: Account(storage={8: 0x2A1F6}),
+        callee_1: Account(storage={8: callee_1_gas}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

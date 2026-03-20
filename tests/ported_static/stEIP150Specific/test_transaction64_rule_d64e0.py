@@ -15,6 +15,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -31,6 +33,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_transaction64_rule_d64e0(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -82,8 +85,17 @@ def test_transaction64_rule_d64e0(
         gas_limit=160062,
     )
 
+    # Slot 2 measures gas including cold account access + cold SLOAD.
+    gas_costs = fork.gas_costs()
+    gas_adj = (
+        (gas_costs.GAS_COLD_ACCOUNT_ACCESS - 2600)
+        + (gas_costs.GAS_COLD_SLOAD - 2100)
+    )
+    if fork >= MONAD_NINE:
+        gas_adj -= 3
+
     post = {
-        contract: Account(storage={2: 24740}),
+        contract: Account(storage={2: 24740 + gas_adj}),
         callee: Account(storage={1: 12}),
     }
 

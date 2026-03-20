@@ -16,6 +16,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +33,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_call_goes_oog_on_second_level_with_mem_expanding_calls(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -107,8 +109,13 @@ def test_call_goes_oog_on_second_level_with_mem_expanding_calls(
         gas_limit=220000,
     )
 
-    post = {
-        contract: Account(storage={8: 0x30956}),
-    }
+    # Higher cold access costs cause the inner CALL to OOG,
+    # resulting in empty storage.
+    from execution_testing.forks import MONAD_EIGHT
+
+    if fork >= MONAD_EIGHT:
+        post = {contract: Account(storage={})}
+    else:
+        post = {contract: Account(storage={8: 0x30956})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -16,6 +16,8 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import MONAD_NINE
+from execution_testing.forks.helpers import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -32,6 +34,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_create_and_gas_inside_create_with_mem_expanding_calls(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """Test ported from static filler."""
     coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
@@ -69,10 +72,12 @@ def test_create_and_gas_inside_create_with_mem_expanding_calls(
         gas_limit=600000,
     )
 
+    gas_costs = fork.gas_costs()
+
     post = {
         contract: Account(
             storage={
-                9: 0x75596,
+                9: 0x75596 - (gas_costs.GAS_COLD_SLOAD - 2100) * 3,
                 10: 0x8D5B6,
                 11: 0xF1ECF98489FA9ED60A664FC4998DB699CFA39D40,
             },
