@@ -15,6 +15,9 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
 )
+from execution_testing.test_types.chain_config_types import (
+    ChainConfigDefaults,
+)
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -61,7 +64,7 @@ def test_chain_id(
     )
 
     post = {
-        contract: Account(storage={1: 1}),
+        contract: Account(storage={1: ChainConfigDefaults.chain_id}),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)
