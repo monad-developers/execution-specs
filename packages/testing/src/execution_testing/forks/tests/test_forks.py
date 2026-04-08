@@ -396,11 +396,11 @@ def test_tx_types() -> None:  # noqa: D103
     Cancun.tx_types() == list(range(4))  # noqa: B015
 
 
-def test_monad_eight_disables_blob_support() -> None:
-    """MONAD_EIGHT keeps the KZG precompile but does not support blob txs."""
+def test_monad_eight_disables_blob_transactions_not_headers() -> None:
+    """MONAD_EIGHT keeps blob header fields but rejects blob tx behavior."""
     assert MONAD_EIGHT.supports_blobs() is False
-    assert MONAD_EIGHT.header_excess_blob_gas_required() is False
-    assert MONAD_EIGHT.header_blob_gas_used_required() is False
+    assert MONAD_EIGHT.header_excess_blob_gas_required() is True
+    assert MONAD_EIGHT.header_blob_gas_used_required() is True
     assert MONAD_EIGHT.blob_schedule() is None
     assert MONAD_EIGHT.engine_get_blobs_version() is None
     assert MONAD_EIGHT.engine_new_payload_blob_hashes() is False

@@ -3273,27 +3273,6 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
     """MONAD_EIGHT fork."""
 
     @classmethod
-    def header_excess_blob_gas_required(
-        cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> bool:
-        """
-        MONAD_EIGHT does not include blob header fields.
-
-        Monad keeps the point-evaluation precompile but does not support blob
-        transactions or blob gas accounting.
-        """
-        del block_number, timestamp
-        return False
-
-    @classmethod
-    def header_blob_gas_used_required(
-        cls, *, block_number: int = 0, timestamp: int = 0
-    ) -> bool:
-        """MONAD_EIGHT does not include blob header fields."""
-        del block_number, timestamp
-        return False
-
-    @classmethod
     def supports_blobs(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> bool:
