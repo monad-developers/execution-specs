@@ -86,9 +86,6 @@ def reserve_balance(evm: Evm) -> None:
         raise RevertInMonadPrecompile
 
     # OPERATION
-    violation = is_reserve_balance_violated(
-        evm.message.block_env.state,
-        evm.message.tx_env,
-    )
+    violation = is_reserve_balance_violated(evm)
     # Return bool encoded as uint256 (32 bytes)
     evm.output = U256(1 if violation else 0).to_be_bytes32()

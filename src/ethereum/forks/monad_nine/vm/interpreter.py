@@ -32,7 +32,6 @@ from ethereum.trace import (
 
 from ..blocks import Log
 from ..state import (
-    State,
     account_has_code_or_nonce,
     account_has_storage,
     begin_transaction,
@@ -47,7 +46,7 @@ from ..state import (
     rollback_transaction,
     set_code,
 )
-from ..vm import Message, TransactionEnvironment
+from ..vm import Message
 from ..vm.eoa_delegation import (
     get_delegated_code_address,
     is_valid_delegation,
@@ -79,19 +78,49 @@ MAX_INIT_CODE_SIZE = 2 * MAX_CODE_SIZE
 RESERVE_BALANCE = U256(10 * 10**18)  # 10 MON
 
 
-def is_reserve_balance_violated(
-    state: State,
-    tx_env: TransactionEnvironment,
-) -> bool:
+def is_reserve_balance_violated(evm: Evm) -> bool:
     """
     Check if any EOA has violated the reserve balance constraint.
 
     Returns True if a violation is detected, False otherwise.
     """
+    message = evm.message
+    state = message.block_env.state
+    tx_env = message.tx_env
+
+    # Collect accounts_to_delete from all ancestor frames. accounts_to_delete
+    # only propagates upward on success (incorporate_child_on_success), so a
+    # child frame like a precompile call won't see deletions from its parent.
+    all_accounts_to_delete: Set[Address] = set()
+    current_evm = evm
+    while True:
+        all_accounts_to_delete.update(current_evm.accounts_to_delete)
+        if current_evm.message.parent_evm is not None:
+            current_evm = current_evm.message.parent_evm
+        else:
+            break
+
     for addr in set(state._main_trie._data.keys()):
+        # Account SELFDESTRUCTed - skip explicitly.
+        if addr in all_accounts_to_delete:
+            continue
+
         acc = get_account(state, addr)
-        acc_code = get_code(state, acc.code_hash)
-        if acc_code == b"" or is_valid_delegation(acc_code):
+        # For creation txs, code hasn't been set yet on the new contract
+        # (set_code runs after process_message returns). Use evm.output which
+        # holds the code to be deployed.
+        if (
+            isinstance(message.target, Bytes0)
+            and addr == message.current_target
+        ):
+            code = evm.output
+        else:
+            code = get_code(state, acc.code_hash)
+
+        # NOTE: this also matches initcode ending with empty code deployments
+        # via `Op.STOP` or `Op.RETURN(0, 0)`, AND check made during initcode
+        # execution, but this aligns with Monad EVM implementation.
+        if code == b"" or is_valid_delegation(code):
             original_balance = get_balance_original(state, addr)
             if tx_env.origin == addr:
                 # gas_fees already deducted, need to re-add if sender
@@ -102,9 +131,13 @@ def is_reserve_balance_violated(
                 threshold = reserve - gas_fees
             else:
                 threshold = RESERVE_BALANCE
-            is_exception = not is_sender_authority(
-                state, addr
-            ) and not is_valid_delegation(acc_code)
+
+            is_exception = (
+                message.tx_env.origin == addr
+                and not is_sender_authority(state, addr)
+                and not is_valid_delegation(code)
+            )
+
             if (
                 acc.balance < original_balance
                 and acc.balance < threshold
@@ -364,7 +397,7 @@ def process_message(message: Message) -> Evm:
     else:
         # FIXME: index_in_block is a proxy for not being a system tx
         if message.depth == 0 and message.tx_env.index_in_block is not None:
-            if is_reserve_balance_violated(state, message.tx_env):
+            if is_reserve_balance_violated(evm):
                 rollback_transaction(state, transient_storage)
                 evm.error = RevertOnReserveBalance()
                 return evm

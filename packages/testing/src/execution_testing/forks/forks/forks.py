@@ -3293,6 +3293,59 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
     """MONAD_EIGHT fork."""
 
     @classmethod
+    def supports_blobs(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> bool:
+        """MONAD_EIGHT does not support blob transactions."""
+        del block_number, timestamp
+        return False
+
+    @classmethod
+    def tx_types(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> List[int]:
+        """Return Prague transaction types without blob transactions."""
+        return [
+            tx_type
+            for tx_type in super(MONAD_EIGHT, cls).tx_types(
+                block_number=block_number, timestamp=timestamp
+            )
+            if tx_type != 3
+        ]
+
+    @classmethod
+    def full_blob_tx_wrapper_version(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> int | None:
+        """MONAD_EIGHT does not wrap full blob transactions."""
+        del block_number, timestamp
+        return None
+
+    @classmethod
+    def blob_schedule(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> BlobSchedule | None:
+        """MONAD_EIGHT does not advertise a blob schedule."""
+        del block_number, timestamp
+        return None
+
+    @classmethod
+    def engine_get_blobs_version(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> Optional[int]:
+        """MONAD_EIGHT does not expose blob retrieval over the engine API."""
+        del block_number, timestamp
+        return None
+
+    @classmethod
+    def engine_new_payload_blob_hashes(
+        cls, *, block_number: int = 0, timestamp: int = 0
+    ) -> bool:
+        """MONAD_EIGHT payloads do not include blob hashes."""
+        del block_number, timestamp
+        return False
+
+    @classmethod
     def precompiles(
         cls, *, block_number: int = 0, timestamp: int = 0
     ) -> List[Address]:

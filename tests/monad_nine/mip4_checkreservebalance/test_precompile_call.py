@@ -24,6 +24,7 @@ from execution_testing import (
     Transaction,
 )
 from execution_testing.forks.helpers import Fork
+from execution_testing.test_types.receipt_types import TransactionReceipt
 
 from ..mip3_linear_memory.spec import Spec as SpecMIP3
 from .helpers import (
@@ -655,15 +656,10 @@ _INCOMPATIBLE_SCENARIOS = {
 }
 
 _CHECK_ORDER_PAIRS = [
-    pytest.param(
-        s1,
-        s2,
-        id=f"{s1.name.lower()}__{s2.name.lower()}",
-    )
+    pytest.param(s1, s2, id=f"{s1.name.lower()}__{s2.name.lower()}")
     for s1 in CallScenario
     for s2 in CallScenario
-    if s1 != CallScenario.SUCCESS
-    and s2 != CallScenario.SUCCESS
+    if CallScenario.SUCCESS not in {s1, s2}
     and s1.check_priority < s2.check_priority
     and frozenset({s1, s2}) not in _INCOMPATIBLE_SCENARIOS
 ]
@@ -749,4 +745,163 @@ def test_check_order(
             ),
         },
         blocks=[Block(txs=[tx])],
+    )
+
+
+# --- Direct-transaction tests ---
+
+
+def _tx_params(
+    *scenarios: CallScenario,
+    pre: Alloc,
+    fork: Fork,
+) -> tuple[bytes, int, Address, int]:
+    """
+    Return (calldata, value, to, gas_limit) for a set of
+    tx-level CallScenarios.
+    """
+    scenario_set = set(scenarios)
+    if CallScenario.WRONG_SELECTOR in scenario_set:
+        calldata = bytes.fromhex("DEADBEEF")
+    else:
+        calldata = Spec.DIPPED_INTO_RESERVE_SELECTOR
+
+    if CallScenario.SHORT_CALLDATA in scenario_set:
+        calldata = calldata[:3]
+    elif CallScenario.EXTRA_CALLDATA in scenario_set:
+        calldata = calldata + b"\xff"
+
+    if CallScenario.NONZERO_VALUE in scenario_set:
+        value = 1
+    else:
+        value = 0
+
+    if CallScenario.DELEGATE_TO_PRECOMPILE in scenario_set:
+        to: Address = pre.fund_eoa(
+            0, delegation=Spec.RESERVE_BALANCE_PRECOMPILE
+        )
+    else:
+        to = Spec.RESERVE_BALANCE_PRECOMPILE
+
+    if CallScenario.LOW_GAS in scenario_set:
+        intrinsic_gas = fork.transaction_intrinsic_cost_calculator()(
+            calldata=calldata,
+            return_cost_deducted_prior_execution=True,
+        )
+        gas_limit = intrinsic_gas + Spec.GAS_COST - 1
+    else:
+        gas_limit = generous_gas(fork)
+
+    return calldata, value, to, gas_limit
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [s for s in CallScenario if s is not CallScenario.NOT_CALL],
+)
+def test_tx_revert_scenarios(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    scenario: CallScenario,
+) -> None:
+    """
+    Test precompile behavior when called directly as the transaction
+    `to`.
+    """
+    gas_price = 10
+
+    calldata, value, to, gas_limit = _tx_params(scenario, pre=pre, fork=fork)
+    gas_cost = gas_limit * gas_price
+    sender = pre.fund_eoa(gas_cost + value)
+
+    tx = Transaction(
+        gas_limit=gas_limit,
+        max_fee_per_gas=gas_price,
+        max_priority_fee_per_gas=gas_price,
+        to=to,
+        sender=sender,
+        data=calldata,
+        value=value,
+        expected_receipt=TransactionReceipt(
+            status=1 if scenario.should_succeed else 0,
+        ),
+    )
+
+    post: dict = {
+        sender: Account(balance=value),
+    }
+
+    state_test(
+        pre=pre,
+        post=post,
+        tx=tx,
+    )
+
+
+_TX_INCOMPATIBLE_SCENARIOS = _INCOMPATIBLE_SCENARIOS | {
+    # EIP-7623 floor makes it impossible to create a valid tx with
+    # insufficient execution gas when extra calldata is appended.
+    # For extra calldata (5 bytes), the floor is high enough that
+    # we can't create a valid tx with less than 100 execution gas
+    # EIP-7623 floor (21200) vs (21179) - impossible
+    # For correct calldata (4 bytes), in the test just above it's
+    # EIP-7623 floor (21160) vs (21163) - possible
+    frozenset({CallScenario.LOW_GAS, CallScenario.EXTRA_CALLDATA}),
+}
+
+_TX_SCENARIO_PAIRS = [
+    pytest.param(s1, s2, id=f"{s1.name.lower()}__{s2.name.lower()}")
+    for s1 in CallScenario
+    for s2 in CallScenario
+    if CallScenario.SUCCESS not in {s1, s2}
+    and CallScenario.NOT_CALL not in {s1, s2}
+    and s1.check_priority < s2.check_priority
+    and frozenset({s1, s2}) not in _TX_INCOMPATIBLE_SCENARIOS
+]
+
+
+@pytest.mark.parametrize("scenario1,scenario2", _TX_SCENARIO_PAIRS)
+def test_tx_revert_scenario_pairs(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    scenario1: CallScenario,
+    scenario2: CallScenario,
+) -> None:
+    """
+    Test when the precompile is called directly as transaction
+    `to` with 2 reasons to revert.
+    """
+    gas_price = 10
+
+    calldata, value, to, gas_limit = _tx_params(
+        scenario1, scenario2, pre=pre, fork=fork
+    )
+    gas_cost = gas_limit * gas_price
+    sender = pre.fund_eoa(gas_cost + value)
+
+    tx = Transaction(
+        gas_limit=gas_limit,
+        max_fee_per_gas=gas_price,
+        max_priority_fee_per_gas=gas_price,
+        to=to,
+        sender=sender,
+        data=calldata,
+        value=value,
+        expected_receipt=TransactionReceipt(
+            status=0x1
+            if scenario1.should_succeed and scenario2.should_succeed
+            else 0x0
+        ),
+    )
+
+    post: dict = {
+        sender: Account(balance=value),
+    }
+
+    state_test(
+        pre=pre,
+        post=post,
+        tx=tx,
     )
