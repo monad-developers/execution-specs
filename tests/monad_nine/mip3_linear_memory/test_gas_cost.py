@@ -54,7 +54,7 @@ def test_cost_non_quadratic(
     contract_address = pre.deploy_contract(contract)
 
     tx = Transaction(
-        gas_limit=fork.gas_costs().G_MEMORY * Spec.MAX_TX_MEMORY_USAGE // 32
+        gas_limit=fork.gas_costs().GAS_MEMORY * Spec.MAX_TX_MEMORY_USAGE // 32
         + 100_000,
         to=contract_address,
         sender=pre.fund_eoa(),
@@ -82,24 +82,24 @@ def memory_copy_opcodes(
     gas_costs = fork.gas_costs()
 
     memory_opcodes = {
-        Op.CALLDATACOPY: gas_costs.G_VERY_LOW,
-        Op.CODECOPY: gas_costs.G_VERY_LOW,
-        Op.EXTCODECOPY: gas_costs.G_WARM_ACCOUNT_ACCESS,
-        Op.MCOPY: gas_costs.G_VERY_LOW,
-        Op.SHA3: gas_costs.G_KECCAK_256,
-        Op.LOG0: gas_costs.G_LOG,
-        Op.LOG1: gas_costs.G_LOG + gas_costs.G_LOG_TOPIC,
-        Op.LOG2: gas_costs.G_LOG + 2 * gas_costs.G_LOG_TOPIC,
-        Op.LOG3: gas_costs.G_LOG + 3 * gas_costs.G_LOG_TOPIC,
-        Op.LOG4: gas_costs.G_LOG + 4 * gas_costs.G_LOG_TOPIC,
+        Op.CALLDATACOPY: gas_costs.GAS_VERY_LOW,
+        Op.CODECOPY: gas_costs.GAS_VERY_LOW,
+        Op.EXTCODECOPY: gas_costs.GAS_WARM_ACCOUNT_ACCESS,
+        Op.MCOPY: gas_costs.GAS_VERY_LOW,
+        Op.SHA3: gas_costs.GAS_KECCAK256,
+        Op.LOG0: gas_costs.GAS_LOG,
+        Op.LOG1: gas_costs.GAS_LOG + gas_costs.GAS_LOG_TOPIC,
+        Op.LOG2: gas_costs.GAS_LOG + 2 * gas_costs.GAS_LOG_TOPIC,
+        Op.LOG3: gas_costs.GAS_LOG + 3 * gas_costs.GAS_LOG_TOPIC,
+        Op.LOG4: gas_costs.GAS_LOG + 4 * gas_costs.GAS_LOG_TOPIC,
         Op.RETURN: 0,
         Op.REVERT: 0,
-        Op.CREATE: gas_costs.G_CREATE,
-        Op.CREATE2: gas_costs.G_CREATE,
-        Op.CALL: gas_costs.G_WARM_ACCOUNT_ACCESS,
-        Op.DELEGATECALL: gas_costs.G_WARM_ACCOUNT_ACCESS,
-        Op.STATICCALL: gas_costs.G_WARM_ACCOUNT_ACCESS,
-        Op.CALLCODE: gas_costs.G_WARM_ACCOUNT_ACCESS,
+        Op.CREATE: gas_costs.GAS_CREATE,
+        Op.CREATE2: gas_costs.GAS_CREATE,
+        Op.CALL: gas_costs.GAS_WARM_ACCOUNT_ACCESS,
+        Op.DELEGATECALL: gas_costs.GAS_WARM_ACCOUNT_ACCESS,
+        Op.STATICCALL: gas_costs.GAS_WARM_ACCOUNT_ACCESS,
+        Op.CALLCODE: gas_costs.GAS_WARM_ACCOUNT_ACCESS,
         # RETURNDATACOPY tested separately in test_returndatacopy_gas_cost
     }
 
@@ -119,9 +119,9 @@ def memory_stack_opcodes(
     gas_costs = fork.gas_costs()
 
     memory_opcodes = {
-        Op.MLOAD: gas_costs.G_VERY_LOW,
-        Op.MSTORE: gas_costs.G_VERY_LOW,
-        Op.MSTORE8: gas_costs.G_VERY_LOW,
+        Op.MLOAD: gas_costs.GAS_VERY_LOW,
+        Op.MSTORE: gas_costs.GAS_VERY_LOW,
+        Op.MSTORE8: gas_costs.GAS_VERY_LOW,
     }
 
     for opcode, warm_gas in memory_opcodes.items():
@@ -223,19 +223,21 @@ def test_memory_copy_opcodes(
         Op.EXTCODECOPY,
         Op.MCOPY,
     ):
-        dynamic_gas_cost = fork.gas_costs().G_COPY * ((size + 31) // 32)
+        dynamic_gas_cost = fork.gas_costs().GAS_COPY * ((size + 31) // 32)
     if opcode == Op.SHA3:
-        dynamic_gas_cost = fork.gas_costs().G_KECCAK_256_WORD * (
+        dynamic_gas_cost = fork.gas_costs().GAS_KECCAK256_PER_WORD * (
             (size + 31) // 32
         )
     if opcode in (Op.LOG0, Op.LOG1, Op.LOG2, Op.LOG3, Op.LOG4):
-        dynamic_gas_cost = fork.gas_costs().G_LOG_DATA * size
+        dynamic_gas_cost = fork.gas_costs().GAS_LOG_DATA_PER_BYTE * size
     if opcode in (Op.RETURN, Op.REVERT):
         dynamic_gas_cost = 0
     if opcode in (Op.CREATE, Op.CREATE2):
-        init_code_cost = fork.gas_costs().G_INITCODE_WORD * ((size + 31) // 32)
+        init_code_cost = fork.gas_costs().GAS_CODE_INIT_PER_WORD * (
+            (size + 31) // 32
+        )
         if opcode == Op.CREATE2:
-            hash_cost = fork.gas_costs().G_KECCAK_256_WORD * (
+            hash_cost = fork.gas_costs().GAS_KECCAK256_PER_WORD * (
                 (size + 31) // 32
             )
             dynamic_gas_cost = init_code_cost + hash_cost
@@ -345,8 +347,8 @@ def test_returndatacopy_gas_cost(
         new_bytes=size,
         previous_bytes=len(initial_memory),
     )
-    dynamic_gas_cost = gas_costs.G_COPY * ((size + 31) // 32)
-    base_gas = gas_costs.G_VERY_LOW
+    dynamic_gas_cost = gas_costs.GAS_COPY * ((size + 31) // 32)
+    base_gas = gas_costs.GAS_VERY_LOW
 
     returner_address = pre.deploy_contract(Op.RETURN(0, size))
 
@@ -428,7 +430,7 @@ def test_consecutive_expansions(
     - Multiple small expansions equal one large expansion
     """
     gas_costs = fork.gas_costs()
-    base_gas_per_op = gas_costs.G_VERY_LOW
+    base_gas_per_op = gas_costs.GAS_VERY_LOW
 
     setup_code = Bytecode()
     for offset in reversed(offsets):

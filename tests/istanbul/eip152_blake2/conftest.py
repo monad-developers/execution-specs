@@ -14,7 +14,7 @@ def blake2b_contract_bytecode(call_opcode: Op, fork: Fork) -> Bytecode:
     BLAKE2b precompile and stores the result.
     """
     gas_costs = fork.gas_costs()
-    sstore_cost = 3 * (gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD)
+    sstore_cost = 3 * (gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD)
     return (
         Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE())
         + Op.SSTORE(

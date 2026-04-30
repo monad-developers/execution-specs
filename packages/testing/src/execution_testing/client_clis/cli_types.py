@@ -217,6 +217,7 @@ class Traces(EthereumTestRootModel):
 
 _opcode_synonyms = {
     "KECCAK256": "SHA3",
+    "DIFFICULTY": "PREVRANDAO",
 }
 
 

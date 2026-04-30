@@ -857,6 +857,7 @@ def test_set_code_to_self_caller(
 
 
 @pytest.mark.execute(pytest.mark.skip(reason="excessive gas"))
+@pytest.mark.json_loader
 def test_set_code_max_depth_call_stack(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -928,6 +929,7 @@ def test_set_code_max_depth_call_stack(
     "value",
     [0, 1],
 )
+@pytest.mark.json_loader
 def test_set_code_call_set_code(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -1475,14 +1477,14 @@ def test_set_code_address_and_authority_warm_state(
     callee_storage = Storage()
     callee_storage[slot_call_success] = 1
     callee_storage[slot_set_code_to_warm_state] = (
-        gas_costs.G_COLD_ACCOUNT_ACCESS
+        gas_costs.GAS_COLD_ACCOUNT_ACCESS
         if set_code_address_first
-        else gas_costs.G_WARM_ACCOUNT_ACCESS
+        else gas_costs.GAS_WARM_ACCOUNT_ACCESS
     )
     callee_storage[slot_authority_warm_state] = 100 + (
-        gas_costs.G_WARM_ACCOUNT_ACCESS
+        gas_costs.GAS_WARM_ACCOUNT_ACCESS
         if set_code_address_first
-        else gas_costs.G_COLD_ACCOUNT_ACCESS
+        else gas_costs.GAS_COLD_ACCOUNT_ACCESS
     )
 
     tx = Transaction(
@@ -2440,6 +2442,8 @@ def test_set_code_using_valid_synthetic_signatures(
         pytest.param(2, 1, 1, id="v=2"),
         pytest.param(27, 1, 1, id="v=27"),  # Type-0 transaction valid value
         pytest.param(28, 1, 1, id="v=28"),  # Type-0 transaction valid value
+        pytest.param(29, 1, 1, id="v=29"),  # Type-0 replay-protected
+        # transaction valid value (chain_id=2)
         pytest.param(35, 1, 1, id="v=35"),  # Type-0 replay-protected
         # transaction valid value
         pytest.param(36, 1, 1, id="v=36"),  # Type-0 replay-protected
@@ -2467,6 +2471,7 @@ def test_set_code_using_valid_synthetic_signatures(
         ),
     ],
 )
+@pytest.mark.json_loader
 def test_valid_tx_invalid_auth_signature(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2756,6 +2761,7 @@ def test_nonce_validity(
 
 
 @pytest.mark.pre_alloc_mutable()
+@pytest.mark.json_loader
 def test_nonce_overflow_after_first_authorization(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2975,7 +2981,8 @@ def test_set_code_to_precompile_not_enough_gas_for_precompile_execution(
         authorization_list_or_count=[auth],
     )
     # discount = min(
-    #     Spec.PER_EMPTY_ACCOUNT_COST - Spec.PER_AUTH_BASE_COST,
+    #     Spec.GAS_AUTH_PER_EMPTY_ACCOUNT
+    #     - Spec.REFUND_AUTH_PER_EXISTING_ACCOUNT,
     #     intrinsic_gas // 5,  # max discount EIP-3529
     # )
 
@@ -3416,6 +3423,7 @@ def test_reset_code(
 
 
 @pytest.mark.exception_test
+@pytest.mark.json_loader
 def test_contract_create(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -3444,6 +3452,7 @@ def test_contract_create(
 
 
 @pytest.mark.exception_test
+@pytest.mark.json_loader
 def test_empty_authorization_list(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -3904,7 +3913,7 @@ def test_many_delegations(
         max_gas = env.gas_limit
     gas_for_delegations = max_gas - 21_000 - 20_000 - (3 * 2)
 
-    delegation_count = gas_for_delegations // Spec.PER_EMPTY_ACCOUNT_COST
+    delegation_count = gas_for_delegations // Spec.GAS_AUTH_PER_EMPTY_ACCOUNT
 
     success_slot = 1
     entry_code = Op.SSTORE(success_slot, 1) + Op.STOP
@@ -4052,6 +4061,7 @@ def test_authorization_reusing_nonce(
 )
 @pytest.mark.exception_test
 @pytest.mark.pre_alloc_mutable
+@pytest.mark.json_loader
 def test_set_code_from_account_with_non_delegating_code(
     state_test: StateTestFiller,
     pre: Alloc,

@@ -123,6 +123,53 @@ def get_valid_transition_tool_names() -> set[str]:
     return {fork.transition_tool_name() for fork in all_available_forks}
 
 
+class OutputCache:
+    """
+    Single-key cache for t8n outputs.
+
+    Stores results for one test at a time. When the key changes, the previous
+    cache is cleared. Works with xdist loadgroup which ensures related fixture
+    formats run on the same worker.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the cache."""
+        self._cache: Dict[int, TransitionToolOutput] = {}
+        self.key: str | None = None
+        self.hits = 0
+        self.misses = 0
+
+    def set_key(self, key: str) -> bool:
+        """
+        Set the current key, returning True if it was already cached.
+
+        Clears the cache when the key changes.
+        """
+        if key == self.key:
+            return True
+        # New key - clear cache and start fresh
+        self._cache.clear()
+        self.key = key
+        return False
+
+    def get(self, subkey: int) -> TransitionToolOutput | None:
+        """Get a value from the cache for the current key."""
+        if subkey in self._cache:
+            self.hits += 1
+            return self._cache[subkey]
+        self.misses += 1
+        return None
+
+    def set(self, subkey: int, value: TransitionToolOutput) -> None:
+        """Set a value in the cache for the current key."""
+        self._cache[subkey] = value
+
+    def clear(self) -> None:
+        """Clear the cache and reset the key."""
+        self._cache.clear()
+        self.key = None
+
+
 class TransitionTool(EthereumCLI):
     """
     Transition tool abstract base class which should be inherited by all
@@ -142,8 +189,12 @@ class TransitionTool(EthereumCLI):
     t8n_use_server: bool = False
     server_url: str | None = None
     process: Optional[subprocess.Popen] = None
-    supports_opcode_count: ClassVar[bool] = False
+    output_cache: OutputCache | None = None
+    debug_dump_dir: Path | None = None
+    call_counter: int = 0
+    opcode_count: OpcodeCount | None = None
 
+    supports_opcode_count: ClassVar[bool] = False
     supports_xdist: ClassVar[bool] = True
     supports_blob_params: ClassVar[bool] = False
     fork_name_map: ClassVar[Dict[str, str]] = {}
@@ -187,15 +238,14 @@ class TransitionTool(EthereumCLI):
 
     def reset_traces(self) -> None:
         """Reset the internal trace storage for a new test to begin."""
-        self.traces = None
+        self.traces = []
 
     def append_traces(self, new_traces: Traces) -> None:
         """
         Append a list of traces of a state transition to the current
         list.
         """
-        if self.traces is None:
-            self.traces = []
+        assert self.traces is not None
         self.traces.append(new_traces)
 
     def get_traces(self) -> List[Traces] | None:
@@ -206,7 +256,7 @@ class TransitionTool(EthereumCLI):
         self,
         receipts: List[TransactionReceipt],
         temp_dir: tempfile.TemporaryDirectory,
-        debug_output_path: str = "",
+        debug_output_path: Path | None,
     ) -> Traces:
         """
         Collect the traces from the t8n tool output and store them in the
@@ -225,6 +275,29 @@ class TransitionTool(EthereumCLI):
             traces.append(TransactionTraces.from_file(trace_file_path))
         self.append_traces(traces)
         return traces
+
+    def set_cache(self, *, key: str) -> bool:
+        """
+        Set the current cache key.
+
+        Creates the cache on first call, then reuses it for single-key
+        eviction.
+        Returns True if the key was already in the cache (hit).
+        """
+        if self.output_cache is None:
+            self.output_cache = OutputCache()
+        return self.output_cache.set_key(key)
+
+    def remove_cache(self) -> None:
+        """Clear the cache (test doesn't use caching)."""
+        if self.output_cache is not None:
+            self.output_cache.clear()
+
+    def reset_opcode_count(self) -> None:
+        """
+        Reset the opcode count to zero.
+        """
+        self.opcode_count = OpcodeCount({})
 
     @dataclass
     class TransitionToolData:
@@ -308,7 +381,7 @@ class TransitionTool(EthereumCLI):
         self,
         *,
         t8n_data: TransitionToolData,
-        debug_output_path: str = "",
+        debug_output_path: Path | None,
         profiler: Profiler,
     ) -> TransitionToolOutput:
         """
@@ -366,7 +439,7 @@ class TransitionTool(EthereumCLI):
             "--state.chainid",
             str(t8n_data.chain_id),
         ]
-        if self.supports_opcode_count:
+        if self.supports_opcode_count and self.opcode_count is not None:
             args.extend(
                 [
                     "--opcode.count",
@@ -436,7 +509,7 @@ class TransitionTool(EthereumCLI):
             temp_dir_path / "output",
             context={"exception_mapper": self.exception_mapper},
         )
-        if self.supports_opcode_count:
+        if self.supports_opcode_count and self.opcode_count is not None:
             opcode_count_file_path = Path(temp_dir.name) / "opcodes.json"
             if opcode_count_file_path.exists():
                 opcode_count = OpcodeCount.model_validate_json(
@@ -514,7 +587,7 @@ class TransitionTool(EthereumCLI):
         self,
         *,
         t8n_data: TransitionToolData,
-        debug_output_path: str = "",
+        debug_output_path: Path | None,
         timeout: int,
         profiler: Profiler,
     ) -> TransitionToolOutput:
@@ -602,7 +675,7 @@ class TransitionTool(EthereumCLI):
         self,
         *,
         t8n_data: TransitionToolData,
-        debug_output_path: str = "",
+        debug_output_path: Path | None,
         profiler: Profiler,
     ) -> TransitionToolOutput:
         """
@@ -624,10 +697,11 @@ class TransitionTool(EthereumCLI):
             stderr=subprocess.PIPE,
         )
 
-        with profiler.pause():
-            self.dump_debug_stream(
-                debug_output_path, temp_dir, stdin, args, result
-            )
+        if debug_output_path:
+            with profiler.pause():
+                self.dump_debug_stream(
+                    debug_output_path, temp_dir, stdin, args, result
+                )
 
         if result.returncode != 0:
             raise Exception("failed to evaluate: " + result.stderr.decode())
@@ -649,6 +723,23 @@ class TransitionTool(EthereumCLI):
                         "output/txs.rlp": str(output.body),
                     },
                 )
+
+        if self.supports_opcode_count:
+            opcode_count_file_path = Path(temp_dir.name) / "opcodes.json"
+            if opcode_count_file_path.exists():
+                opcode_count = OpcodeCount.model_validate_json(
+                    opcode_count_file_path.read_text()
+                )
+                output.result.opcode_count = opcode_count
+
+                if debug_output_path:
+                    with profiler.pause():
+                        dump_files_to_directory(
+                            debug_output_path,
+                            {
+                                "opcodes.json": opcode_count.model_dump(),
+                            },
+                        )
 
         if self.trace:
             output.result.traces = self.collect_traces(
@@ -709,8 +800,12 @@ class TransitionTool(EthereumCLI):
             f"--state.reward={reward}",
         ]
 
-        if self.trace and temp_dir:
-            args.extend([trace_flag, f"--output.basedir={temp_dir.name}"])
+        if temp_dir and (self.trace or self.supports_opcode_count):
+            args.append(f"--output.basedir={temp_dir.name}")
+        if self.trace:
+            args.append(trace_flag)
+        if self.supports_opcode_count and temp_dir:
+            args.extend(["--opcode.count", "opcodes.json"])
 
         return args
 
@@ -731,7 +826,7 @@ class TransitionTool(EthereumCLI):
 
     def dump_debug_stream(
         self,
-        debug_output_path: str,
+        debug_output_path: Path,
         temp_dir: tempfile.TemporaryDirectory,
         stdin: TransitionToolInput,
         args: List[str],
@@ -740,9 +835,6 @@ class TransitionTool(EthereumCLI):
         """
         Export debug files if requested when interacting with t8n via streams.
         """
-        if not debug_output_path:
-            return
-
         t8n_call = " ".join(args)
         t8n_output_base_dir = os.path.join(debug_output_path, "t8n.sh.out")
         if self.trace:
@@ -776,11 +868,79 @@ class TransitionTool(EthereumCLI):
             },
         )
 
+    def _evaluate(
+        self,
+        *,
+        transition_tool_data: TransitionToolData,
+        debug_output_path: Path | None,
+        slow_request: bool,
+        profiler: Profiler,
+    ) -> TransitionToolOutput:
+        """
+        Execute the relevant evaluate method as required by the `t8n` tool.
+
+        If a client's `t8n` tool varies from the default behavior, this method
+        can be overridden.
+        """
+        if self.t8n_use_server:
+            if not self.server_url:
+                self.start_server()
+            return self._evaluate_server(
+                t8n_data=transition_tool_data,
+                debug_output_path=debug_output_path,
+                timeout=SLOW_REQUEST_TIMEOUT
+                if slow_request
+                else NORMAL_SERVER_TIMEOUT,
+                profiler=profiler,
+            )
+
+        elif self.t8n_use_stream:
+            return self._evaluate_stream(
+                t8n_data=transition_tool_data,
+                debug_output_path=debug_output_path,
+                profiler=profiler,
+            )
+        else:
+            return self._evaluate_filesystem(
+                t8n_data=transition_tool_data,
+                debug_output_path=debug_output_path,
+                profiler=profiler,
+            )
+
+    def get_next_transition_tool_output_path(
+        self, call_id: int
+    ) -> Path | None:
+        """Return path to the next transition tool output file."""
+        debug_dump_dir = self.debug_dump_dir
+        if debug_dump_dir is None:
+            return None
+        return debug_dump_dir / str(call_id)
+
+    def increment_call_counter(self) -> int:
+        """Increment the call counter by one and return the previous value."""
+        previous_value = self.call_counter
+        self.call_counter += 1
+        return previous_value
+
+    def process_result(
+        self, result: TransitionToolOutput
+    ) -> TransitionToolOutput:
+        """
+        Process the result of the transition tool evaluation performing the
+        following operations:
+        - Add opcode count to the result if available.
+        """
+        if (
+            result.result.opcode_count is not None
+            and self.opcode_count is not None
+        ):
+            self.opcode_count += result.result.opcode_count
+        return result
+
     def evaluate(
         self,
         *,
         transition_tool_data: TransitionToolData,
-        debug_output_path: str = "",
         slow_request: bool = False,
     ) -> TransitionToolOutput:
         """
@@ -789,33 +949,26 @@ class TransitionTool(EthereumCLI):
         If a client's `t8n` tool varies from the default behavior, this method
         can be overridden.
         """
+        current_call_id = self.increment_call_counter()
+        if self.output_cache is not None:
+            cached_result = self.output_cache.get(current_call_id)
+            if cached_result is not None:
+                return self.process_result(cached_result)
+        debug_output_path = self.get_next_transition_tool_output_path(
+            current_call_id
+        )
         with Profiler(
-            enabled=debug_output_path != "",
-            filename=Path(debug_output_path) / "profile.out"
+            enabled=debug_output_path is not None,
+            filename=debug_output_path / "profile.out"
             if debug_output_path
             else None,
         ) as profiler:
-            if self.t8n_use_server:
-                if not self.server_url:
-                    self.start_server()
-                return self._evaluate_server(
-                    t8n_data=transition_tool_data,
-                    debug_output_path=debug_output_path,
-                    timeout=SLOW_REQUEST_TIMEOUT
-                    if slow_request
-                    else NORMAL_SERVER_TIMEOUT,
-                    profiler=profiler,
-                )
-
-            elif self.t8n_use_stream:
-                return self._evaluate_stream(
-                    t8n_data=transition_tool_data,
-                    debug_output_path=debug_output_path,
-                    profiler=profiler,
-                )
-            else:
-                return self._evaluate_filesystem(
-                    t8n_data=transition_tool_data,
-                    debug_output_path=debug_output_path,
-                    profiler=profiler,
-                )
+            result = self._evaluate(
+                transition_tool_data=transition_tool_data,
+                debug_output_path=debug_output_path,
+                slow_request=slow_request,
+                profiler=profiler,
+            )
+        if self.output_cache is not None:
+            self.output_cache.set(current_call_id, result)
+        return self.process_result(result)

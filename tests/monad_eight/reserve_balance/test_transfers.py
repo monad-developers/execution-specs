@@ -405,7 +405,7 @@ def test_delegated_eoa_auth_list(
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)
 
-    auth_gas = len(delegation_targets) * Spec7702.PER_EMPTY_ACCOUNT_COST
+    auth_gas = len(delegation_targets) * Spec7702.GAS_AUTH_PER_EMPTY_ACCOUNT
     tx_1 = Transaction(
         gas_limit=generous_gas(fork) + auth_gas,
         to=contract_address,
@@ -2000,7 +2000,7 @@ def test_many_accounts_balance_change(
             # Warmed using access lists for cheapest call
             delegated_address_warm=True,
         ).gas_cost(fork)
-        + gas_costs.G_ACCESS_LIST_ADDRESS
+        + gas_costs.GAS_TX_ACCESS_LIST_ADDRESS
     )
     gas_limit = fork.transaction_gas_limit_cap()
     assert gas_limit is not None

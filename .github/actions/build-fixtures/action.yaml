@@ -4,21 +4,13 @@ inputs:
   release_name:
     description: "Name of the fixture release"
     required: true
-  uv_version:
-    description: "Version of UV to install"
-    required: true
-  python_version:
-    description: "Version of Python to install"
-    required: true
 runs:
   using: "composite"
   steps:
-    - name: Install uv ${{ inputs.uv_version }} and python ${{ inputs.python_version }}
-      uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182
+    - uses: ./.github/actions/setup-uv
       with:
-        enable-cache: false
-        version: ${{ inputs.uv_version }}
-        python-version: ${{ inputs.python_version }}
+        enable-cache: "false"
+    - uses: ./.github/actions/setup-env
     - name: Install EEST
       shell: bash
       run: uv sync --no-progress
@@ -43,7 +35,7 @@ runs:
         else
           uv run fill -n ${{ steps.evm-builder.outputs.x-dist }} --evm-bin=${{ steps.evm-builder.outputs.evm-bin }} ${{ steps.properties.outputs.fill-params }} --output=fixtures_${{ inputs.release_name }}.tar.gz --build-name ${{ inputs.release_name }} --no-html --durations=100 --log-level=DEBUG
         fi
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+    - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: fixtures_${{ inputs.release_name }}
         path: fixtures_${{ inputs.release_name }}.tar.gz

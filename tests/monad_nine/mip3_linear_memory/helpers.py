@@ -124,9 +124,9 @@ def generous_gas(fork: Fork) -> int:
     """
     constant = 100_000
     gas_costs = fork.gas_costs()
-    sstore_cost = gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
-    deploy_cost = gas_costs.G_CODE_DEPOSIT_BYTE * len(Op.STOP)
-    access_cost = gas_costs.G_COLD_ACCOUNT_ACCESS
+    sstore_cost = gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
+    deploy_cost = gas_costs.GAS_CODE_DEPOSIT_PER_BYTE * len(Op.STOP)
+    access_cost = gas_costs.GAS_COLD_ACCOUNT_ACCESS
     # Assume up to 5 memory expansions to the max size
     linear_memory_expansion_cost = 5 * fork.memory_expansion_gas_calculator()(
         new_bytes=Spec.MAX_TX_MEMORY_USAGE
@@ -134,7 +134,7 @@ def generous_gas(fork: Fork) -> int:
     # Account for per-word operation costs, assume 5 times up to max
     max_words = 5 * Spec.MAX_TX_MEMORY_USAGE // 32
     per_word_op_cost = (
-        max(gas_costs.G_COPY, gas_costs.G_KECCAK_256_WORD) * max_words
+        max(gas_costs.GAS_COPY, gas_costs.GAS_KECCAK256_PER_WORD) * max_words
     )
     return (
         constant

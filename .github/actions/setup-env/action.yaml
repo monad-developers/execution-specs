@@ -4,8 +4,6 @@ runs:
   using: "composite"
   steps:
 
-    - name: Install Tox and any other packages
+    - name: Install build dependencies
       shell: bash
-      run: |
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --force-yes build-essential pkg-config
-        pip install 'tox>=4.11,<5' requests
+      run: sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --force-yes build-essential pkg-config libsecp256k1-dev

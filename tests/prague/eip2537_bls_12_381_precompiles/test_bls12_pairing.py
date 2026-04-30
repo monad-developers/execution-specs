@@ -127,6 +127,7 @@ pytestmark = [
         ),
     ],
 )
+@pytest.mark.json_loader
 def test_valid(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -211,7 +212,7 @@ def test_valid_multi_inf(
     BLS12_PAIRING precompile.
     """
     gas_costs = fork.gas_costs()
-    extra_gas = 70_000 + gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
+    extra_gas = 70_000 + gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
 
     max_gas_limit = fork.transaction_gas_limit_cap() or Environment().gas_limit
 
@@ -347,6 +348,13 @@ def test_valid_multi_inf(
             + PointG2(Spec.P2.x, (Spec.P2.y[0], Spec.P2.y[1] + Spec.P)),
             id="inf_g1_with_g2_y_c1_above_p",
         ),
+        # BLS serialization flag byte in coordinate: values >= p whose first
+        # coordinate byte has BLS flag bits set.
+        # See: https://github.com/lambdaclass/ethrex/pull/6287
+        pytest.param(
+            PointG1(0x40 << (47 * 8), 0) + Spec.INF_G2,
+            id="g1_x_bls_infinity_flag",
+        ),
         # Non-zero byte 16 boundary violation test cases.
         pytest.param(
             PointG1(Spec.G1.x | Spec.MAX_FP_BIT_SET, Spec.G1.y) + Spec.INF_G2,
@@ -387,6 +395,7 @@ def test_valid_multi_inf(
     ],
 )
 @pytest.mark.parametrize("expected_output", [Spec.INVALID], ids=[""])
+@pytest.mark.json_loader
 def test_invalid(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -418,7 +427,7 @@ def test_invalid_multi_inf(
     BLS12_PAIRING precompile and an invalid tail.
     """
     gas_costs = fork.gas_costs()
-    extra_gas = 70_000 + gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
+    extra_gas = 70_000 + gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
 
     max_gas_limit = fork.transaction_gas_limit_cap() or Environment().gas_limit
 

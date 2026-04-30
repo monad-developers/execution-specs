@@ -11,6 +11,7 @@ from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U64, U256, Uint
 
 from ethereum.crypto.hash import Hash32, keccak256
+from ethereum.state import EMPTY_CODE_HASH
 from ethereum.utils.hexadecimal import hex_to_bytes, hex_to_u256, hex_to_uint
 
 from ..loaders.transaction_loader import TransactionLoad, UnsupportedTxError
@@ -64,8 +65,9 @@ class Alloc:
             if account.nonce:
                 account_data["nonce"] = hex(account.nonce)
 
-            if account.code:
-                account_data["code"] = "0x" + account.code.hex()
+            if account.code_hash != EMPTY_CODE_HASH:
+                code = self.state._code_store[account.code_hash]
+                account_data["code"] = "0x" + code.hex()
 
             if address in self.state._storage_tries:
                 account_data["storage"] = {
@@ -151,12 +153,14 @@ class Txs:
                     self.successfully_parsed.append(idx)
             except UnsupportedTxError as e:
                 self.t8n.logger.warning(
-                    f"Unsupported transaction type {idx}: {e.error_message}"
+                    f"Unsupported transaction at index {idx}: "
+                    f"{e.error_message}"
                 )
                 self.rejected_txs[idx] = (
                     f"Unsupported transaction type: {e.error_message}"
                 )
-                self.all_txs.append(e.encoded_params)
+                if e.encoded_params is not None:
+                    self.all_txs.append(e.encoded_params)
             except Exception as e:
                 msg = f"Failed to parse transaction {idx}: {str(e)}"
                 self.t8n.logger.warning(msg, exc_info=e)
@@ -249,7 +253,8 @@ class Txs:
                     signing_hash = t8n.fork.signing_hash_155(
                         tx_decoded, self.t8n.chain_id
                     )
-                    v_addend = U256(36) + U256(self.t8n.chain_id)
+                    # EIP-155: CHAIN_ID * 2 + 35
+                    v_addend = U256(self.t8n.chain_id) * U256(2) + U256(35)
                 else:
                     signing_hash = t8n.fork.signing_hash_pre155(tx_decoded)
                     v_addend = U256(27)
@@ -339,7 +344,25 @@ class Result:
         self.receipt_root = t8n.fork.root(block_output.receipts_trie)
         self.bloom = t8n.fork.logs_bloom(block_output.block_logs)
         self.logs_hash = keccak256(rlp.encode(block_output.block_logs))
-        self.state_root = t8n.fork.state_root(block_env.state)
+        if t8n.fork.has_block_state:
+            # TODO: remove this once the state tracker is ported over
+            # to the older forks
+            from ethereum.forks.amsterdam.state import apply_changes_to_state
+            from ethereum.forks.amsterdam.state_tracker import (
+                extract_block_diff,
+            )
+
+            block_diff = extract_block_diff(t8n._block_state)
+            state_root_value, _ = (
+                t8n.alloc.state.compute_state_root_and_trie_changes(
+                    block_diff.account_changes, block_diff.storage_changes
+                )
+            )
+            self.state_root = state_root_value
+            # Apply diffs to pre-state for alloc output
+            apply_changes_to_state(t8n.alloc.state, block_diff)
+        else:
+            self.state_root = t8n.fork.state_root(block_env.state)
         self.receipts = self.get_receipts_from_output(t8n, block_output)
 
         if hasattr(block_env, "base_fee_per_gas"):
@@ -359,10 +382,8 @@ class Result:
 
         if hasattr(block_output, "block_access_list"):
             self.block_access_list = block_output.block_access_list
-            self.block_access_list_hash = (
-                t8n.fork.compute_block_access_list_hash(
-                    block_output.block_access_list
-                )
+            self.block_access_list_hash = t8n.fork.hash_block_access_list(
+                block_output.block_access_list
             )
 
     @staticmethod

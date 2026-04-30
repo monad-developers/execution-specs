@@ -32,6 +32,7 @@ from execution_testing.forks import London
 )
 @pytest.mark.valid_from("Frontier")
 @pytest.mark.with_all_create_opcodes
+@pytest.mark.json_loader
 def test_create_one_byte(
     state_test: StateTestFiller,
     fork: Fork,
@@ -96,10 +97,10 @@ def test_create_one_byte(
 
     gas_costs = fork.gas_costs()
     sstore_cost = len(initcode) * (
-        gas_costs.G_STORAGE_SET + gas_costs.G_COLD_SLOAD
+        gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
     )
     create_cost = len(initcode) * (
-        gas_costs.G_CREATE + gas_costs.G_CODE_DEPOSIT_BYTE
+        gas_costs.GAS_CREATE + gas_costs.GAS_CODE_DEPOSIT_PER_BYTE
     )
 
     tx = Transaction(

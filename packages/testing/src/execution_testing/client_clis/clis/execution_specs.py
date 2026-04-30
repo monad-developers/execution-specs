@@ -19,6 +19,7 @@ from execution_testing.client_clis.file_utils import (
     dump_files_to_directory,
 )
 from execution_testing.client_clis.transition_tool import (
+    Profiler,
     TransitionTool,
     model_dump_config,
 )
@@ -62,17 +63,18 @@ class ExecutionSpecsTransitionTool(TransitionTool):
         """Return True if the fork is supported by the tool."""
         return fork.transition_tool_name() in get_supported_forks()
 
-    def evaluate(
+    def _evaluate(
         self,
         *,
         transition_tool_data: TransitionTool.TransitionToolData,
-        debug_output_path: str = "",
-        slow_request: bool = False,
+        debug_output_path: Path | None,
+        slow_request: bool,
+        profiler: Profiler,
     ) -> TransitionToolOutput:
         """
         Evaluate using the EELS T8N entry point.
         """
-        del slow_request
+        del slow_request, profiler
         request_data = transition_tool_data.get_request_data()
         request_data_json = request_data.model_dump(
             mode="json", **model_dump_config
@@ -229,6 +231,9 @@ class ExecutionSpecsExceptionMapper(ExceptionMapper):
         BlockException.SYSTEM_CONTRACT_EMPTY: "System contract address",
         BlockException.SYSTEM_CONTRACT_CALL_FAILED: "call failed:",
         BlockException.INVALID_DEPOSIT_EVENT_LAYOUT: "deposit",
+        BlockException.BLOCK_ACCESS_LIST_GAS_LIMIT_EXCEEDED: (
+            "Block access list exceeds gas limit"
+        ),
         TransactionException.LOG_MISMATCH: "LogMismatchError",
     }
     mapping_regex: ClassVar[Dict[ExceptionBase, str]] = {
@@ -237,15 +242,20 @@ class ExecutionSpecsExceptionMapper(ExceptionMapper):
             r"InsufficientMaxFeePerGasError|InvalidBlock"
         ),
         TransactionException.TYPE_1_TX_PRE_FORK: (
-            r"module '.*transactions' has no attribute 'AccessListTransaction'"
+            r"module '.*transactions' has no attribute "
+            r"'AccessListTransaction'|"
+            r"transaction type 1 is not supported in .*"
         ),
         TransactionException.TYPE_2_TX_PRE_FORK: (
-            r"'.*transactions' has no attribute 'FeeMarketTransaction'"
+            r"'.*transactions' has no attribute 'FeeMarketTransaction'|"
+            r"transaction type 2 is not supported in .*"
         ),
         TransactionException.TYPE_3_TX_PRE_FORK: (
-            r"module '.*transactions' has no attribute 'BlobTransaction'"
+            r"module '.*transactions' has no attribute 'BlobTransaction'|"
+            r"transaction type 3 is not supported in .*"
         ),
         TransactionException.TYPE_4_TX_PRE_FORK: (
-            r"'.*transactions' has no attribute 'SetCodeTransaction'"
+            r"'.*transactions' has no attribute 'SetCodeTransaction'|"
+            r"transaction type 4 is not supported in .*"
         ),
     }

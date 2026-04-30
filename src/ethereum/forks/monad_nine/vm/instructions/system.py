@@ -14,9 +14,9 @@ Implementations of the EVM system related instructions.
 from ethereum_types.bytes import Bytes, Bytes0
 from ethereum_types.numeric import U256, Uint
 
+from ethereum.state import Address
 from ethereum.utils.numeric import ceil32
 
-from ...fork_types import Address
 from ...state import (
     account_has_code_or_nonce,
     account_has_storage,
@@ -48,7 +48,7 @@ from ..gas import (
     GAS_CALL_VALUE,
     GAS_COLD_ACCOUNT_ACCESS,
     GAS_CREATE,
-    GAS_KECCAK256_WORD,
+    GAS_KECCAK256_PER_WORD,
     GAS_NEW_ACCOUNT,
     GAS_SELF_DESTRUCT,
     GAS_SELF_DESTRUCT_NEW_ACCOUNT,
@@ -227,7 +227,7 @@ def create2(evm: Evm) -> None:
     charge_gas(
         evm,
         GAS_CREATE
-        + GAS_KECCAK256_WORD * call_data_words
+        + GAS_KECCAK256_PER_WORD * call_data_words
         + extend_memory.cost
         + init_code_gas,
     )

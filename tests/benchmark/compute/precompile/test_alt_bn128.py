@@ -13,7 +13,7 @@ from execution_testing import (
 )
 from py_ecc.bn128 import G1, G2, multiply
 
-from tests.benchmark.compute.helpers import concatenate_parameters
+from ..helpers import concatenate_parameters
 
 
 @pytest.mark.parametrize(
@@ -423,13 +423,23 @@ def test_bn128_pairings_amortized(
     tx_gas_limit: int,
 ) -> None:
     """Test running a block with as many BN128 pairings as possible."""
-    base_cost = 45_000
-    pairing_cost = 34_000
     size_per_pairing = 192
 
     gsc = fork.gas_costs()
+    base_cost = gsc.GAS_PRECOMPILE_ECPAIRING_BASE
+    pairing_cost = gsc.GAS_PRECOMPILE_ECPAIRING_PER_POINT
     intrinsic_gas_calculator = fork.transaction_intrinsic_cost_calculator()
     mem_exp_gas_calculator = fork.memory_expansion_gas_calculator()
+    warm_account_access_cost = Op.STATICCALL(
+        gas=Op.GAS,
+        address=Op.PUSH20(0),
+        args_offset=Op.PUSH0,
+        args_size=Op.PUSH0,
+        ret_offset=Op.PUSH0,
+        ret_size=Op.PUSH0,
+        # gas accounting
+        address_warm=True,
+    ).gas_cost(fork)
 
     # This is a theoretical maximum number of pairings that can be done in a
     # block. It is only used for an upper bound for calculating the optimal
@@ -458,10 +468,8 @@ def test_bn128_pairings_amortized(
             - mem_exp_gas_calculator(new_bytes=i * size_per_pairing),
         )
 
-        # This is ignoring "glue" opcodes, but helps to have a rough idea of
-        # the right cutting point.
         approx_gas_cost_per_call = (
-            gsc.G_WARM_ACCOUNT_ACCESS + base_cost + i * pairing_cost
+            warm_account_access_cost + base_cost + i * pairing_cost
         )
 
         num_precompile_calls = (
