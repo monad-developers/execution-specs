@@ -15,7 +15,7 @@ from execution_testing import (
 from execution_testing.forks.helpers import Fork
 
 from .helpers import generous_gas
-from .spec import Spec, ref_spec_8
+from .spec import ref_spec_8
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
 REFERENCE_SPEC_VERSION = ref_spec_8.version
@@ -81,11 +81,7 @@ def test_call_child_inherits_warm_pages(
         sender=pre.fund_eoa(),
     )
 
-    expected_gas = (
-        Spec.GAS_BASE_SLOAD
-        if runs_in_parent_context
-        else Spec.GAS_COLD_PAGE_READ
-    )
+    expected_gas = Op.SLOAD(page_warm=runs_in_parent_context).gas_cost(fork)
 
     parent_storage = {slot_result: 1}
     child_storage = {}
@@ -155,11 +151,7 @@ def test_call_child_warm_pages_propagate_on_success(
         sender=pre.fund_eoa(),
     )
 
-    expected_gas = (
-        Spec.GAS_BASE_SLOAD
-        if runs_in_parent_context
-        else Spec.GAS_COLD_PAGE_READ
-    )
+    expected_gas = Op.SLOAD(page_warm=runs_in_parent_context).gas_cost(fork)
 
     state_test(
         pre=pre,
@@ -228,7 +220,9 @@ def test_call_child_warm_pages_lost_on_revert(
             parent_address: Account(
                 storage={
                     slot_result: 0,
-                    slot_gas_measured: Spec.GAS_COLD_PAGE_READ,
+                    slot_gas_measured: Op.SLOAD(page_warm=False).gas_cost(
+                        fork
+                    ),
                 },
             ),
         },
@@ -443,7 +437,9 @@ def test_delegatecall_self_warms_pages(
         pre=pre,
         post={
             contract_address: Account(
-                storage={slot_gas_measured: Spec.GAS_BASE_SLOAD},
+                storage={
+                    slot_gas_measured: Op.SLOAD(page_warm=True).gas_cost(fork)
+                },
             ),
         },
         tx=tx,

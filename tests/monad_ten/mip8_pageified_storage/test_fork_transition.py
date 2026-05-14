@@ -12,10 +12,11 @@ from execution_testing import (
     Op,
     Transaction,
 )
+from execution_testing.forks import MONAD_NEXT, MONAD_NINE
 from execution_testing.forks.helpers import Fork
 
 from .helpers import generous_gas
-from .spec import Spec, ref_spec_8
+from .spec import ref_spec_8
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
 REFERENCE_SPEC_VERSION = ref_spec_8.version
@@ -209,10 +210,10 @@ def test_page_warming_works_after_fork(
                 storage={
                     # Pre-fork (MONAD_NINE): slot-level, SLOAD(1)
                     # is cold (different slot from SLOAD(0))
-                    14_999: Spec.GAS_COLD_PAGE_READ,
+                    14_999: Op.SLOAD(key_warm=False).gas_cost(MONAD_NINE),
                     # Post-fork (MONAD_NEXT): page-level, SLOAD(1)
                     # is warm (same page as SLOAD(0))
-                    15_000: Spec.GAS_BASE_SLOAD,
+                    15_000: Op.SLOAD(page_warm=True).gas_cost(MONAD_NEXT),
                 },
             ),
         },
@@ -282,7 +283,11 @@ def test_write_before_fork_read_after_page_warming(
         post={
             writer_address: Account(storage={0: 0xAA, 1: 0xBB}),
             reader_address: Account(
-                storage={slot_gas_measured: Spec.GAS_BASE_SLOAD},
+                storage={
+                    slot_gas_measured: Op.SLOAD(page_warm=True).gas_cost(
+                        MONAD_NEXT
+                    ),
+                },
             ),
         },
     )

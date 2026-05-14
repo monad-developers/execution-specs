@@ -13,18 +13,12 @@ def page_index(slot: int) -> int:
 
 
 def generous_gas(fork: Fork) -> int:
-    """
-    Return generous gas to always be enough for MIP-8 tests.
-
-    Must be large enough that after a child CREATE/CREATE2 burns
-    63/64 of forwarded gas, 1/64 remainder covers parent's
-    post-call SSTORE + SLOAD (cold page read + new slot write).
-    """
-    gas_costs = fork.gas_costs()
-    return (
-        5_000_000
-        + Spec.GAS_COLD_PAGE_READ * 10
-        + Spec.GAS_PAGE_WRITE * 10
-        + Spec.GAS_NEW_SLOT * 10
-        + gas_costs.G_COLD_ACCOUNT_ACCESS * 5
+    """Return generous gas to always be enough for MIP-8 tests."""
+    fresh_sstore_cold = (
+        Spec.GAS_PAGE_LOAD_COST
+        + Spec.GAS_PAGE_WRITE_COST
+        + Spec.GAS_PAGE_BASE_COST
+        + Spec.GAS_PAGE_STATE_GROWTH_COST
     )
+    full_page_sweep = 128 * fresh_sstore_cold
+    return fork.gas_costs().TX_BASE + 2 * full_page_sweep + 100_000
