@@ -4,18 +4,21 @@ Tests MONAD_NINE -> MONAD_NEXT fork transition for MIP-8 storage.
 
 import pytest
 from execution_testing import (
+    AccessList,
     Account,
     Alloc,
     Block,
     BlockchainTestFiller,
     CodeGasMeasure,
+    Conditional,
+    Hash,
     Op,
     Transaction,
 )
 from execution_testing.forks import MONAD_NEXT, MONAD_NINE
 from execution_testing.forks.helpers import Fork
 
-from .helpers import generous_gas
+from .helpers import STATE_TRANSITIONS, expected_setup_growth, generous_gas
 from .spec import ref_spec_8
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
@@ -33,74 +36,13 @@ def test_storage_written_before_fork_readable_after(
     fork: Fork,
 ) -> None:
     """
-    Test that storage written in MONAD_NINE is readable in MONAD_NEXT.
-
-    Block 1 (pre-fork): SSTORE(0, 0xBEEF)
-    Block 2 (post-fork): SLOAD(0) and store result in slot 1
+    Storage written pre-fork is readable post-fork.
     """
     sender = pre.fund_eoa()
-    writer_code = Op.SSTORE(0, 0xBEEF) + Op.STOP
-    reader_code = Op.SSTORE(1, Op.SLOAD(0)) + Op.STOP
-
-    writer_address = pre.deploy_contract(writer_code)
-    reader_address = pre.deploy_contract(reader_code)
-
-    blocks = [
-        Block(
-            timestamp=14_999,
-            txs=[
-                Transaction(
-                    to=writer_address,
-                    sender=sender,
-                    nonce=0,
-                    gas_limit=generous_gas(fork),
-                ),
-            ],
-        ),
-        Block(
-            timestamp=15_000,
-            txs=[
-                Transaction(
-                    to=reader_address,
-                    sender=sender,
-                    nonce=1,
-                    gas_limit=generous_gas(fork),
-                ),
-            ],
-        ),
-    ]
-
-    blockchain_test(
-        pre=pre,
-        blocks=blocks,
-        post={
-            writer_address: Account(storage={0: 0xBEEF}),
-            reader_address: Account(storage={1: 0}),
-        },
+    contract_code = (
+        Op.SSTORE(1, Op.SLOAD(0)) + Op.SSTORE(0, value_code_worked) + Op.STOP
     )
-
-
-@pytest.mark.valid_at_transition_to("MONAD_NEXT")
-def test_storage_state_unchanged_across_fork(
-    blockchain_test: BlockchainTestFiller,
-    pre: Alloc,
-    fork: Fork,
-) -> None:
-    """
-    Test that fork transition doesn't alter pre-existing storage.
-
-    Pre-populate storage, send trivial tx in transition block,
-    verify values unchanged via SLOAD in post-fork block.
-    """
-    sender = pre.fund_eoa()
-
-    contract_address = pre.deploy_contract(
-        Op.SSTORE(0x10, Op.SLOAD(0))
-        + Op.SSTORE(0x11, Op.SLOAD(1))
-        + Op.SSTORE(0x12, Op.SLOAD(2))
-        + Op.STOP,
-        storage={0: 0xAA, 1: 0xBB, 2: 0xCC},
-    )
+    contract_address = pre.deploy_contract(contract_code)
 
     blocks = [
         Block(
@@ -132,14 +74,7 @@ def test_storage_state_unchanged_across_fork(
         blocks=blocks,
         post={
             contract_address: Account(
-                storage={
-                    0: 0xAA,
-                    1: 0xBB,
-                    2: 0xCC,
-                    0x10: 0xAA,
-                    0x11: 0xBB,
-                    0x12: 0xCC,
-                },
+                storage={0: value_code_worked, 1: value_code_worked},
             ),
         },
     )
@@ -168,7 +103,6 @@ def test_page_warming_works_after_fork(
 
     contract_address = pre.deploy_contract(
         Op.SLOAD(0)
-        + Op.POP
         + CodeGasMeasure(
             code=Op.SLOAD(1),
             overhead_cost=overhead,
@@ -213,7 +147,7 @@ def test_page_warming_works_after_fork(
                     14_999: Op.SLOAD(key_warm=False).gas_cost(MONAD_NINE),
                     # Post-fork (MONAD_NEXT): page-level, SLOAD(1)
                     # is warm (same page as SLOAD(0))
-                    15_000: Op.SLOAD(page_warm=True).gas_cost(MONAD_NEXT),
+                    15_000: Op.SLOAD(page_load_warm=True).gas_cost(MONAD_NEXT),
                 },
             ),
         },
@@ -227,28 +161,32 @@ def test_write_before_fork_read_after_page_warming(
     fork: Fork,
 ) -> None:
     """
-    Test that storage written in MONAD_NINE can be read with
-    page-level warming in MONAD_NEXT.
+    Storage written pre-fork is read post-fork with page-level
+    warming.
 
-    Block 1 (pre-fork): SSTORE to slots 0 and 1 (same page)
-    Block 2 (post-fork): SLOAD(0) then SLOAD(1) — second SLOAD
-    should be warm because page 0 was warmed by first SLOAD.
+    Single contract, calldata-branched:
+    - Block 1 (pre-fork, empty calldata): SSTORE slots 0 and 1.
+    - Block 2 (post-fork, 1-byte calldata): SLOAD(0) (cold page
+      load) + POP, then measure SLOAD(1) — same page, WARM under
+      MIP-8.
+    The measurement only matches if the pre-fork SSTOREs persisted.
     """
     sender = pre.fund_eoa()
     overhead = Op.PUSH1(0).gas_cost(fork)
 
-    writer_address = pre.deploy_contract(
-        Op.SSTORE(0, 0xAA) + Op.SSTORE(1, 0xBB) + Op.STOP
-    )
-
-    reader_address = pre.deploy_contract(
-        Op.SLOAD(0)
-        + Op.POP
-        + CodeGasMeasure(
-            code=Op.SLOAD(1),
-            overhead_cost=overhead,
-            extra_stack_items=1,
-            sstore_key=slot_gas_measured,
+    contract_address = pre.deploy_contract(
+        Conditional(
+            condition=Op.CALLDATASIZE,
+            if_true=(
+                Op.SLOAD(0)
+                + CodeGasMeasure(
+                    code=Op.SLOAD(1),
+                    overhead_cost=overhead,
+                    extra_stack_items=1,
+                    sstore_key=slot_gas_measured,
+                )
+            ),
+            if_false=Op.SSTORE(0, 0xAA) + Op.SSTORE(1, 0xBB) + Op.STOP,
         )
     )
 
@@ -257,7 +195,7 @@ def test_write_before_fork_read_after_page_warming(
             timestamp=14_999,
             txs=[
                 Transaction(
-                    to=writer_address,
+                    to=contract_address,
                     sender=sender,
                     nonce=0,
                     gas_limit=generous_gas(fork),
@@ -268,10 +206,11 @@ def test_write_before_fork_read_after_page_warming(
             timestamp=15_000,
             txs=[
                 Transaction(
-                    to=reader_address,
+                    to=contract_address,
                     sender=sender,
                     nonce=1,
                     gas_limit=generous_gas(fork),
+                    data=b"\x01",
                 ),
             ],
         ),
@@ -281,12 +220,185 @@ def test_write_before_fork_read_after_page_warming(
         pre=pre,
         blocks=blocks,
         post={
-            writer_address: Account(storage={0: 0xAA, 1: 0xBB}),
-            reader_address: Account(
+            contract_address: Account(
                 storage={
-                    slot_gas_measured: Op.SLOAD(page_warm=True).gas_cost(
+                    0: 0xAA,
+                    1: 0xBB,
+                    slot_gas_measured: Op.SLOAD(page_load_warm=True).gas_cost(
                         MONAD_NEXT
                     ),
+                },
+            ),
+        },
+    )
+
+
+@pytest.mark.parametrize("scheme", ["1pre_2post", "2pre_1post"])
+@pytest.mark.parametrize("orig,curr,new", STATE_TRANSITIONS)
+@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+def test_sstore_at_fork_transition_block(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    orig: int,
+    curr: int,
+    new: int,
+    scheme: str,
+) -> None:
+    """
+    SSTORE state-transition matrix split across the MONAD_NINE →
+    MONAD_NEXT fork.
+
+    The 0 → orig → curr → new sequence is materialized as up to 3
+    SSTOREs, distributed across the two blocks:
+    - `1pre_2post`: SSTORE 1 (0→orig) pre-fork; SSTORE 2 (orig→curr,
+      setup — only if orig != curr) and SSTORE 3 (curr→new, measured)
+      post-fork. Measured SSTORE runs on a warm page (when setup ran).
+    - `2pre_1post`: SSTORE 1 and (if orig != curr) SSTORE 2 pre-fork;
+      only SSTORE 3 (curr→new, measured) post-fork — cold page.
+    """
+    slot = 0
+    sender = pre.fund_eoa()
+    overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
+
+    measured = CodeGasMeasure(
+        code=Op.SSTORE(slot, new),
+        overhead_cost=overhead,
+        extra_stack_items=0,
+        sstore_key=slot_gas_measured,
+    )
+    if scheme == "1pre_2post":
+        pre_branch = Op.SSTORE(slot, orig)
+        post_branch = Op.SSTORE(slot, curr) + measured
+        # Noop SSTORE (orig == curr) doesn't warm the page in MIP-8.
+        page_warm = orig != curr
+        growth, peak = expected_setup_growth(orig, curr)
+    else:  # 2pre_1post
+        pre_branch = Op.SSTORE(slot, orig) + Op.SSTORE(slot, curr)
+        post_branch = measured
+        page_warm = False
+        growth, peak = 0, 0
+
+    contract_address = pre.deploy_contract(
+        Conditional(
+            condition=Op.CALLDATASIZE,
+            if_true=post_branch,
+            if_false=pre_branch,
+        )
+    )
+
+    expected_gas = Op.SSTORE(
+        page_load_warm=page_warm,
+        page_write_warm=page_warm,
+        current_value=curr,
+        new_value=new,
+        current_state_growth=growth,
+        net_state_growth=peak,
+    ).gas_cost(MONAD_NEXT)
+
+    blocks = [
+        Block(
+            timestamp=14_999,
+            txs=[
+                Transaction(
+                    to=contract_address,
+                    sender=sender,
+                    nonce=0,
+                    gas_limit=generous_gas(fork),
+                ),
+            ],
+        ),
+        Block(
+            timestamp=15_000,
+            txs=[
+                Transaction(
+                    to=contract_address,
+                    sender=sender,
+                    nonce=1,
+                    gas_limit=generous_gas(fork),
+                    data=b"\x01",
+                ),
+            ],
+        ),
+    ]
+
+    expected_storage = {slot_gas_measured: expected_gas}
+    if new != 0:
+        expected_storage[slot] = new
+
+    blockchain_test(
+        pre=pre,
+        blocks=blocks,
+        post={contract_address: Account(storage=expected_storage)},
+    )
+
+
+@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+def test_access_list_warming_fork_transition(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    fork: Fork,
+) -> None:
+    """
+    EIP-2930 access-list semantics differ across the MIP-8 fork.
+
+    Pre-fork (MONAD_NINE, slot-level): AL warms only the declared
+    slot; SLOAD on a different slot of the same page is cold.
+    Post-fork (MONAD_NEXT, page-level): AL warms the entire page.
+    """
+    sender = pre.fund_eoa()
+    overhead = Op.PUSH1(0).gas_cost(fork)
+
+    contract_address = pre.deploy_contract(
+        CodeGasMeasure(
+            code=Op.SLOAD(1),
+            overhead_cost=overhead,
+            extra_stack_items=1,
+            sstore_key=Op.TIMESTAMP,
+        )
+    )
+
+    al = [AccessList(address=contract_address, storage_keys=[Hash(0)])]
+
+    blocks = [
+        Block(
+            timestamp=14_999,
+            txs=[
+                Transaction(
+                    ty=1,
+                    to=contract_address,
+                    sender=sender,
+                    nonce=0,
+                    gas_limit=generous_gas(fork),
+                    access_list=al,
+                ),
+            ],
+        ),
+        Block(
+            timestamp=15_000,
+            txs=[
+                Transaction(
+                    ty=1,
+                    to=contract_address,
+                    sender=sender,
+                    nonce=1,
+                    gas_limit=generous_gas(fork),
+                    access_list=al,
+                ),
+            ],
+        ),
+    ]
+
+    blockchain_test(
+        pre=pre,
+        blocks=blocks,
+        post={
+            contract_address: Account(
+                storage={
+                    # Pre-fork: slot 1 NOT in AL → cold (slot-level).
+                    14_999: Op.SLOAD(key_warm=False).gas_cost(MONAD_NINE),
+                    # Post-fork: slot 1 shares page with AL's slot 0 → warm.
+                    15_000: Op.SLOAD(page_load_warm=True).gas_cost(MONAD_NEXT),
                 },
             ),
         },
