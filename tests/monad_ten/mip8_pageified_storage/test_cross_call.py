@@ -1044,10 +1044,9 @@ def _simulate_sstore(
         current_state_growth=page.current_growth,
         net_state_growth=page.peak_growth,
     ).gas_cost(fork)
+    page.read_warm = True
     if old_value != new_value and not page.write_warm:
         page.write_warm = True
-        if not page.read_warm:
-            page.read_warm = True
     if old_value == 0 and new_value != 0:
         page.current_growth += 1
     elif old_value != 0 and new_value == 0:

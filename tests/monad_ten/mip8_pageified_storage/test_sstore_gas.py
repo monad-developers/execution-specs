@@ -617,7 +617,7 @@ def test_max_warm_sstore_iters_in_tx(
             + Op.JUMPI
         )
 
-    noop_sstore = cast(
+    cold_noop_sstore = cast(
         Opcode,
         Op.SSTORE(
             page_load_warm=False,
@@ -628,7 +628,19 @@ def test_max_warm_sstore_iters_in_tx(
             net_state_growth=0,
         ),
     )
-    iter_gas = _loop_body(noop_sstore).gas_cost(fork)
+    warm_noop_sstore = cast(
+        Opcode,
+        Op.SSTORE(
+            page_load_warm=True,
+            page_write_warm=False,
+            current_value=1,
+            new_value=1,
+            current_state_growth=0,
+            net_state_growth=0,
+        ),
+    )
+    cold_iter = _loop_body(cold_noop_sstore).gas_cost(fork)
+    warm_iter = _loop_body(warm_noop_sstore).gas_cost(fork)
 
     setup_overhead = Op.PUSH3(0).gas_cost(fork)
     marker_slot = 100 * Spec.SLOTS_PER_PAGE
@@ -643,7 +655,9 @@ def test_max_warm_sstore_iters_in_tx(
     ) + marker_sstore
     available = tx_gas_cap - intrinsic - setup_overhead - marker_cost
 
-    max_n = available // iter_gas
+    if available < cold_iter:
+        pytest.skip("not enough gas for even one iter")
+    max_n = 1 + (available - cold_iter) // warm_iter
 
     # sanity check we're testing anything at all
     assert max_n > 10

@@ -270,13 +270,14 @@ def test_sstore_at_fork_transition_block(
     if scheme == "1pre_2post":
         pre_branch = Op.SSTORE(slot, orig)
         post_branch = Op.SSTORE(slot, curr) + measured
-        # Noop SSTORE (orig == curr) doesn't warm the page in MIP-8.
-        page_warm = orig != curr
+        page_load_warm = True
+        page_write_warm = orig != curr
         growth, peak = expected_setup_growth(orig, curr)
     else:  # 2pre_1post
         pre_branch = Op.SSTORE(slot, orig) + Op.SSTORE(slot, curr)
         post_branch = measured
-        page_warm = False
+        page_load_warm = False
+        page_write_warm = False
         growth, peak = 0, 0
 
     contract_address = pre.deploy_contract(
@@ -288,8 +289,8 @@ def test_sstore_at_fork_transition_block(
     )
 
     expected_gas = Op.SSTORE(
-        page_load_warm=page_warm,
-        page_write_warm=page_warm,
+        page_load_warm=page_load_warm,
+        page_write_warm=page_write_warm,
         current_value=curr,
         new_value=new,
         current_state_growth=growth,
