@@ -14,6 +14,7 @@ from execution_testing import (
     BlockchainTestFiller,
     Bytecode,
     CodeGasMeasure,
+    Conditional,
     Hash,
     Op,
     StateTestFiller,
@@ -85,7 +86,7 @@ _PAGE_BRANCH_SLOTS = [0, 1, 2, 16, 32, 64, 96, 127]
     [0, 1, -1],
     ids=["same_page", "next_page", "prev_page"],
 )
-def test_sload_warm_cold_pages(
+def test_sload_cross_page_warming(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -169,8 +170,6 @@ def test_sload_page_not_warm_across_txs(
     `across=tx`: both txs in same block.
     `across=block`: txs in two separate blocks.
     """
-    from execution_testing import Conditional
-
     contract_address = pre.deploy_contract(
         Conditional(
             condition=Op.CALLDATASIZE,
@@ -184,36 +183,37 @@ def test_sload_page_not_warm_across_txs(
         )
     )
 
-    tx1 = Transaction(
+    sender = pre.fund_eoa()
+    tx_setup = Transaction(
         gas_limit=generous_gas(fork),
         to=contract_address,
-        sender=pre.fund_eoa(),
+        sender=sender,
     )
-    tx2 = Transaction(
+    tx_measure = Transaction(
         gas_limit=generous_gas(fork),
         to=contract_address,
-        sender=pre.fund_eoa(),
+        sender=sender,
         data=b"\x01",
     )
 
     if across == "tx":
-        blocks = [Block(txs=[tx1, tx2])]
+        blocks = [Block(txs=[tx_setup, tx_measure])]
     else:
-        blocks = [Block(txs=[tx1]), Block(txs=[tx2])]
+        blocks = [Block(txs=[tx_setup]), Block(txs=[tx_measure])]
 
-    expected = Op.SLOAD(page_load_warm=False).gas_cost(fork)
+    expected_gas = Op.SLOAD(page_load_warm=False).gas_cost(fork)
     blockchain_test(
         pre=pre,
         blocks=blocks,
         post={
             contract_address: Account(
-                storage={slot_gas_measured: expected},
+                storage={slot_gas_measured: expected_gas},
             ),
         },
     )
 
 
-def test_sstore_write_warms_sload(
+def test_sstore_warms_sload(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -253,7 +253,7 @@ def test_sstore_write_warms_sload(
     )
 
 
-def test_tstorage_does_not_impact_paged_storage(
+def test_tstore_and_sload(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -502,8 +502,7 @@ def test_max_warm_sload_iters_in_tx(
     available = tx_gas_cap - intrinsic - setup_overhead - marker_cost
 
     # First iter cold (one cold page touch), rest warm.
-    if available < cold_iter:
-        pytest.skip("not enough gas for even one iter")
+    assert available >= cold_iter
     max_n = 1 + (available - cold_iter) // warm_iter
 
     assert max_n > 1000
@@ -579,7 +578,13 @@ def test_page_warming_per_account(
 
 @pytest.mark.parametrize(
     "al_shape",
-    ["duplicate_keys", "wrong_contract", "wrong_eoa", "wrong_precompile"],
+    [
+        "duplicate_keys",
+        "empty_keys",
+        "wrong_contract",
+        "wrong_eoa",
+        "wrong_precompile",
+    ],
 )
 def test_sload_acl_edge_cases(
     state_test: StateTestFiller,
@@ -593,6 +598,8 @@ def test_sload_acl_edge_cases(
     `duplicate_keys`: same (address, slot) listed twice — page is
     warm for the measured SLOAD (warming idempotent; second entry
     still pays its 1900 gas).
+    `empty_keys`: AL entry for the target address with no storage
+    keys — warms the account but no pages.
     `wrong_contract` / `wrong_eoa` / `wrong_precompile`: AL entry
     declares a slot on a non-target address. The tx-target's
     identical slot remains cold.
@@ -614,6 +621,11 @@ def test_sload_acl_edge_cases(
             ),
         ]
         expected_warm = True
+    elif al_shape == "empty_keys":
+        access_list = [
+            AccessList(address=contract_address, storage_keys=[]),
+        ]
+        expected_warm = False
     else:
         if al_shape == "wrong_contract":
             other = pre.deploy_contract(Op.STOP)
@@ -733,7 +745,7 @@ def test_sload_acl_multipage_warming(
         ),
     ],
 )
-def test_account_probe_does_not_warm_storage_pages(
+def test_account_probe_does_not_warm_pages(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,

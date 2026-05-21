@@ -13,6 +13,7 @@ from execution_testing import (
     BlockchainTestFiller,
     Bytecode,
     CodeGasMeasure,
+    Conditional,
     Hash,
     Op,
     Opcode,
@@ -25,10 +26,11 @@ from execution_testing.forks.helpers import Fork
 
 from .helpers import (
     STATE_TRANSITIONS,
-    expected_setup_growth,
+    TxPageState,
     full_page_sweep_gas,
     generous_gas,
     page_index,
+    simulate_sstore,
 )
 from .spec import Spec, ref_spec_8
 
@@ -69,36 +71,24 @@ def test_sstore_state_transitions(
     """
     setup_slot = 0
     setup = _setup_current(setup_slot, orig, curr)
-    setup_ran = orig != curr
-    setup_growth, setup_peak = expected_setup_growth(orig, curr)
 
     if target_loc == "same_slot":
         target_slot = setup_slot
-        target_curr = curr
-        page_load_warm = setup_ran
-        page_write_warm = setup_ran
-        growth, peak = setup_growth, setup_peak
+        same_page = True
     elif target_loc == "same_page":
         target_slot = 1
-        target_curr = 0
-        page_load_warm = setup_ran
-        page_write_warm = setup_ran
-        growth, peak = setup_growth, setup_peak
+        same_page = True
     else:
         target_slot = Spec.SLOTS_PER_PAGE
-        target_curr = 0
-        page_load_warm = False
-        page_write_warm = False
-        growth, peak = 0, 0
+        same_page = False
 
-    expected = Op.SSTORE(
-        page_load_warm=page_load_warm,
-        page_write_warm=page_write_warm,
-        current_value=target_curr,
-        new_value=new,
-        current_state_growth=growth,
-        net_state_growth=peak,
-    ).gas_cost(fork)
+    page = TxPageState(slots={setup_slot: orig} if orig != 0 else {})
+    if same_page and orig != curr:
+        simulate_sstore(page, setup_slot, curr, fork)
+    elif not same_page:
+        # Target on a different page — fresh page state.
+        page = TxPageState()
+    expected_gas = simulate_sstore(page, target_slot, new, fork)
 
     overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
     contract_address = pre.deploy_contract(
@@ -118,7 +108,7 @@ def test_sstore_state_transitions(
         sender=pre.fund_eoa(),
     )
 
-    expected_storage = {slot_gas_measured: expected}
+    expected_storage = {slot_gas_measured: expected_gas}
     if target_loc == "same_slot":
         if new != 0:
             expected_storage[setup_slot] = new
@@ -145,7 +135,7 @@ def test_sstore_state_transitions(
         pytest.param(5, 6, id="X_Y"),
     ],
 )
-def test_sstore_cold_warm_page(
+def test_sstore_cold_then_warm(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -158,25 +148,11 @@ def test_sstore_cold_warm_page(
     both curr==new (noop on the first call) and curr!=new (write).
     """
     slot = 1
-    cold_gas = Op.SSTORE(
-        page_load_warm=False,
-        page_write_warm=False,
-        current_value=curr,
-        new_value=new,
-        current_state_growth=0,
-        net_state_growth=0,
-    ).gas_cost(fork)
-    # After a cold-write, slot=new; SSTORE(slot, new) is a warm noop.
-    # When curr==new the cold call is already a noop, so the slot keeps
-    # the value `curr` (== `new`).
-    warm_gas = Op.SSTORE(
-        page_load_warm=True,
-        page_write_warm=True,
-        current_value=new,
-        new_value=new,
-        current_state_growth=0,
-        net_state_growth=0,
-    ).gas_cost(fork)
+    page = TxPageState(slots={slot: curr} if curr != 0 else {})
+    cold_gas = simulate_sstore(page, slot, new, fork)
+    # After cold call, slot holds `new`; the second SSTORE(slot, new)
+    # is a warm noop.
+    warm_gas = simulate_sstore(page, slot, new, fork)
     gas_test(
         fork=fork,
         state_test=state_test,
@@ -207,7 +183,7 @@ _PAGE_BRANCH_SLOTS = [0, 1, 2, 16, 32, 64, 96, 127]
     [0, 1, -1],
     ids=["same_page", "next_page", "prev_page"],
 )
-def test_sstore_warm_cold_pages(
+def test_sstore_cross_page_warming(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -236,22 +212,14 @@ def test_sstore_warm_cold_pages(
     current_value = warm_value if (same_slot and write_setup) else 0
     new_value = current_value if new_equals_current else 1
 
-    page_load_warm = same_page
-    page_write_warm = same_page and write_setup
-
-    # SSTORE setup bumps (current, peak) on warmed_page to (1, 1);
-    # SLOAD/ACL warm the page for reads only and leave growth
-    # counters at 0. Other pages are untouched.
-    pre_curr, pre_peak = (1, 1) if (same_page and write_setup) else (0, 0)
-
-    expected_gas = Op.SSTORE(
-        page_load_warm=page_load_warm,
-        page_write_warm=page_write_warm,
-        current_value=current_value,
-        new_value=new_value,
-        current_state_growth=pre_curr,
-        net_state_growth=pre_peak,
-    ).gas_cost(fork)
+    page = TxPageState()
+    if same_page:
+        if write_setup:
+            simulate_sstore(page, warmed_slot, warm_value, fork)
+        else:
+            # SLOAD or ACL warm the read set only.
+            page.read_warm = True
+    expected_gas = simulate_sstore(page, target_slot, new_value, fork)
 
     # Measurement slot far from the matrix to avoid collision
     # with target_slot (which ranges up to page ~127).
@@ -338,8 +306,6 @@ def test_sstore_same_value_no_page_write(
     `across` controls whether setup runs in the same tx, a prior
     tx in the same block, or a prior block.
     """
-    from execution_testing import Conditional
-
     overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
     measure_code = CodeGasMeasure(
         code=Op.SSTORE(0, new),
@@ -349,12 +315,12 @@ def test_sstore_same_value_no_page_write(
     )
 
     if across == "same_tx":
-        contract = pre.deploy_contract(
+        contract_address = pre.deploy_contract(
             Op.SSTORE(1, 1) + measure_code,
             storage={0: curr},
         )
     else:
-        contract = pre.deploy_contract(
+        contract_address = pre.deploy_contract(
             Conditional(
                 condition=Op.CALLDATASIZE,
                 if_true=measure_code,
@@ -363,34 +329,19 @@ def test_sstore_same_value_no_page_write(
             storage={0: curr},
         )
 
+    page = TxPageState(slots={0: curr})
     if across == "same_tx":
-        page_load_warm = True
-        page_write_warm = True
-        growth = 1
-        peak = 1
-    else:
-        page_load_warm = False
-        page_write_warm = False
-        growth = 0
-        peak = 0
-
-    expected = Op.SSTORE(
-        page_load_warm=page_load_warm,
-        page_write_warm=page_write_warm,
-        current_value=curr,
-        new_value=new,
-        current_state_growth=growth,
-        net_state_growth=peak,
-    ).gas_cost(fork)
+        simulate_sstore(page, 1, 1, fork)
+    expected_gas = simulate_sstore(page, 0, new, fork)
 
     tx_setup = Transaction(
         gas_limit=generous_gas(fork),
-        to=contract,
+        to=contract_address,
         sender=pre.fund_eoa(),
     )
     tx_measure = Transaction(
         gas_limit=generous_gas(fork),
-        to=contract,
+        to=contract_address,
         sender=pre.fund_eoa(),
         data=b"\x01",
     )
@@ -405,13 +356,13 @@ def test_sstore_same_value_no_page_write(
     expected_storage = {
         0: new,
         1: 1,
-        slot_gas_measured: expected,
+        slot_gas_measured: expected_gas,
     }
 
     blockchain_test(
         pre=pre,
         blocks=blocks,
-        post={contract: Account(storage=expected_storage)},
+        post={contract_address: Account(storage=expected_storage)},
     )
 
 
@@ -655,8 +606,7 @@ def test_max_warm_sstore_iters_in_tx(
     ) + marker_sstore
     available = tx_gas_cap - intrinsic - setup_overhead - marker_cost
 
-    if available < cold_iter:
-        pytest.skip("not enough gas for even one iter")
+    assert available >= cold_iter
     max_n = 1 + (available - cold_iter) // warm_iter
 
     # sanity check we're testing anything at all
@@ -697,7 +647,7 @@ def test_max_warm_sstore_iters_in_tx(
 
 
 @pytest.mark.parametrize("measure_slot", [0, Spec.SLOTS_PER_PAGE])
-def test_sstore_state_growth_peak(
+def test_sstore_no_growth_below_peak(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -710,6 +660,12 @@ def test_sstore_state_growth_peak(
     setup = Op.SSTORE(0, 1) + Op.SSTORE(1, 1) + Op.SSTORE(0, 0)
     on_setup_page = measure_slot // Spec.SLOTS_PER_PAGE == setup_page
 
+    page = TxPageState()
+    if on_setup_page:
+        simulate_sstore(page, 0, 1, fork)
+        simulate_sstore(page, 1, 1, fork)
+        simulate_sstore(page, 0, 0, fork)
+
     overhead = (Op.PUSH2(0) + Op.PUSH1(0)).gas_cost(fork)
     contract_address = pre.deploy_contract(
         setup
@@ -720,33 +676,27 @@ def test_sstore_state_growth_peak(
             sstore_key=slot_gas_measured,
         )
     )
+    expected_gas = simulate_sstore(page, measure_slot, 1, fork)
+
     tx = Transaction(
         gas_limit=generous_gas(fork),
         to=contract_address,
         sender=pre.fund_eoa(),
     )
-    expected = Op.SSTORE(
-        page_load_warm=on_setup_page,
-        page_write_warm=on_setup_page,
-        current_value=0,
-        new_value=1,
-        current_state_growth=1 if on_setup_page else 0,
-        net_state_growth=2 if on_setup_page else 0,
-    ).gas_cost(fork)
 
     slot_storage = {1: 1, measure_slot: 1}
     state_test(
         pre=pre,
         post={
             contract_address: Account(
-                storage={**slot_storage, slot_gas_measured: expected},
+                storage={**slot_storage, slot_gas_measured: expected_gas},
             ),
         },
         tx=tx,
     )
 
 
-def test_sstore_full_page_peak_tracking(
+def test_sstore_peak_holds_after_full_page_clear(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -769,6 +719,14 @@ def test_sstore_full_page_peak_tracking(
     for i in range(Spec.SLOTS_PER_PAGE - 1):
         refill_first += Op.SSTORE(i, 1)
 
+    page = TxPageState()
+    for i in range(Spec.SLOTS_PER_PAGE):
+        simulate_sstore(page, i, 1, fork)
+    for i in range(Spec.SLOTS_PER_PAGE):
+        simulate_sstore(page, i, 0, fork)
+    for i in range(Spec.SLOTS_PER_PAGE - 1):
+        simulate_sstore(page, i, 1, fork)
+
     contract_address = pre.deploy_contract(
         fill_code
         + clear_code
@@ -780,6 +738,7 @@ def test_sstore_full_page_peak_tracking(
             sstore_key=slot_gas_measured,
         )
     )
+    expected_gas = simulate_sstore(page, Spec.SLOTS_PER_PAGE - 1, 1, fork)
 
     # Fill + clear + refill = 3 full-page sweeps over the same page.
     tx = Transaction(
@@ -788,17 +747,8 @@ def test_sstore_full_page_peak_tracking(
         sender=pre.fund_eoa(),
     )
 
-    expected = Op.SSTORE(
-        page_load_warm=True,
-        page_write_warm=True,
-        current_value=0,
-        new_value=1,
-        current_state_growth=Spec.SLOTS_PER_PAGE - 1,
-        net_state_growth=Spec.SLOTS_PER_PAGE,
-    ).gas_cost(fork)
-
     expected_storage = dict.fromkeys(range(Spec.SLOTS_PER_PAGE), 1)
-    expected_storage[slot_gas_measured] = expected
+    expected_storage[slot_gas_measured] = expected_gas
 
     state_test(
         pre=pre,
@@ -814,7 +764,7 @@ def test_sstore_full_page_peak_tracking(
         pytest.param(1, id="different_slot_same_page"),
     ],
 )
-def test_sstore_growth_bypass_after_clear(
+def test_sstore_no_growth_after_clear(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -852,16 +802,11 @@ def test_sstore_growth_bypass_after_clear(
         sender=pre.fund_eoa(),
     )
 
-    expected = Op.SSTORE(
-        page_load_warm=True,
-        page_write_warm=True,
-        current_value=0,
-        new_value=1,
-        current_state_growth=-1,
-        net_state_growth=0,
-    ).gas_cost(fork)
+    page = TxPageState(slots={0: 1})
+    simulate_sstore(page, 0, 0, fork)  # setup clear
+    expected_gas = simulate_sstore(page, refill_slot, 1, fork)
 
-    expected_storage = {refill_slot: 1, slot_gas_measured: expected}
+    expected_storage = {refill_slot: 1, slot_gas_measured: expected_gas}
     state_test(
         pre=pre,
         post={contract_address: Account(storage=expected_storage)},
@@ -896,14 +841,9 @@ def test_sstore_max_slot_page_boundary(
     Verify page arithmetic at the slot-key field boundary.
     """
     same_slot = warm_slot == measured_slot
-    measured_cost = Op.SSTORE(
-        page_load_warm=True,
-        page_write_warm=True,
-        current_value=1 if same_slot else 0,
-        new_value=2,
-        current_state_growth=1,
-        net_state_growth=1,
-    ).gas_cost(fork)
+    page = TxPageState()
+    simulate_sstore(page, warm_slot, 1, fork)
+    expected_gas = simulate_sstore(page, measured_slot, 2, fork)
 
     overhead = (Op.PUSH1(0) + Op.PUSH32(0)).gas_cost(fork)
     contract_address = pre.deploy_contract(
@@ -925,7 +865,7 @@ def test_sstore_max_slot_page_boundary(
     expected_storage = {
         warm_slot: 2 if same_slot else 1,
         measured_slot: 2,
-        slot_gas_measured: measured_cost,
+        slot_gas_measured: expected_gas,
     }
 
     state_test(

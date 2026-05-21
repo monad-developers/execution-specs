@@ -18,7 +18,12 @@ from execution_testing import (
 from execution_testing.forks import MONAD_NEXT, MONAD_NINE
 from execution_testing.forks.helpers import Fork
 
-from .helpers import STATE_TRANSITIONS, expected_setup_growth, generous_gas
+from .helpers import (
+    STATE_TRANSITIONS,
+    TxPageState,
+    generous_gas,
+    simulate_sstore,
+)
 from .spec import ref_spec_8
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
@@ -30,7 +35,7 @@ slot_gas_measured = 0x10
 
 
 @pytest.mark.valid_at_transition_to("MONAD_NEXT")
-def test_storage_written_before_fork_readable_after(
+def test_storage_persists_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -81,13 +86,13 @@ def test_storage_written_before_fork_readable_after(
 
 
 @pytest.mark.valid_at_transition_to("MONAD_NEXT")
-def test_page_warming_works_after_fork(
+def test_page_warming_activates_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     fork: Fork,
 ) -> None:
     """
-    Test that page-level warming works in post-fork block.
+    Page-level warming activates in post-fork block.
 
     In MONAD_NINE (slot-level): warming slot 0 does NOT warm
     slot 1 — each slot tracked independently.
@@ -155,7 +160,7 @@ def test_page_warming_works_after_fork(
 
 
 @pytest.mark.valid_at_transition_to("MONAD_NEXT")
-def test_write_before_fork_read_after_page_warming(
+def test_existing_storage_warms_page_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -236,7 +241,7 @@ def test_write_before_fork_read_after_page_warming(
 @pytest.mark.parametrize("scheme", ["1pre_2post", "2pre_1post"])
 @pytest.mark.parametrize("orig,curr,new", STATE_TRANSITIONS)
 @pytest.mark.valid_at_transition_to("MONAD_NEXT")
-def test_sstore_at_fork_transition_block(
+def test_sstore_state_transitions_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -267,18 +272,15 @@ def test_sstore_at_fork_transition_block(
         extra_stack_items=0,
         sstore_key=slot_gas_measured,
     )
+
+    page = TxPageState(slots={slot: orig if scheme == "1pre_2post" else curr})
     if scheme == "1pre_2post":
         pre_branch = Op.SSTORE(slot, orig)
         post_branch = Op.SSTORE(slot, curr) + measured
-        page_load_warm = True
-        page_write_warm = orig != curr
-        growth, peak = expected_setup_growth(orig, curr)
+        simulate_sstore(page, slot, curr, MONAD_NEXT)
     else:  # 2pre_1post
         pre_branch = Op.SSTORE(slot, orig) + Op.SSTORE(slot, curr)
         post_branch = measured
-        page_load_warm = False
-        page_write_warm = False
-        growth, peak = 0, 0
 
     contract_address = pre.deploy_contract(
         Conditional(
@@ -288,14 +290,7 @@ def test_sstore_at_fork_transition_block(
         )
     )
 
-    expected_gas = Op.SSTORE(
-        page_load_warm=page_load_warm,
-        page_write_warm=page_write_warm,
-        current_value=curr,
-        new_value=new,
-        current_state_growth=growth,
-        net_state_growth=peak,
-    ).gas_cost(MONAD_NEXT)
+    expected_gas = simulate_sstore(page, slot, new, MONAD_NEXT)
 
     blocks = [
         Block(
@@ -335,7 +330,7 @@ def test_sstore_at_fork_transition_block(
 
 
 @pytest.mark.valid_at_transition_to("MONAD_NEXT")
-def test_access_list_warming_fork_transition(
+def test_access_list_warming_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     fork: Fork,

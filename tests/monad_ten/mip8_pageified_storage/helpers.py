@@ -2,6 +2,8 @@
 Helper types, functions and classes for testing MIP-8 pageified storage.
 """
 
+from dataclasses import dataclass, field
+
 import pytest
 from execution_testing import Op
 from execution_testing.forks.helpers import Fork
@@ -97,3 +99,48 @@ def full_page_sweep_gas(fork: Fork) -> int:
     only BASE + state growth.
     """
     return fresh_sstore_cold(fork) + 127 * fresh_sstore_warm(fork)
+
+
+def generous_gas_with_page_sweep(fork: Fork) -> int:
+    """
+    Gas for tests doing a 128-slot SSTORE sweep plus parent setup
+    and a sub-call frame.
+    """
+    return fork.gas_costs().TX_BASE + 600 * fresh_sstore_cold(fork)
+
+
+@dataclass
+class TxPageState:
+    """Simulated single-page state under the MIP-8 SSTORE algorithm."""
+
+    slots: dict[int, int] = field(default_factory=dict)
+    current_growth: int = 0
+    peak_growth: int = 0
+    read_warm: bool = False
+    write_warm: bool = False
+
+
+def simulate_sstore(
+    page: TxPageState, slot: int, new_value: int, fork: Fork
+) -> int:
+    """Apply SSTORE(slot, new_value) to `page`; return its gas cost."""
+    old_value = page.slots.get(slot, 0)
+    cost = Op.SSTORE(
+        page_load_warm=page.read_warm,
+        page_write_warm=page.write_warm,
+        current_value=old_value,
+        new_value=new_value,
+        current_state_growth=page.current_growth,
+        net_state_growth=page.peak_growth,
+    ).gas_cost(fork)
+    page.read_warm = True
+    if old_value != new_value and not page.write_warm:
+        page.write_warm = True
+    if old_value == 0 and new_value != 0:
+        page.current_growth += 1
+    elif old_value != 0 and new_value == 0:
+        page.current_growth -= 1
+    if page.current_growth > page.peak_growth:
+        page.peak_growth = page.current_growth
+    page.slots[slot] = new_value
+    return cost
