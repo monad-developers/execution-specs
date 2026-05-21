@@ -38,7 +38,6 @@ REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
 REFERENCE_SPEC_VERSION = ref_spec_8.version
 
 slot_gas_measured = 0x100
-slot_gas_measured_2 = 0x101
 value_code_worked = 0x1234
 
 pytestmark = [pytest.mark.valid_from("MONAD_NEXT")]

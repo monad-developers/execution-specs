@@ -13,6 +13,7 @@ from execution_testing import (
     Op,
     StateTestFiller,
     Transaction,
+    While,
 )
 from execution_testing.base_types.conversions import NumberConvertible
 from execution_testing.forks.helpers import Fork
@@ -193,7 +194,7 @@ def test_call_child_warming_propagates_to_parent(
         Op.REVERT(0, 0),
         Op.INVALID,
         pytest.param(Op.MLOAD(8 * 1024 * 1024), id="oom"),
-        pytest.param(Op.JUMP(Op.PC), id="oog"),
+        pytest.param(While(body=Bytecode()), id="oog"),
     ],
 )
 @pytest.mark.with_all_call_opcodes
@@ -589,7 +590,7 @@ def test_create_child_warming_does_not_propagate_to_parent(
     Pages warmed inside initcode stay cold in parent.
     """
     initcode_bytes = bytes(initcode_body)
-    padded = initcode_bytes + b"\x00" * (32 - (len(initcode_bytes) % 32))
+    padded = initcode_bytes + b"\x00" * ((-len(initcode_bytes)) % 32)
     assert len(padded) == 32, "initcode must fit one PUSH32"
 
     parent_code = (
@@ -633,7 +634,7 @@ def test_create_child_warming_does_not_propagate_to_parent(
         Op.REVERT(0, 0),
         Op.INVALID,
         pytest.param(Op.MLOAD(8 * 1024 * 1024), id="oom"),
-        pytest.param(Op.JUMP(Op.PC), id="oog"),
+        pytest.param(While(body=Bytecode()), id="oog"),
     ],
 )
 @pytest.mark.with_all_create_opcodes
@@ -707,7 +708,7 @@ def test_create_child_warming_lost_on_revert(
         Op.REVERT(0, 0),
         Op.INVALID,
         pytest.param(Op.MLOAD(8 * 1024 * 1024), id="oom"),
-        pytest.param(Op.JUMP(Op.PC), id="oog"),
+        pytest.param(While(body=Bytecode()), id="oog"),
     ],
 )
 @pytest.mark.with_all_create_opcodes
@@ -977,7 +978,7 @@ def test_cross_account_page_propagation(
         Op.REVERT(0, 0),
         Op.INVALID,
         pytest.param(Op.MLOAD(8 * 1024 * 1024), id="oom"),
-        pytest.param(Op.JUMP(Op.PC), id="oog"),
+        pytest.param(While(body=Bytecode()), id="oog"),
     ],
 )
 @pytest.mark.with_all_call_opcodes

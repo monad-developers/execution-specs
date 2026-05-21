@@ -31,7 +31,6 @@ REFERENCE_SPEC_VERSION = ref_spec_8.version
 
 slot_code_worked = 0x01
 slot_gas_measured = 0x02
-slot_aux = 0x03
 value_code_worked = 0x1234
 
 pytestmark = [
@@ -73,7 +72,6 @@ def test_sload_cold_page(
 
 
 # Slots covering distinct binary subtree branches within a page.
-# Powers of 2 plus extremes hit distinct paths in the 7-level tree.
 _PAGE_BRANCH_SLOTS = [0, 1, 2, 16, 32, 64, 96, 127]
 
 

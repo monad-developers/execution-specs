@@ -31,15 +31,6 @@ STATE_TRANSITIONS = [
 ]
 
 
-def expected_setup_growth(orig: int, curr: int) -> tuple[int, int]:
-    """Return (current_state_growth, net_state_growth) after orig→curr."""
-    if orig == 0 and curr != 0:
-        return (1, 1)
-    if orig != 0 and curr == 0:
-        return (-1, 0)
-    return (0, 0)
-
-
 def page_index(slot: int) -> int:
     """Return the page index for a given storage slot."""
     return slot >> 7
@@ -103,8 +94,8 @@ def full_page_sweep_gas(fork: Fork) -> int:
 
 def generous_gas_with_page_sweep(fork: Fork) -> int:
     """
-    Gas for tests doing a 128-slot SSTORE sweep plus parent setup
-    and a sub-call frame.
+    Generous tx gas budget for tests that perform full-page SSTORE sweeps
+    with surrounding setup and sub-calls.
     """
     return fork.gas_costs().TX_BASE + 600 * fresh_sstore_cold(fork)
 

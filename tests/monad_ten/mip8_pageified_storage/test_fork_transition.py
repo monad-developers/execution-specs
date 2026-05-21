@@ -29,7 +29,6 @@ from .spec import ref_spec_8
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
 REFERENCE_SPEC_VERSION = ref_spec_8.version
 
-slot_code_worked = 0x01
 value_code_worked = 0x1234
 slot_gas_measured = 0x10
 
