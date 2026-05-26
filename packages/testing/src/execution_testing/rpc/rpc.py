@@ -43,6 +43,7 @@ from .rpc_types import (
     ForkchoiceUpdateResponse,
     GetBlobsResponse,
     GetPayloadResponse,
+    JSONRPCError,
     JSONRPCRequest,
     JSONRPCResponse,
     PayloadAttributes,
@@ -54,7 +55,9 @@ from .rpc_types import (
 )
 
 logger = get_logger(__name__)
-BlockNumberType = int | Literal["latest", "earliest", "pending"]
+BlockNumberType = (
+    int | Literal["latest", "earliest", "pending", "finalized", "safe"]
+)
 
 
 class SendTransactionExceptionError(Exception):
@@ -394,7 +397,9 @@ class EthRPC(BaseRPC):
     _gas_information_cache: Dict[str, int]
     _gas_information_cache_timestamp: Dict[str, float]
 
-    BlockNumberType = int | Literal["latest", "earliest", "pending"]
+    BlockNumberType = (
+        int | Literal["latest", "earliest", "pending", "finalized", "safe"]
+    )
 
     def __init__(
         self,
@@ -1121,7 +1126,59 @@ class EthRPC(BaseRPC):
                     )
                 self.pending_transactions_handler()
 
+        # On BFT chains (Monad), the mempool validates follow-up txs against
+        # state at `last_commit - execution_delay` (3 blocks of lookback on
+        # Monad) and only sender-paid fees in newer blocks update balances —
+        # received funds are NOT reflected. So a fresh recipient's funding
+        # must be deep in the committed history before its balance becomes
+        # spendable. Wait for the funding block to be finalized AND for
+        # `execution_delay = 3` more blocks to pass beyond it.
+        self._wait_for_finality(
+            max(
+                int(tx.block_number)
+                for tx in found.values()
+                if tx.block_number is not None
+            )
+            + 3,
+            start_time=start_time,
+        )
+
         return [found[tx.hash] for tx in transactions]
+
+    def _wait_for_finality(
+        self, min_block_number: int, start_time: float
+    ) -> None:
+        """
+        Poll `eth_getBlockByNumber("finalized")` until block_number is
+        finalized. No-op if the RPC does not support the "finalized" tag.
+        """
+        logger.info(f"Waiting for finality of block {min_block_number}..")
+        while True:
+            with self.transaction_polling_context:
+                try:
+                    finalized = self.get_block_by_number(
+                        "finalized", full_txs=False
+                    )
+                except JSONRPCError as e:
+                    logger.debug(
+                        f"RPC does not support finalized tag ({e}); "
+                        "skipping finality wait"
+                    )
+                    return
+                if finalized is not None:
+                    fin_num = int(finalized["number"], 16)
+                    if fin_num >= min_block_number:
+                        logger.info(
+                            f"Block {min_block_number} finalized "
+                            f"(finalized head at {fin_num})"
+                        )
+                        return
+                if (time.time() - start_time) > self.transaction_wait_timeout:
+                    raise Exception(
+                        f"Block {min_block_number} not finalized after "
+                        f"{self.transaction_wait_timeout} seconds"
+                    )
+                self.pending_transactions_handler()
 
     def send_wait_transaction(self, transaction: TransactionProtocol) -> Any:
         """Send transaction and waits until it is included in a block."""

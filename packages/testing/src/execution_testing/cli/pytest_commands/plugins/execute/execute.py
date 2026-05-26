@@ -16,6 +16,7 @@ from execution_testing.execution import BaseExecute
 from execution_testing.forks import Fork
 from execution_testing.logging import get_logger
 from execution_testing.rpc import EngineRPC, EthRPC
+from execution_testing.rpc.rpc_types import JSONRPCError
 from execution_testing.specs import BaseTest
 from execution_testing.test_types import (
     EnvironmentDefaults,
@@ -488,12 +489,18 @@ def max_fee_per_gas(
 
 @pytest.fixture(scope="function")
 def max_fee_per_blob_gas(
+    fork: Fork,
     eth_rpc: EthRPC,
     default_max_fee_per_blob_gas: int | None,
 ) -> int:
     """Return max fee per blob gas used for transactions in a given test."""
     max_fee_per_blob_gas = default_max_fee_per_blob_gas
     if max_fee_per_blob_gas is None:
+        if not fork.supports_blobs():
+            logger.debug(
+                "Fork does not support blobs, max fee per blob gas = 0"
+            )
+            return 0
         network_blob_base_fee = eth_rpc.blob_base_fee()
         max_fee_per_blob_gas = int(network_blob_base_fee * 1.5)
         net_gwei = network_blob_base_fee / 10**9
