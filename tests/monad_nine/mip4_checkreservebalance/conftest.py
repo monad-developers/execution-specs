@@ -24,7 +24,7 @@ def refill_factory(pre: Alloc) -> RefillFactory:
         the address provided in calldata. SELFDESTRUCT sends ETH without
         triggering target's code, avoiding recursion with delegated EOAs.
         """
-        code = bytes(Op.SELFDESTRUCT(Op.CALLDATALOAD(0)))
+        code = Op.SELFDESTRUCT(Op.CALLDATALOAD(0))
         refill_address = pre.deploy_contract(
             code=code, balance=Spec.RESERVE_BALANCE
         )
