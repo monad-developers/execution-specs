@@ -118,7 +118,7 @@ def test_top_level_oom_value_transfer(
     contract_address = pre.deploy_contract(contract)
 
     gas_limit = generous_gas(fork)
-    gas_price = 10
+    gas_price = 100 * 10**9
     tx_value = 10**18
     gas_cost = gas_limit * gas_price
     initial_balance = gas_cost + 2 * tx_value

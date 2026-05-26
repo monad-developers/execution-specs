@@ -35,7 +35,7 @@ pytestmark = [
     ),
 ]
 
-GAS_PRICE = 10
+GAS_PRICE = 100 * 10**9
 
 
 @pytest.mark.parametrize(
@@ -83,7 +83,7 @@ def test_exception_rule(
     # if any of the transactions in setup blocks are sent by main sender we
     # need to credit them extra
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas if send_pos else 0
-    balance += prepare_tx_fee
+    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
 
     target_address = Address(0x1111)
     if pre_delegated:
@@ -218,7 +218,7 @@ def test_exception_rule_invalid_block(
     prepare_tx_fee = (
         GAS_PRICE * prepare_tx_gas if send_pos and not invalid_block else 0
     )
-    balance += prepare_tx_fee
+    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
 
     target_address = Address(0x1111)
     if pre_delegated:
@@ -368,7 +368,7 @@ def test_credit(
     # need to credit them extra
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas if send_pos else 0
 
-    balance += prepare_tx_fee
+    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
 
     target_address = Address(0x1111)
     if pre_delegated:
@@ -505,7 +505,12 @@ def test_credit_with_value(
     """
     prepare_tx_gas = fork.gas_costs().GAS_TX_BASE
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas
-    initial_balance = Spec.RESERVE_BALANCE + send_value + prepare_tx_fee
+    initial_balance = (
+        Spec.RESERVE_BALANCE
+        + send_value
+        + prepare_tx_fee
+        + GAS_PRICE * generous_gas(fork)
+    )
 
     target_address = Address(0x1111)
     if pre_delegated:
@@ -689,7 +694,7 @@ def test_valid_tx_after_invalid(
     # gas spend by transactions send in setup blocks
     prepare_tx_gas = fork.gas_costs().GAS_TX_BASE
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas
-    balance += prepare_tx_fee
+    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
     test_sender = pre.fund_eoa(balance, delegation=Address(0x1111))
 
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP

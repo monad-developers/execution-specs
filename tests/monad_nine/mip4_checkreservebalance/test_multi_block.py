@@ -36,7 +36,7 @@ pytestmark = [
     ),
 ]
 
-GAS_PRICE = 10
+GAS_PRICE = 100 * 10**9
 
 
 @pytest.mark.parametrize(

@@ -51,7 +51,7 @@ pytestmark = [
 ]
 
 
-GAS_PRICE = 10
+GAS_PRICE = 100 * 10**9
 GAS_LIMIT = 500_000
 TX_FEE = GAS_PRICE * GAS_LIMIT
 

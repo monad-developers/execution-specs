@@ -1823,7 +1823,7 @@ def test_bal_multiple_balance_changes_same_account(
     tx_intrinsic_gas = intrinsic_gas_calculator(calldata=b"", access_list=[])
 
     # bob receives funds in tx0, then spends everything in tx1
-    gas_price = 10
+    gas_price = 100 * 10**9
     tx1_gas_cost = tx_intrinsic_gas * gas_price
     spend_amount = 100
     funding_amount = tx1_gas_cost + spend_amount

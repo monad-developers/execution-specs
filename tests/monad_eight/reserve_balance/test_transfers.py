@@ -62,7 +62,7 @@ def test_smoke_reserve_balance(
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)
     gas_limit = generous_gas(fork)
-    gas_price = 10
+    gas_price = 100 * 10**9
 
     tx_1 = Transaction(
         gas_limit=gas_limit,
@@ -83,7 +83,7 @@ def test_smoke_reserve_balance(
 
 
 # Required constants to parametrize an control balances.
-GAS_PRICE = 10
+GAS_PRICE = 100 * 10**9
 GAS_LIMIT = 500_000
 TX_FEE = GAS_PRICE * GAS_LIMIT
 
@@ -1115,6 +1115,16 @@ def test_credit_after_call_frame(
     )
 
 
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason=(
+            "fee_recipient override is not honored on live networks: the "
+            "block proposer (validator) receives the priority fee, not the "
+            "test's sender. Post-state assertion expects the reward credited "
+            "to sender and fails."
+        )
+    )
+)
 @pytest.mark.parametrize(
     ["value", "balance", "violation"],
     [
@@ -1149,7 +1159,7 @@ def test_credit_with_transaction_fee(
     ]
     gas_limit = generous_gas(fork)
     # TODO: assumed - how would I extract it?
-    gas_price = 10
+    gas_price = 100 * 10**9
     base_fee_per_gas = 7
     priority_gas_price = gas_price - base_fee_per_gas
     reward = gas_limit * priority_gas_price

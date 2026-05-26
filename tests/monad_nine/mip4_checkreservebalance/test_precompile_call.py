@@ -809,7 +809,7 @@ def test_tx_revert_scenarios(
     Test precompile behavior when called directly as the transaction
     `to`.
     """
-    gas_price = 10
+    gas_price = 100 * 10**9
 
     calldata, value, to, gas_limit = _tx_params(scenario, pre=pre, fork=fork)
     gas_cost = gas_limit * gas_price
@@ -873,7 +873,7 @@ def test_tx_revert_scenario_pairs(
     Test when the precompile is called directly as transaction
     `to` with 2 reasons to revert.
     """
-    gas_price = 10
+    gas_price = 100 * 10**9
 
     calldata, value, to, gas_limit = _tx_params(
         scenario1, scenario2, pre=pre, fork=fork
