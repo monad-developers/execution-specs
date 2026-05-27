@@ -16,7 +16,6 @@ from execution_testing.execution import BaseExecute
 from execution_testing.forks import Fork
 from execution_testing.logging import get_logger
 from execution_testing.rpc import EngineRPC, EthRPC
-from execution_testing.rpc.rpc_types import JSONRPCError
 from execution_testing.specs import BaseTest
 from execution_testing.test_types import (
     EnvironmentDefaults,
