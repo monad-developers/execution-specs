@@ -38,6 +38,7 @@ REFERENCE_SPEC_VERSION = ref_spec_mip4.version
 slot_code_worked = 0x1
 value_code_worked = 0x1234
 slot_violation_result = 0x2
+slot_create_return = 0x3
 
 slot_violation_after_stage2 = 0x12
 slot_violation_after_stage3 = 0x13
@@ -1117,7 +1118,10 @@ def test_contract_unrestricted_with_create(
 
     factory = (
         Op.MSTORE(0, Op.PUSH32(bytes(initcode_bytes)))
-        + create_opcode(value=value, size=len(initcode))
+        + Op.SSTORE(
+            slot_create_return,
+            create_opcode(value=value, size=len(initcode)),
+        )
         + Op.SSTORE(slot_code_worked, value_code_worked)
         + Op.SSTORE(slot_violation_result, call_dipped_into_reserve())
     )
@@ -1138,7 +1142,11 @@ def test_contract_unrestricted_with_create(
         value=balance if not pre_funded else 0,
         sender=sender,
     )
-    storage = {slot_code_worked: value_code_worked, slot_violation_result: 0}
+    storage = {
+        slot_code_worked: value_code_worked,
+        slot_violation_result: 0,
+        slot_create_return: new_contract_address,
+    }
 
     blockchain_test(
         pre=pre,
@@ -1228,6 +1236,7 @@ def test_contract_unrestricted_with_selfdestruct(
                 size=len(initcode),
             ),
         )
+        + Op.SSTORE(slot_create_return, Op.MLOAD(new_address_offset))
     )
     if same_tx:
         factory += Op.CALL(
@@ -1309,7 +1318,10 @@ def test_contract_unrestricted_with_selfdestruct(
         1 if through_delegation and value > 0 and prefund_balance > 0 else 0
     )
 
-    factory_storage = {slot_code_worked: value_code_worked}
+    factory_storage = {
+        slot_code_worked: value_code_worked,
+        slot_create_return: new_contract_address,
+    }
     if same_tx:
         factory_storage[slot_violation_result] = expected_violation
 
@@ -1420,6 +1432,7 @@ def test_contract_unrestricted_within_initcode(
         )
         + Op.SSTORE(slot_code_worked, value_code_worked)
         + Op.SSTORE(slot_violation_result, call_dipped_into_reserve())
+        + Op.SSTORE(slot_create_return, Op.MLOAD(initcode_size))
         + refill_call(Op.MLOAD(initcode_size))
     )
     factory_address = pre.deploy_contract(
@@ -1488,6 +1501,7 @@ def test_contract_unrestricted_within_initcode(
                 storage={
                     slot_code_worked: value_code_worked,
                     slot_violation_result: expected_violation_after_create,
+                    slot_create_return: new_contract_address,
                 }
             ),
             new_contract_address: Account(

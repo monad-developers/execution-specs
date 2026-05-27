@@ -37,6 +37,7 @@ REFERENCE_SPEC_GIT_PATH = ref_spec_7702.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7702.version
 
 slot_code_worked = 0x1
+slot_create_return = 0x3
 value_code_worked = 0x1234
 
 pytestmark = [
@@ -1460,7 +1461,10 @@ def test_contract_unrestricted_with_create(
 
     factory = (
         Op.MSTORE(0, Op.PUSH32(bytes(initcode_bytes)))
-        + create_opcode(value=value, size=len(initcode))
+        + Op.SSTORE(
+            slot_create_return,
+            create_opcode(value=value, size=len(initcode)),
+        )
         + Op.SSTORE(slot_code_worked, value_code_worked)
         + Op.STOP
     )
@@ -1481,7 +1485,10 @@ def test_contract_unrestricted_with_create(
         value=balance if not pre_funded else 0,
         sender=sender,
     )
-    storage = {slot_code_worked: value_code_worked}
+    storage = {
+        slot_code_worked: value_code_worked,
+        slot_create_return: new_contract_address,
+    }
 
     blockchain_test(
         pre=pre,
