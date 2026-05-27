@@ -85,7 +85,7 @@ def test_exception_rule(
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas if send_pos else 0
     balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
 
-    target_address = Address(0x1111)
+    target_address = pre.nonexistent_account()
     if pre_delegated:
         test_sender = pre.fund_eoa(balance, delegation=target_address)
     else:
@@ -136,7 +136,7 @@ def test_exception_rule(
                 gas_limit=prepare_tx_gas,
                 max_fee_per_gas=GAS_PRICE,
                 max_priority_fee_per_gas=GAS_PRICE,
-                to=Address(0x7873),
+                to=pre.nonexistent_account(),
                 nonce=nonce,
                 sender=sender,
                 authorization_list=authorization_list or None,
@@ -220,7 +220,7 @@ def test_exception_rule_invalid_block(
     )
     balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
 
-    target_address = Address(0x1111)
+    target_address = pre.nonexistent_account()
     if pre_delegated:
         test_sender = pre.fund_eoa(balance, delegation=target_address)
     else:
@@ -271,7 +271,7 @@ def test_exception_rule_invalid_block(
                 gas_limit=prepare_tx_gas,
                 max_fee_per_gas=GAS_PRICE,
                 max_priority_fee_per_gas=GAS_PRICE,
-                to=Address(0x7873),
+                to=pre.nonexistent_account(),
                 nonce=nonce,
                 sender=sender,
                 authorization_list=authorization_list or None,
@@ -281,7 +281,7 @@ def test_exception_rule_invalid_block(
             txs.append(
                 Transaction(
                     gas_limit=fork.gas_costs().GAS_TX_BASE - 123,
-                    to=Address(0x7676),
+                    to=pre.nonexistent_account(),
                     sender=pre.fund_eoa(),
                     error=TransactionException.INTRINSIC_GAS_TOO_LOW
                     if invalid_block
@@ -370,7 +370,7 @@ def test_credit(
 
     balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
 
-    target_address = Address(0x1111)
+    target_address = pre.nonexistent_account()
     if pre_delegated:
         test_sender = pre.fund_eoa(balance, delegation=target_address)
     else:
@@ -418,7 +418,7 @@ def test_credit(
                 gas_limit=prepare_tx_gas,
                 max_fee_per_gas=GAS_PRICE,
                 max_priority_fee_per_gas=GAS_PRICE,
-                to=Address(0x7873),
+                to=pre.nonexistent_account(),
                 nonce=nonce,
                 sender=sender,
                 authorization_list=authorization_list or None,
@@ -512,7 +512,7 @@ def test_credit_with_value(
         + GAS_PRICE * generous_gas(fork)
     )
 
-    target_address = Address(0x1111)
+    target_address = pre.nonexistent_account()
     if pre_delegated:
         test_sender = pre.fund_eoa(initial_balance, delegation=target_address)
     else:
@@ -541,7 +541,7 @@ def test_credit_with_value(
                 gas_limit=prepare_tx_gas,
                 max_fee_per_gas=GAS_PRICE,
                 max_priority_fee_per_gas=GAS_PRICE,
-                to=Address(0x7873),
+                to=pre.nonexistent_account(),
                 nonce=nonce,
                 sender=sender,
                 value=send_value,
@@ -631,10 +631,10 @@ def test_7702_caller_is_no_sender(
         # The test_sender will send value with this call, but this doesn't
         # interfere with reserve balance rules.
         target_address = pre.deploy_contract(
-            Op.CALL(address=Address(0x5656), value=1)
+            Op.CALL(address=pre.nonexistent_account(), value=1)
         )
     else:
-        target_address = Address(0x1111)
+        target_address = pre.nonexistent_account()
     test_sender = pre.fund_eoa(balance, delegation=target_address)
 
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
@@ -695,7 +695,7 @@ def test_valid_tx_after_invalid(
     prepare_tx_gas = fork.gas_costs().GAS_TX_BASE
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas
     balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
-    test_sender = pre.fund_eoa(balance, delegation=Address(0x1111))
+    test_sender = pre.fund_eoa(balance, delegation=pre.nonexistent_account())
 
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)

@@ -88,7 +88,8 @@ def test_exception_rule(
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas if send_pos else 0
     balance += prepare_tx_fee
 
-    target_address = Address(0x1111)
+    target_address = pre.nonexistent_account()
+    prepare_tx_to = pre.nonexistent_account()
     if pre_delegated:
         test_sender = pre.fund_eoa(balance, delegation=target_address)
     else:
@@ -143,7 +144,7 @@ def test_exception_rule(
                 gas_limit=prepare_tx_gas,
                 max_fee_per_gas=GAS_PRICE,
                 max_priority_fee_per_gas=GAS_PRICE,
-                to=Address(0x7873),
+                to=prepare_tx_to,
                 nonce=nonce,
                 sender=sender,
                 authorization_list=authorization_list or None,

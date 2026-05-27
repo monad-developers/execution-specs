@@ -57,7 +57,9 @@ def test_smoke_reserve_balance(
     Simplest smoke test for checking if reserve balance is enforced.
     """
     initial_balance = 10 * 10**18
-    sender = pre.fund_eoa(initial_balance, delegation=Address(0x0111))
+    sender = pre.fund_eoa(
+        initial_balance, delegation=pre.nonexistent_account()
+    )
 
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
     contract_address = pre.deploy_contract(contract)
@@ -114,7 +116,7 @@ def target_address(
         case TargetAccountType.EOA:
             return pre.fund_eoa()
         case TargetAccountType.DELEGATED_EOA:
-            return pre.fund_eoa(delegation=Address(0x0111))
+            return pre.fund_eoa(delegation=pre.nonexistent_account())
         case TargetAccountType.LEGACY_CONTRACT:
             return pre.deploy_contract(code=Op.STOP)
         case TargetAccountType.IDENTITY_PRECOMPILE:
@@ -271,7 +273,7 @@ def test_delegated_eoa_send_value(
     """
     Test reserve balance violations for an EOA sending txs with various values.
     """
-    target_address = Address(0x1111)
+    target_address = pre.nonexistent_account()
     if pre_delegated:
         sender = pre.fund_eoa(balance, delegation=target_address)
     else:
@@ -714,12 +716,14 @@ def test_sc_wallet_send_value_various_sponsors(
 
     sponsor = pre.fund_eoa(
         amount=sponsor_balance,
-        delegation=Address(0x0111) if sponsor_pre_delegated else None,
+        delegation=pre.nonexistent_account()
+        if sponsor_pre_delegated
+        else None,
     )
     if sponsor_delegated:
         authorization_list += [
             AuthorizationTuple(
-                address=Address(0x0222),
+                address=pre.nonexistent_account(),
                 nonce=2 if sponsor_pre_delegated else 1,
                 signer=sponsor,
             )
@@ -1025,7 +1029,7 @@ def test_credit_in_same_tx_same_call_frame(
     violating tx, within the frame that debited the EOA.
     """
     if pre_delegated:
-        sender = pre.fund_eoa(balance, delegation=Address(0x1111))
+        sender = pre.fund_eoa(balance, delegation=pre.nonexistent_account())
     else:
         sender = pre.fund_eoa(balance)
 
@@ -1220,7 +1224,7 @@ def test_access_lists(
     never affect reserve balance.
     """
     if pre_delegated:
-        sender = pre.fund_eoa(balance, delegation=Address(0x1111))
+        sender = pre.fund_eoa(balance, delegation=pre.nonexistent_account())
     else:
         sender = pre.fund_eoa(balance)
 
@@ -1291,11 +1295,11 @@ def test_creation_tx(
     assert selfdestruct == (deploy_code is None)
     pre_fund_value = 0
     if pre_delegated:
-        sender = pre.fund_eoa(balance, delegation=Address(0x1111))
+        sender = pre.fund_eoa(balance, delegation=pre.nonexistent_account())
     else:
         sender = pre.fund_eoa(balance)
 
-    selfdestruct_target = Address(0x5656)
+    selfdestruct_target = pre.nonexistent_account()
     initcode = (
         Op.SELFDESTRUCT(address=selfdestruct_target)
         if selfdestruct
@@ -1367,10 +1371,11 @@ def test_contract_unrestricted(
     """
     Test reserve balance never affects contract spends.
     """
-    transfer_destination = Address(0x1121)
+    transfer_destination = pre.nonexistent_account()
     if pre_delegated:
         sender = pre.fund_eoa(
-            Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
+            Spec.RESERVE_BALANCE + balance,
+            delegation=pre.nonexistent_account(),
         )
     else:
         sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
@@ -1438,12 +1443,13 @@ def test_contract_unrestricted_with_create(
     assert selfdestruct == (deploy_code is None)
     if pre_delegated:
         sender = pre.fund_eoa(
-            Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
+            Spec.RESERVE_BALANCE + balance,
+            delegation=pre.nonexistent_account(),
         )
     else:
         sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
 
-    selfdestruct_target = Address(0x5656)
+    selfdestruct_target = pre.nonexistent_account()
 
     initcode = (
         Op.SELFDESTRUCT(address=selfdestruct_target)
@@ -1537,7 +1543,7 @@ def test_contract_unrestricted_with_selfdestruct(
     else:
         value += create_balance
 
-    selfdestruct_target = Address(0x5656)
+    selfdestruct_target = pre.nonexistent_account()
     pull_funder_address = pre.deploy_contract(
         Op.SELFDESTRUCT(address=Op.CALLER), balance=pull_balance
     )
@@ -1709,13 +1715,14 @@ def test_contract_unrestricted_within_initcode(
     assert selfdestruct == (deploy_code is None)
     if pre_delegated:
         sender = pre.fund_eoa(
-            Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
+            Spec.RESERVE_BALANCE + balance,
+            delegation=pre.nonexistent_account(),
         )
     else:
         sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
 
-    target = Address(0x1231)
-    selfdestruct_target = Address(0x5656)
+    target = pre.nonexistent_account()
+    selfdestruct_target = pre.nonexistent_account()
 
     initcode = (
         (
@@ -1728,13 +1735,13 @@ def test_contract_unrestricted_within_initcode(
             deploy_code=deploy_code,
         )
     )
-    initcode_bytes = initcode + b"\x00" * (32 - (len(initcode) % 32))
+    initcode_size = len(initcode)
 
     factory = (
-        Op.MSTORE(0, Op.PUSH32(bytes(initcode_bytes)))
+        Op.CALLDATACOPY(0, 0, initcode_size)
         + create_opcode(
             value=balance if not new_address_pre_funded else 0,
-            size=len(initcode),
+            size=initcode_size,
         )
         + Op.SSTORE(slot_code_worked, value_code_worked)
         + Op.STOP
@@ -1754,6 +1761,7 @@ def test_contract_unrestricted_within_initcode(
         gas_limit=generous_gas(fork),
         to=factory_address,
         sender=sender,
+        data=initcode,
     )
 
     reverted = (
@@ -1829,13 +1837,14 @@ def test_unrestricted_in_creation_tx_initcode(
     assert selfdestruct == (deploy_code is None)
     if pre_delegated:
         sender = pre.fund_eoa(
-            Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
+            Spec.RESERVE_BALANCE + balance,
+            delegation=pre.nonexistent_account(),
         )
     else:
         sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
 
-    target = Address(0x1231)
-    selfdestruct_target = Address(0x5656)
+    target = pre.nonexistent_account()
+    selfdestruct_target = pre.nonexistent_account()
 
     initcode = (
         (
@@ -1922,7 +1931,7 @@ def test_two_step_balance_change(
     delta1 = balance2 - balance1
     delta2 = balance3 - balance2
 
-    sink = Address(0x5111)
+    sink = pre.nonexistent_account()
 
     wallet_code = Op.CALL(address=sink, value=Op.CALLDATALOAD(0))
     wallet_address = pre.deploy_contract(code=wallet_code)

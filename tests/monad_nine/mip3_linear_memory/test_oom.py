@@ -1337,13 +1337,13 @@ def test_returndatacopy_check_after_oom_check(
         else Spec.MAX_TX_MEMORY_USAGE - returner_size - 32
     )
     gas_threshold = gas_limit // 64
-    pre.nonexistent_account()
+    nonexistent_address = pre.nonexistent_account()
 
     returner_address = pre.deploy_contract(Op.RETURN(0, returner_size))
 
     # ret_size=32 is allocating the extra 32 bytes to cause OOM if exceed.
     inner_contract = Op.CALL(
-        address=Address(0x0111) if out_of_bounds else returner_address
+        address=nonexistent_address if out_of_bounds else returner_address
     )
     copy_offset = 32
     assert offset + returner_size <= Spec.MAX_TX_MEMORY_USAGE

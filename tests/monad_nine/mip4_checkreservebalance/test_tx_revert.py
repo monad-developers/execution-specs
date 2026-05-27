@@ -8,7 +8,6 @@ from MONAD_EIGHT are not affected by the new precompile in MIP-4.
 import pytest
 from execution_testing import (
     Account,
-    Address,
     Alloc,
     Block,
     BlockchainTestFiller,
@@ -71,7 +70,7 @@ def test_precompile_does_not_alter_revert_mechanism(
     """
     refill_call = refill_factory()
 
-    wallet_code = Op.CALL(address=Address(0x0111), value=1)
+    wallet_code = Op.CALL(address=pre.nonexistent_account(), value=1)
     wallet_address = pre.deploy_contract(code=wallet_code)
 
     if not violation_for_check and not violation_for_tx_revert:

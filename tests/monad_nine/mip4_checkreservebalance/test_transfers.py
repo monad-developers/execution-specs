@@ -67,7 +67,9 @@ def test_smoke_checkreservebalance(
     """
     refill_call = refill_factory()
     initial_balance = 10 * 10**18
-    sender = pre.fund_eoa(initial_balance, delegation=Address(0x0111))
+    sender = pre.fund_eoa(
+        initial_balance, delegation=pre.nonexistent_account()
+    )
 
     contract = (
         Op.SSTORE(slot_violation_result, call_dipped_into_reserve())
@@ -123,7 +125,7 @@ def target_address(
         case TargetAccountType.EOA:
             return pre.fund_eoa()
         case TargetAccountType.DELEGATED_EOA:
-            return pre.fund_eoa(delegation=Address(0x0111))
+            return pre.fund_eoa(delegation=pre.nonexistent_account())
         case TargetAccountType.LEGACY_CONTRACT:
             return pre.deploy_contract(code=Op.STOP)
         case TargetAccountType.IDENTITY_PRECOMPILE:
@@ -282,7 +284,7 @@ def test_delegated_eoa_send_value(
     Test dippedIntoReserve() returns correct value for an EOA sending txs.
     """
     refill_call = refill_factory()
-    target_address = Address(0x1111)
+    target_address = pre.nonexistent_account()
     if pre_delegated:
         sender = pre.fund_eoa(balance, delegation=target_address)
     else:
@@ -821,7 +823,7 @@ def test_credit_in_same_tx_same_call_frame(
     """
     refill_call = refill_factory()
     if pre_delegated:
-        sender = pre.fund_eoa(balance, delegation=Address(0x1111))
+        sender = pre.fund_eoa(balance, delegation=pre.nonexistent_account())
     else:
         sender = pre.fund_eoa(balance)
 
@@ -971,7 +973,7 @@ def test_creation_tx(
     refill_call = refill_factory()
     pre_fund_value = 0
     if pre_delegated:
-        sender = pre.fund_eoa(balance, delegation=Address(0x1111))
+        sender = pre.fund_eoa(balance, delegation=pre.nonexistent_account())
     else:
         sender = pre.fund_eoa(balance)
 
@@ -1031,10 +1033,11 @@ def test_contract_unrestricted(
     Test reserve balance never affects contract spends and
     dippedIntoReserve() always returns 0.
     """
-    transfer_destination = Address(0x1121)
+    transfer_destination = pre.nonexistent_account()
     if pre_delegated:
         sender = pre.fund_eoa(
-            Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
+            Spec.RESERVE_BALANCE + balance,
+            delegation=pre.nonexistent_account(),
         )
     else:
         sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
@@ -1097,12 +1100,13 @@ def test_contract_unrestricted_with_create(
     """
     if pre_delegated:
         sender = pre.fund_eoa(
-            Spec.RESERVE_BALANCE + balance, delegation=Address(0x1111)
+            Spec.RESERVE_BALANCE + balance,
+            delegation=pre.nonexistent_account(),
         )
     else:
         sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
 
-    selfdestruct_target = Address(0x5656)
+    selfdestruct_target = pre.nonexistent_account()
 
     initcode = (
         Op.SELFDESTRUCT(address=selfdestruct_target)
@@ -1199,7 +1203,7 @@ def test_contract_unrestricted_with_selfdestruct(
     else:
         value += create_balance
 
-    selfdestruct_target = Address(0x5656)
+    selfdestruct_target = pre.nonexistent_account()
     pull_funder_address = pre.deploy_contract(
         Op.SELFDESTRUCT(address=Op.CALLER), balance=pull_balance
     )
@@ -1377,9 +1381,8 @@ def test_contract_unrestricted_within_initcode(
     refill_call = refill_factory()
 
     sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
-
-    target = Address(0x1231)
-    selfdestruct_target = Address(0x5656)
+    target = pre.nonexistent_account()
+    selfdestruct_target = pre.nonexistent_account()
 
     # Auxiliary contract: persists dippedIntoReserve() result
     # during initcode (first check).
@@ -1541,8 +1544,8 @@ def test_unrestricted_in_creation_tx_initcode(
     refill_call = refill_factory()
 
     sender = pre.fund_eoa(Spec.RESERVE_BALANCE + balance)
-    target = Address(0x1231)
-    selfdestruct_target = Address(0x5656)
+    target = pre.nonexistent_account()
+    selfdestruct_target = pre.nonexistent_account()
 
     # Auxiliary contract: persists dippedIntoReserve() result
     # during initcode.
@@ -1641,7 +1644,7 @@ def test_two_step_balance_change(
     delta1 = balance2 - balance1
     delta2 = balance3 - balance2
 
-    sink = Address(0x5111)
+    sink = pre.nonexistent_account()
 
     wallet_code = Op.CALL(address=sink, value=Op.CALLDATALOAD(0))
     wallet_address = pre.deploy_contract(code=wallet_code)
