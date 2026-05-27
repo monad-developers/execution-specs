@@ -123,6 +123,12 @@ def test_create_insufficient_balance(
         pytest.param(Op.CREATE2, id="CREATE2"),
     ],
 )
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="cannot pre-set creator nonce to 2**64-1 via tx on a live "
+        "chain"
+    )
+)
 def test_create_nonce_overflow(
     state_test: StateTestFiller,
     pre: Alloc,

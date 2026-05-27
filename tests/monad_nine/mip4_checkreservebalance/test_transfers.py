@@ -1261,34 +1261,44 @@ def test_contract_unrestricted_with_selfdestruct(
         opcode=create_opcode,
     )
 
-    txs = []
+    blocks = []
     if prefund_balance > 0:
-        txs.append(
-            Transaction(
-                to=delegated_address
-                if through_delegation
-                else new_contract_address,
-                value=prefund_balance,
-                sender=pre.fund_eoa(),
-            ),
+        blocks.append(
+            Block(
+                txs=[
+                    Transaction(
+                        to=delegated_address
+                        if through_delegation
+                        else new_contract_address,
+                        value=prefund_balance,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
+            )
         )
 
-    # The creating transaction. If same_tx is also the test tx.
-    txs.append(
-        Transaction(
-            gas_limit=generous_gas(fork),
-            to=factory_address,
-            sender=pre.fund_eoa(),
-            data=initcode,
-            authorization_list=[
-                AuthorizationTuple(
-                    address=new_contract_address,
-                    nonce=0,
-                    signer=delegated_address,
+    # Each remaining tx goes in its own block so remote builders cannot
+    # reorder them relative to the prefund or to each other.
+    blocks.append(
+        Block(
+            txs=[
+                # The creating transaction. If same_tx is also the test tx.
+                Transaction(
+                    gas_limit=generous_gas(fork),
+                    to=factory_address,
+                    sender=pre.fund_eoa(),
+                    data=initcode,
+                    authorization_list=[
+                        AuthorizationTuple(
+                            address=new_contract_address,
+                            nonce=0,
+                            signer=delegated_address,
+                        )
+                    ]
+                    if through_delegation
+                    else None,
                 )
             ]
-            if through_delegation
-            else None,
         )
     )
 
@@ -1305,12 +1315,16 @@ def test_contract_unrestricted_with_selfdestruct(
     caller_address = pre.deploy_contract(caller_code, balance=call_balance)
 
     if not same_tx:
-        # A separate test tx follows the creating tx.
-        txs.append(
-            Transaction(
-                gas_limit=generous_gas(fork),
-                to=caller_address,
-                sender=pre.fund_eoa(),
+        blocks.append(
+            Block(
+                txs=[
+                    # A separate test tx follows the creating tx.
+                    Transaction(
+                        gas_limit=generous_gas(fork),
+                        to=caller_address,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
             )
         )
 
@@ -1351,7 +1365,7 @@ def test_contract_unrestricted_with_selfdestruct(
     blockchain_test(
         pre=pre,
         post=post,
-        blocks=[Block(txs=txs)],
+        blocks=blocks,
     )
 
 
@@ -1478,16 +1492,20 @@ def test_contract_unrestricted_within_initcode(
 
     new_balance = balance - value + Spec.RESERVE_BALANCE
 
-    txs = [tx_1]
+    blocks = []
     if new_address_pre_funded:
-        txs.insert(
-            0,
-            Transaction(
-                to=new_contract_address,
-                value=balance,
-                sender=pre.fund_eoa(),
-            ),
+        blocks.append(
+            Block(
+                txs=[
+                    Transaction(
+                        to=new_contract_address,
+                        value=balance,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
+            )
         )
+    blocks.append(Block(txs=[tx_1]))
 
     blockchain_test(
         pre=pre,
@@ -1516,7 +1534,7 @@ def test_contract_unrestricted_within_initcode(
             if selfdestruct
             else None,
         },
-        blocks=[Block(txs=txs)],
+        blocks=blocks,
     )
 
 
@@ -1600,16 +1618,20 @@ def test_unrestricted_in_creation_tx_initcode(
     )
     new_address = tx_1.created_contract
 
-    txs = [tx_1]
+    blocks = []
     if new_address_pre_funded:
-        txs.insert(
-            0,
-            Transaction(
-                to=new_address,
-                value=balance,
-                sender=pre.fund_eoa(),
-            ),
+        blocks.append(
+            Block(
+                txs=[
+                    Transaction(
+                        to=new_address,
+                        value=balance,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
+            )
         )
+    blocks.append(Block(txs=[tx_1]))
 
     new_balance = balance - value + Spec.RESERVE_BALANCE
 
@@ -1629,7 +1651,7 @@ def test_unrestricted_in_creation_tx_initcode(
             if selfdestruct
             else None,
         },
-        blocks=[Block(txs=txs)],
+        blocks=blocks,
     )
 
 

@@ -1317,15 +1317,21 @@ def test_creation_tx(
     )
     new_address = tx_1.created_contract
 
-    txs = [tx_1]
+    blocks = []
     if new_address_pre_funded:
         pre_fund_value = 12345
-        txs.insert(
-            0,
-            Transaction(
-                to=new_address, value=pre_fund_value, sender=pre.fund_eoa()
-            ),
+        blocks.append(
+            Block(
+                txs=[
+                    Transaction(
+                        to=new_address,
+                        value=pre_fund_value,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
+            )
         )
+    blocks.append(Block(txs=[tx_1]))
 
     reverted = (violation and pre_delegated) or (
         fork == MONAD_EIGHT and selfdestruct and new_address_pre_funded
@@ -1346,7 +1352,7 @@ def test_creation_tx(
             if selfdestruct and not reverted and value + pre_fund_value != 0
             else None,
         },
-        blocks=[Block(txs=txs)],
+        blocks=blocks,
     )
 
 
@@ -1596,47 +1602,59 @@ def test_contract_unrestricted_with_selfdestruct(
         opcode=create_opcode,
     )
 
-    txs = []
+    blocks = []
     if prefund_balance > 0:
-        txs.append(
-            Transaction(
-                to=delegated_address
-                if through_delegation
-                else new_contract_address,
-                value=prefund_balance,
-                sender=pre.fund_eoa(),
-            ),
+        blocks.append(
+            Block(
+                txs=[
+                    Transaction(
+                        to=delegated_address
+                        if through_delegation
+                        else new_contract_address,
+                        value=prefund_balance,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
+            )
         )
 
-    # The creating transaction. If same_tx is also the test tx.
-    txs.append(
-        Transaction(
-            gas_limit=generous_gas(fork),
-            to=factory_address,
-            sender=pre.fund_eoa(),
-            data=initcode,
-            authorization_list=[
-                AuthorizationTuple(
-                    address=new_contract_address,
-                    nonce=0,
-                    signer=delegated_address,
+    # Each remaining tx goes in its own block so remote builders cannot
+    # reorder them relative to the prefund or to each other.
+    blocks.append(
+        Block(
+            txs=[
+                Transaction(
+                    gas_limit=generous_gas(fork),
+                    to=factory_address,
+                    sender=pre.fund_eoa(),
+                    data=initcode,
+                    authorization_list=[
+                        AuthorizationTuple(
+                            address=new_contract_address,
+                            nonce=0,
+                            signer=delegated_address,
+                        )
+                    ]
+                    if through_delegation
+                    else None,
                 )
             ]
-            if through_delegation
-            else None,
         )
     )
 
     if not same_tx:
-        # A separate test tx follows the creating tx.
-        txs.append(
-            Transaction(
-                gas_limit=generous_gas(fork),
-                to=delegated_address
-                if through_delegation
-                else new_contract_address,
-                value=call_balance,
-                sender=pre.fund_eoa(),
+        blocks.append(
+            Block(
+                txs=[
+                    Transaction(
+                        gas_limit=generous_gas(fork),
+                        to=delegated_address
+                        if through_delegation
+                        else new_contract_address,
+                        value=call_balance,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
             )
         )
 
@@ -1684,7 +1702,7 @@ def test_contract_unrestricted_with_selfdestruct(
             # SELFDESTRUCT target should not receive value on revert
             selfdestruct_target: None,
         },
-        blocks=[Block(txs=txs)],
+        blocks=blocks,
     )
 
 
