@@ -696,11 +696,21 @@ def test_sc_wallet_send_value_various_sponsors(
     or not and has various balances, to ensure it isn't the account
     being checked for reserve balance violation.
     """
+    # Use deterministic deploys (deferred to end of pending tx list) so
+    # the wallet has no code on chain at fund_eoa time. Otherwise the
+    # funding tx's value transfer to the (delegated) sender would invoke
+    # wallet's CALL during setup and leak value into contract_address
+    # before the test even runs. Session-unique salt keeps the addresses
+    # fresh across runs.
+    salt = int(bytes(pre.nonexistent_account()).hex(), 16)
     contract = Op.SSTORE(slot_code_worked, value_code_worked)
-    contract_address = pre.deploy_contract(contract)
+    contract_address = pre.deterministic_deploy_contract(
+        deploy_code=contract, salt=salt
+    )
 
-    wallet_address = pre.deploy_contract(
-        code=Op.CALL(address=contract_address, value=value)
+    wallet_address = pre.deterministic_deploy_contract(
+        deploy_code=Op.CALL(address=contract_address, value=value),
+        salt=salt,
     )
     if pre_delegated:
         sender = pre.fund_eoa(balance, delegation=wallet_address)
@@ -942,11 +952,21 @@ def test_credit_same_tx(
     Test reserve balance violations for an EOA credited during the otherwise
     violating tx.
     """
+    # Use deterministic deploys (deferred to end of pending tx list) so
+    # the wallet has no code on chain at fund_eoa time. Otherwise the
+    # funding tx's value transfer to the (delegated) sender would invoke
+    # wallet's CALL during setup and leak value into contract_address
+    # before the test even runs. Session-unique salt keeps the addresses
+    # fresh across runs.
+    salt = int(bytes(pre.nonexistent_account()).hex(), 16)
     contract = Op.SSTORE(slot_code_worked, value_code_worked)
-    contract_address = pre.deploy_contract(contract)
+    contract_address = pre.deterministic_deploy_contract(
+        deploy_code=contract, salt=salt
+    )
 
-    wallet_address = pre.deploy_contract(
-        code=Op.CALL(address=contract_address, value=value)
+    wallet_address = pre.deterministic_deploy_contract(
+        deploy_code=Op.CALL(address=contract_address, value=value),
+        salt=salt,
     )
     pre_funded_balance = (
         balance // 2 if pre_funded == "half" else balance if pre_funded else 0

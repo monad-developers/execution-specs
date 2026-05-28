@@ -208,7 +208,20 @@ def test_stack_overflow(
     )
 
 
-def prepare_stack_constant_gas_oog(opcode: Opcode) -> Bytecode:
+_ADDR_POSITION_FROM_STACK_TOP = {
+    Op.BALANCE: 0,
+    Op.EXTCODESIZE: 0,
+    Op.EXTCODECOPY: 0,
+    Op.EXTCODEHASH: 0,
+    Op.SELFDESTRUCT: 0,
+    Op.CALL: 1,
+    Op.CALLCODE: 1,
+    Op.DELEGATECALL: 1,
+    Op.STATICCALL: 1,
+}
+
+
+def prepare_stack_constant_gas_oog(opcode: Opcode, pre: Alloc) -> Bytecode:
     """Prepare valid stack for opcode."""
     if opcode == Op.JUMPI:
         return Op.PUSH1(1) + Op.PUSH1(3) + Op.PC + Op.ADD
@@ -216,7 +229,20 @@ def prepare_stack_constant_gas_oog(opcode: Opcode) -> Bytecode:
         return Op.PUSH1(3) + Op.PC + Op.ADD
     if opcode == Op.BLOCKHASH:
         return Op.PUSH1(0x01)
-    return Op.PUSH1(0x00) * opcode.min_stack_height
+    n = opcode.min_stack_height
+    if opcode in _ADDR_POSITION_FROM_STACK_TOP:
+        # Use a freshly-generated nonexistent address for the address
+        # argument so its on-chain state (cold/empty/zero balance) is
+        # consistent across networks, instead of relying on address 0
+        # which may carry leftover balance on live chains.
+        pos_from_top = _ADDR_POSITION_FROM_STACK_TOP[opcode]
+        addr_push_index = n - 1 - pos_from_top
+        addr = pre.nonexistent_account()
+        return sum(
+            Op.PUSH20(addr) if i == addr_push_index else Op.PUSH1(0x00)
+            for i in range(n)
+        )
+    return Op.PUSH1(0x00) * n
 
 
 def constant_gas_opcodes(fork: Fork) -> Generator[ParameterSet, None, None]:
@@ -253,7 +279,7 @@ def test_constant_gas(
     setup_code = (
         Op.MLOAD(0)
         + Op.POP
-        + prepare_stack_constant_gas_oog(opcode)
+        + prepare_stack_constant_gas_oog(opcode, pre)
         + create2_salt
     )
     warm_opcode_metadata = {}

@@ -399,6 +399,12 @@ def test_beacon_root_selfdestruct(
 )
 @pytest.mark.parametrize("block_count", [10])  # All tests use 10 blocks
 @pytest.mark.valid_from("Cancun")
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Requires test-controlled parent_beacon_block_root and "
+        "timestamp per block; live chains supply these themselves."
+    )
+)
 def test_multi_block_beacon_root_timestamp_calls(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

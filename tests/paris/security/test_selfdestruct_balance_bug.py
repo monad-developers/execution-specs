@@ -93,7 +93,10 @@ def test_tx_selfdestruct_balance_bug(
     balance_address_1 = pre.deploy_contract(balance_code)
     balance_address_2 = pre.deploy_contract(balance_code)
 
-    sender = pre.fund_eoa()
+    # Fund well above Monad's 10 MON reserve balance; the test sends value
+    # in tx 3 after earlier txs in the same block, so the emptying-tx
+    # exception does not apply on Monad.
+    sender = pre.fund_eoa(amount=100 * 10**18)
 
     blocks = [
         Block(

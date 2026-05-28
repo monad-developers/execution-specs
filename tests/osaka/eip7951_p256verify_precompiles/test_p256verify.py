@@ -1231,12 +1231,13 @@ def test_modular_comparison(
 def test_contract_creation_transaction(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx: Transaction,
     input_data: bytes,
     expected_output: bytes,
+    precompile_address: Address,
     fork: Fork,
 ) -> None:
     """Test the contract creation for the P256VERIFY precompile."""
+    del precompile_address
     sender = pre.fund_eoa()
 
     storage = Storage()
@@ -1297,13 +1298,14 @@ def test_contract_creation_transaction(
 def test_contract_initcode(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx: Transaction,
     input_data: bytes,
     expected_output: bytes,
     opcode: Op,
+    precompile_address: Address,
     fork: Fork,
 ) -> None:
     """Test P256VERIFY behavior from contract creation."""
+    del precompile_address
     sender = pre.fund_eoa()
 
     storage = Storage()
