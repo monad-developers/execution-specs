@@ -20,6 +20,7 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
     gas_test,
+    oog_test,
 )
 from execution_testing.base_types.conversions import NumberConvertible
 from execution_testing.forks.helpers import Fork
@@ -871,4 +872,85 @@ def test_sstore_max_slot_page_boundary(
         pre=pre,
         post={contract_address: Account(storage=expected_storage)},
         tx=tx,
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "cold_fresh_growth",
+        "warm_fresh_growth",
+        "cold_update_no_growth",
+        "cold_noop",
+        "warm_update_no_growth",
+        "partial_warm_via_sload",
+    ],
+)
+def test_sstore_oog(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    scenario: str,
+) -> None:
+    """SSTORE OOG across page-IO and state-growth variants."""
+    subject_storage: dict | None = None
+    setup: Bytecode | None = None
+    expected_gas: int | None = None
+    if scenario == "cold_fresh_growth":
+        subject = Op.SSTORE(0, 1)
+    elif scenario == "warm_fresh_growth":
+        setup = Op.SSTORE(0, 1)
+        subject = Op.SSTORE(
+            1,
+            1,
+            page_load_warm=True,
+            page_write_warm=True,
+            current_state_growth=1,
+            net_state_growth=1,
+        )
+    elif scenario == "cold_update_no_growth":
+        subject = Op.SSTORE(0, 2, current_value=1, new_value=2)
+        subject_storage = {0: 1}
+    elif scenario == "cold_noop":
+        subject = Op.SSTORE(0, 1, current_value=1, new_value=1)
+        subject_storage = {0: 1}
+    elif scenario == "partial_warm_via_sload":
+        # SLOAD warms the read page but not the write page; SSTORE
+        # on the same page then pays BASE + WRITE + STATE_GROWTH
+        # (no LOAD).
+        setup = Op.SLOAD(0)
+        subject = Op.SSTORE(
+            1,
+            1,
+            page_load_warm=True,
+            page_write_warm=False,
+        )
+    else:  # warm_update_no_growth
+        setup = Op.SSTORE(1, 1)
+        subject = Op.SSTORE(
+            0,
+            2,
+            page_load_warm=True,
+            page_write_warm=True,
+            current_value=1,
+            new_value=2,
+            current_state_growth=1,
+            net_state_growth=1,
+        )
+        subject_storage = {0: 1}
+        # Warm SSTORE cost (BASE only) sits below EIP-2200's 2300
+        # stipend; size expected_gas so OOG-by-1 fires via stipend.
+        pre_op = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
+        expected_gas = (
+            setup.gas_cost(fork) + pre_op + fork.gas_costs().CALL_STIPEND + 1
+        )
+
+    oog_test(
+        fork=fork,
+        state_test=state_test,
+        pre=pre,
+        setup_code=setup,
+        subject_code=subject,
+        subject_storage=subject_storage,
+        expected_gas=expected_gas,
     )

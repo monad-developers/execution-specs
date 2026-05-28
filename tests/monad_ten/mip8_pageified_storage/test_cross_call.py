@@ -907,6 +907,126 @@ def test_initcode_state_growth_persists_to_post_deploy(
     )
 
 
+def test_creation_tx_initcode_sload_warming(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+) -> None:
+    """
+    SLOAD inside a top-level creation-tx initcode follows
+    cold/warm rules on the new contract's pages.
+    """
+    overhead = Op.PUSH1(0).gas_cost(fork)
+    initcode = Initcode(
+        deploy_code=Op.STOP,
+        initcode_prefix=(
+            CodeGasMeasure(
+                code=Op.SLOAD(0),
+                overhead_cost=overhead,
+                extra_stack_items=1,
+                sstore_key=slot_gas_measured,
+                stop=False,
+            )
+            + CodeGasMeasure(
+                code=Op.SLOAD(1),
+                overhead_cost=overhead,
+                extra_stack_items=1,
+                sstore_key=slot_gas_measured_2,
+                stop=False,
+            )
+        ),
+    )
+    sender = pre.fund_eoa()
+    new_contract_address = compute_create_address(
+        address=sender, nonce=sender.nonce, opcode=Op.CREATE
+    )
+
+    tx = Transaction(
+        gas_limit=generous_gas_with_create(fork),
+        to=None,
+        data=bytes(initcode),
+        sender=sender,
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            new_contract_address: Account(
+                storage={
+                    slot_gas_measured: Op.SLOAD(page_load_warm=False).gas_cost(
+                        fork
+                    ),
+                    slot_gas_measured_2: Op.SLOAD(
+                        page_load_warm=True
+                    ).gas_cost(fork),
+                },
+            ),
+        },
+        tx=tx,
+    )
+
+
+def test_creation_tx_initcode_sstore_warming(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+) -> None:
+    """
+    SSTORE inside a top-level creation-tx initcode follows
+    cold/warm + state-growth rules on the new contract's pages.
+    """
+    overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
+    initcode = Initcode(
+        deploy_code=Op.STOP,
+        initcode_prefix=(
+            CodeGasMeasure(
+                code=Op.SSTORE(0, 1),
+                overhead_cost=overhead,
+                extra_stack_items=0,
+                sstore_key=slot_gas_measured,
+                stop=False,
+            )
+            + CodeGasMeasure(
+                code=Op.SSTORE(1, 1),
+                overhead_cost=overhead,
+                extra_stack_items=0,
+                sstore_key=slot_gas_measured_2,
+                stop=False,
+            )
+        ),
+    )
+    sender = pre.fund_eoa()
+    new_contract_address = compute_create_address(
+        address=sender, nonce=sender.nonce, opcode=Op.CREATE
+    )
+
+    page = TxPageState()
+    expected_first_gas = simulate_sstore(page, 0, 1, fork)
+    expected_second_gas = simulate_sstore(page, 1, 1, fork)
+
+    tx = Transaction(
+        gas_limit=generous_gas_with_create(fork),
+        to=None,
+        data=bytes(initcode),
+        sender=sender,
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            new_contract_address: Account(
+                storage={
+                    0: 1,
+                    1: 1,
+                    slot_gas_measured: expected_first_gas,
+                    slot_gas_measured_2: expected_second_gas,
+                },
+            ),
+        },
+        tx=tx,
+    )
+
+
 @pytest.mark.parametrize(
     "call_kind",
     ["call", "callcode", "delegatecall_chain", "call_chain"],
@@ -968,6 +1088,117 @@ def test_cross_account_page_propagation(
     state_test(
         pre=pre,
         post={outer: Account(storage=expected_storage)},
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize(
+    "call_kind",
+    ["callcode", "delegatecall"],
+)
+def test_cross_account_caller_warm_propagates(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    call_kind: str,
+) -> None:
+    """CALLCODE/DELEGATECALL preserve caller's storage-context pages."""
+    overhead = Op.PUSH1(0).gas_cost(fork)
+    inner = pre.deploy_contract(
+        CodeGasMeasure(
+            code=Op.SLOAD(0),
+            overhead_cost=overhead,
+            extra_stack_items=1,
+            sstore_key=slot_gas_measured,
+        )
+    )
+
+    sub_call = (
+        Op.CALLCODE(address=inner)
+        if call_kind == "callcode"
+        else Op.DELEGATECALL(address=inner)
+    )
+    outer = pre.deploy_contract(Op.SLOAD(0) + sub_call)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=outer,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            outer: Account(
+                storage={
+                    slot_gas_measured: Op.SLOAD(page_load_warm=True).gas_cost(
+                        fork
+                    ),
+                },
+            ),
+        },
+        tx=tx,
+    )
+
+
+def test_delegated_eoa_owns_pages(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+) -> None:
+    """
+    Pages warmed inside delegated-EOA code are keyed by the EOA
+    address.
+    """
+    overhead = Op.PUSH1(0).gas_cost(fork)
+    delegate_code = Conditional(
+        condition=Op.CALLDATASIZE,
+        if_true=CodeGasMeasure(
+            code=Op.SLOAD(0),
+            overhead_cost=overhead,
+            extra_stack_items=1,
+            sstore_key=slot_gas_measured_2,
+        ),
+        if_false=CodeGasMeasure(
+            code=Op.SLOAD(0),
+            overhead_cost=overhead,
+            extra_stack_items=1,
+            sstore_key=slot_gas_measured,
+        ),
+    )
+    delegate_target = pre.deploy_contract(delegate_code)
+    eoa1 = pre.fund_eoa(delegation=delegate_target)
+    eoa2 = pre.fund_eoa(delegation=delegate_target)
+
+    runner_code = (
+        Op.CALL(address=delegate_target)
+        + Op.CALL(address=eoa1)
+        + Op.CALL(address=eoa2)
+        + Op.CALL(address=eoa2, args_size=1)
+    )
+    runner_address = pre.deploy_contract(runner_code)
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=runner_address,
+        sender=pre.fund_eoa(),
+    )
+
+    cold = Op.SLOAD(page_load_warm=False).gas_cost(fork)
+    warm = Op.SLOAD(page_load_warm=True).gas_cost(fork)
+
+    state_test(
+        pre=pre,
+        post={
+            delegate_target: Account(storage={slot_gas_measured: cold}),
+            eoa1: Account(storage={slot_gas_measured: cold}),
+            eoa2: Account(
+                storage={
+                    slot_gas_measured: cold,
+                    slot_gas_measured_2: warm,
+                },
+            ),
+        },
         tx=tx,
     )
 

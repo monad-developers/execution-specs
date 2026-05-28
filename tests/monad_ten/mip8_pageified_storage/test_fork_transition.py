@@ -9,10 +9,12 @@ from execution_testing import (
     Alloc,
     Block,
     BlockchainTestFiller,
+    Bytecode,
     CodeGasMeasure,
     Conditional,
     Hash,
     Op,
+    Storage,
     Transaction,
 )
 from execution_testing.forks import MONAD_NEXT, MONAD_NINE
@@ -397,4 +399,99 @@ def test_access_list_warming_at_fork(
                 },
             ),
         },
+    )
+
+
+@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+def test_blockhash_stable_across_fork(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    fork: Fork,
+) -> None:
+    """
+    BLOCKHASH of pre-fork blocks stays the same when queried post-fork.
+
+    MIP-8 changes the state-root commitment; pre-fork block hashes must
+    not change when read post-fork.
+    """
+    sender = pre.fund_eoa()
+
+    def slot_blockhash(i: int) -> Bytecode:
+        return Op.ADD(Op.MUL(Op.TIMESTAMP, 16), i)
+
+    def slot_nonzero(i: int) -> Bytecode:
+        return Op.ADD(Op.MUL(Op.TIMESTAMP, 16), 4 + i)
+
+    def prev_slot(i: int) -> Bytecode:
+        return Op.ADD(Op.MUL(Op.SUB(Op.TIMESTAMP, 1), 16), i)
+
+    slot_stable = Op.MUL(Op.TIMESTAMP, 16)
+
+    def stable_i(i: int) -> Bytecode:
+        return Op.OR(
+            Op.ISZERO(Op.SLOAD(prev_slot(i))),
+            Op.EQ(Op.SLOAD(prev_slot(i)), Op.BLOCKHASH(i)),
+        )
+
+    contract_code = (
+        Op.SSTORE(slot_blockhash(1), Op.BLOCKHASH(1))
+        + Op.SSTORE(slot_blockhash(2), Op.BLOCKHASH(2))
+        + Op.SSTORE(slot_blockhash(3), Op.BLOCKHASH(3))
+        + Op.SSTORE(slot_nonzero(1), Op.ISZERO(Op.ISZERO(Op.BLOCKHASH(1))))
+        + Op.SSTORE(slot_nonzero(2), Op.ISZERO(Op.ISZERO(Op.BLOCKHASH(2))))
+        + Op.SSTORE(slot_nonzero(3), Op.ISZERO(Op.ISZERO(Op.BLOCKHASH(3))))
+        + Op.SSTORE(
+            slot_stable,
+            Op.AND(Op.AND(stable_i(1), stable_i(2)), stable_i(3)),
+        )
+    )
+    contract_address = pre.deploy_contract(contract_code)
+
+    timestamps = [14_998, 14_999, 15_000, 15_001]
+    blocks = [
+        Block(
+            timestamp=ts,
+            txs=[
+                Transaction(
+                    to=contract_address,
+                    sender=sender,
+                    nonce=i,
+                    gas_limit=generous_gas(fork),
+                ),
+            ],
+        )
+        for i, ts in enumerate(timestamps)
+    ]
+
+    # Per-timestamp tuple is (is_nonzero(BLOCKHASH(1)),
+    # is_nonzero(BLOCKHASH(2)), is_nonzero(BLOCKHASH(3))) computed
+    # during that block. BLOCKHASH(n) is non-zero iff n is a past
+    # block (1 <= n < current_block_number).
+    #   ts=14_998 -> block 1: queries blocks 1,2,3 — all current/future
+    #   ts=14_999 -> block 2: block 1 is past, 2 is current, 3 future
+    #   ts=15_000 -> block 3 (post-fork): blocks 1,2 past, 3 current
+    #   ts=15_001 -> block 4 (post-fork): blocks 1,2,3 all past
+    nonzero_pattern = {
+        14_998: (0, 0, 0),
+        14_999: (1, 0, 0),
+        15_000: (1, 1, 0),
+        15_001: (1, 1, 1),
+    }
+    # Per-block slot layout (offset within ts*16 base):
+    storage = Storage()
+    for ts in timestamps:
+        # ts*16: is BLOCKHASH stable
+        storage[ts * 16] = 1
+        for i in (1, 2, 3):
+            flag = nonzero_pattern[ts][i - 1]
+            if flag:
+                # ts*16 + 1..+3 : BLOCKHASH(1..3) value
+                storage.set_expect_any(ts * 16 + i)
+            # ts*16 + 5..+7 : is_nonzero(BLOCKHASH(1..3))
+            storage[ts * 16 + 4 + i] = flag
+
+    blockchain_test(
+        pre=pre,
+        blocks=blocks,
+        post={contract_address: Account(storage=storage)},
     )

@@ -20,10 +20,11 @@ from execution_testing import (
     StateTestFiller,
     Transaction,
     gas_test,
+    oog_test,
 )
 from execution_testing.forks.helpers import Fork
 
-from .helpers import generous_gas, page_index
+from .helpers import TxPageState, generous_gas, page_index, simulate_sstore
 from .spec import Spec, ref_spec_8
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
@@ -31,6 +32,8 @@ REFERENCE_SPEC_VERSION = ref_spec_8.version
 
 slot_code_worked = 0x01
 slot_gas_measured = 0x02
+slot_gas_measured_2 = 0x03
+slot_gas_measured_3 = 0x04
 value_code_worked = 0x1234
 
 pytestmark = [
@@ -150,6 +153,58 @@ def test_sload_cross_page_warming(
 
 
 @pytest.mark.parametrize(
+    "warm_slot,measured_slot",
+    [
+        pytest.param(
+            2**256 - Spec.SLOTS_PER_PAGE,
+            2**256 - 1,
+            id="first_then_last",
+        ),
+        pytest.param(
+            2**256 - 1,
+            2**256 - Spec.SLOTS_PER_PAGE,
+            id="last_then_first",
+        ),
+    ],
+)
+def test_sload_max_slot_page_boundary(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    warm_slot: int,
+    measured_slot: int,
+) -> None:
+    """Verify SLOAD page arithmetic at the slot-key field boundary."""
+    expected_gas = Op.SLOAD(page_load_warm=True).gas_cost(fork)
+
+    contract_address = pre.deploy_contract(
+        Op.SLOAD(warm_slot)
+        + CodeGasMeasure(
+            code=Op.SLOAD(measured_slot),
+            overhead_cost=Op.PUSH32(0).gas_cost(fork),
+            extra_stack_items=1,
+            sstore_key=slot_gas_measured,
+        )
+    )
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage={slot_gas_measured: expected_gas},
+            ),
+        },
+        tx=tx,
+    )
+
+
+@pytest.mark.parametrize(
     "across",
     ["tx", "block"],
 )
@@ -256,18 +311,36 @@ def test_tstore_and_sload(
     pre: Alloc,
     fork: Fork,
 ) -> None:
-    """
-    TLOAD/TSTORE on the same slot keys as a paged storage slot
-    must not warm the page for SLOAD/SSTORE.
-    """
+    """TLOAD/TSTORE independent of SLOAD/SSTORE."""
+    overhead = Op.PUSH1(0).gas_cost(fork)
+    sstore_overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
+
+    page = TxPageState(read_warm=True)
+    simulate_sstore(page, slot_gas_measured, 1, fork)
+    expected_sstore_gas = simulate_sstore(page, 0, 1, fork)
+
     contract_address = pre.deploy_contract(
         Op.TSTORE(0, 99)
         + Op.TLOAD(0)
         + CodeGasMeasure(
-            code=Op.SLOAD(1),
-            overhead_cost=Op.PUSH1(0).gas_cost(fork),
+            code=Op.SLOAD(0),
+            overhead_cost=overhead,
             extra_stack_items=1,
             sstore_key=slot_gas_measured,
+            stop=False,
+        )
+        + CodeGasMeasure(
+            code=Op.SSTORE(0, 1),
+            overhead_cost=sstore_overhead,
+            extra_stack_items=0,
+            sstore_key=slot_gas_measured_2,
+            stop=False,
+        )
+        + CodeGasMeasure(
+            code=Op.TLOAD(0),
+            overhead_cost=overhead,
+            extra_stack_items=1,
+            sstore_key=slot_gas_measured_3,
         )
     )
     tx = Transaction(
@@ -280,9 +353,12 @@ def test_tstore_and_sload(
         post={
             contract_address: Account(
                 storage={
+                    0: 1,
                     slot_gas_measured: Op.SLOAD(page_load_warm=False).gas_cost(
                         fork
                     ),
+                    slot_gas_measured_2: expected_sstore_gas,
+                    slot_gas_measured_3: Op.TLOAD.gas_cost(fork),
                 },
             ),
         },
@@ -786,4 +862,42 @@ def test_account_probe_does_not_warm_pages(
             ),
         },
         tx=tx,
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "cold",
+        "warm_via_sload",
+        "warm_via_sstore",
+        "cross_page_cold",
+    ],
+)
+def test_sload_oog(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    scenario: str,
+) -> None:
+    """SLOAD OOG across page-warming variants."""
+    setup: Bytecode | None = None
+    if scenario == "cold":
+        subject = Op.SLOAD(0)
+    elif scenario == "warm_via_sload":
+        setup = Op.SLOAD(0)
+        subject = Op.SLOAD(0, page_load_warm=True)
+    elif scenario == "warm_via_sstore":
+        setup = Op.SSTORE(1, 1)
+        subject = Op.SLOAD(0, page_load_warm=True)
+    else:  # cross_page_cold
+        setup = Op.SLOAD(0)
+        subject = Op.SLOAD(Spec.SLOTS_PER_PAGE)
+
+    oog_test(
+        fork=fork,
+        state_test=state_test,
+        pre=pre,
+        setup_code=setup,
+        subject_code=subject,
     )

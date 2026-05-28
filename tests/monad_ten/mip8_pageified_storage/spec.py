@@ -12,7 +12,7 @@ class ReferenceSpec:
 
 
 ref_spec_8 = ReferenceSpec(
-    "MIPS/MIP-8.md", "1d3d530310a957528bd7a5c52cec853e56550b1e"
+    "MIPS/MIP-8.md", "90af59b5e09538c5fb55b48a656a20e73fdb9373"
 )
 
 
