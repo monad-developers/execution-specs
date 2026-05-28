@@ -80,10 +80,14 @@ def test_exception_rule(
         fork.gas_costs().GAS_TX_BASE
         + fork.gas_costs().GAS_AUTH_PER_EMPTY_ACCOUNT * 2
     )
-    # if any of the transactions in setup blocks are sent by main sender we
-    # need to credit them extra
+    # If a setup-block tx is sent by the main sender, credit it to keep the
+    # sender's balance at test_tx start equal to `balance`. We do NOT add
+    # the test_tx's gas budget on top: the reserve check uses
+    # min(RESERVE, original_balance) - gas_fees as the threshold, and
+    # over-funding inflates original_balance so the threshold becomes
+    # RESERVE - gas_fees, hiding violations when value < gas_fees.
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas if send_pos else 0
-    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
+    balance += prepare_tx_fee
 
     target_address = pre.nonexistent_account()
     if pre_delegated:
@@ -218,7 +222,7 @@ def test_exception_rule_invalid_block(
     prepare_tx_fee = (
         GAS_PRICE * prepare_tx_gas if send_pos and not invalid_block else 0
     )
-    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
+    balance += prepare_tx_fee
 
     target_address = pre.nonexistent_account()
     if pre_delegated:
@@ -368,7 +372,7 @@ def test_credit(
     # need to credit them extra
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas if send_pos else 0
 
-    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
+    balance += prepare_tx_fee
 
     target_address = pre.nonexistent_account()
     if pre_delegated:
@@ -505,12 +509,7 @@ def test_credit_with_value(
     """
     prepare_tx_gas = fork.gas_costs().GAS_TX_BASE
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas
-    initial_balance = (
-        Spec.RESERVE_BALANCE
-        + send_value
-        + prepare_tx_fee
-        + GAS_PRICE * generous_gas(fork)
-    )
+    initial_balance = Spec.RESERVE_BALANCE + send_value + prepare_tx_fee
 
     target_address = pre.nonexistent_account()
     if pre_delegated:
@@ -694,7 +693,7 @@ def test_valid_tx_after_invalid(
     # gas spend by transactions send in setup blocks
     prepare_tx_gas = fork.gas_costs().GAS_TX_BASE
     prepare_tx_fee = GAS_PRICE * prepare_tx_gas
-    balance += prepare_tx_fee + GAS_PRICE * generous_gas(fork)
+    balance += prepare_tx_fee
     test_sender = pre.fund_eoa(balance, delegation=pre.nonexistent_account())
 
     contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
