@@ -58,6 +58,12 @@ GAS_PRICE = 100 * 10**9
 @pytest.mark.parametrize(
     "send_pos", [None, (0, 0), (0, 1), (1, 0), (2, 1), (3, 0), (3, 1)]
 )
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Requires strict block numbering AND strict cross-sender "
+        "tx ordering within a block; Monad reorders cross-sender txs."
+    )
+)
 def test_exception_rule(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -346,6 +352,12 @@ def test_exception_rule_invalid_block(
 @pytest.mark.parametrize("undelegate_pos", [None, (0, 0), (2, 1)])
 @pytest.mark.parametrize("send_pos", [None, (0, 0), (0, 1)])
 @pytest.mark.parametrize("credit_pos", [None, (0, 0), (0, 1), (1, 0), (2, 1)])
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Requires strict block numbering AND strict cross-sender "
+        "tx ordering within a block; Monad reorders cross-sender txs."
+    )
+)
 def test_credit(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -488,6 +500,12 @@ def test_credit(
     ],
 )
 @pytest.mark.parametrize("credit_statically_visible", [True, False])
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Requires strict block numbering AND strict cross-sender "
+        "tx ordering within a block; Monad reorders cross-sender txs."
+    )
+)
 def test_credit_with_value(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -627,10 +645,13 @@ def test_7702_caller_is_no_sender(
     if do_7702_send:
         # Extra balance for the 7702 send
         balance += 1
-        # The test_sender will send value with this call, but this doesn't
-        # interfere with reserve balance rules.
-        target_address = pre.deploy_contract(
-            Op.CALL(address=pre.nonexistent_account(), value=1)
+        # Use deterministic deploy (deferred to end of pending tx list) so
+        # the delegation target has no code at fund_eoa time; otherwise the
+        # funding tx's CALL to the (delegated) sender would invoke the
+        # target's code and leak an extra 1 wei out of sender during setup.
+        target_address = pre.deterministic_deploy_contract(
+            deploy_code=Op.CALL(address=pre.nonexistent_account(), value=1),
+            salt=int(bytes(pre.nonexistent_account()).hex(), 16),
         )
     else:
         target_address = pre.nonexistent_account()
@@ -678,6 +699,12 @@ def test_7702_caller_is_no_sender(
     ],
 )
 @pytest.mark.parametrize("invalid_send_pos", [(0, 0), (1, 0), (1, 1)])
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Requires strict block numbering AND strict cross-sender "
+        "tx ordering within a block; Monad reorders cross-sender txs."
+    )
+)
 def test_valid_tx_after_invalid(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

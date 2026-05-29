@@ -59,6 +59,12 @@ GAS_PRICE = 100 * 10**9
 @pytest.mark.parametrize(
     "send_pos", [None, (0, 0), (0, 1), (1, 0), (2, 1), (3, 0), (3, 1)]
 )
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Requires strict block numbering AND strict cross-sender "
+        "tx ordering within a block; Monad reorders cross-sender txs."
+    )
+)
 def test_exception_rule(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
