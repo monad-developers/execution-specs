@@ -208,36 +208,78 @@ value_balance_violation_param_list = [
         2**256 - 1,
         False,
         id="well_above_reserve_maxed_balance",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         0,
         2**256 - 1,
         False,
         id="zero_maxed_balance",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         1,
         2**256 - 1,
         False,
         id="one_maxed_balance",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2**256 - 1 - TX_FEE,
         2**256 - 1,
         True,
         id="maxed_out",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2**256 - 1 - Spec.RESERVE_BALANCE,
         2**256 - 1,
         False,
         id="maxed_out_good",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2**256 - 1 - Spec.RESERVE_BALANCE + 1,
         2**256 - 1,
         True,
         id="maxed_out_minimal_violation",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2 * Spec.RESERVE_BALANCE,
@@ -808,14 +850,24 @@ def test_multiple_violating_senders(
     Test reserve balance violations if there are two delegated EOAs spending in
     the transaction.
     """
+    # Defer contract and wallet deploys via deterministic CREATE2 so
+    # fund_eoa with delegation does not invoke wallet code during setup
+    # (which would leak value into contract_address before the test
+    # runs). Use distinct salts so identical wallet code does not
+    # collide.
     contract = Op.SSTORE(slot_code_worked, value_code_worked)
-    contract_address = pre.deploy_contract(contract)
-
-    wallet_address1 = pre.deploy_contract(
-        code=Op.CALL(address=contract_address, value=value1)
+    contract_address = pre.deterministic_deploy_contract(
+        deploy_code=contract,
+        salt=int(bytes(pre.nonexistent_account()).hex(), 16),
     )
-    wallet_address2 = pre.deploy_contract(
-        code=Op.CALL(address=contract_address, value=value2)
+
+    wallet_address1 = pre.deterministic_deploy_contract(
+        deploy_code=Op.CALL(address=contract_address, value=value1),
+        salt=int(bytes(pre.nonexistent_account()).hex(), 16),
+    )
+    wallet_address2 = pre.deterministic_deploy_contract(
+        deploy_code=Op.CALL(address=contract_address, value=value2),
+        salt=int(bytes(pre.nonexistent_account()).hex(), 16),
     )
     if pre_delegated:
         sender1 = pre.fund_eoa(balance1, delegation=wallet_address1)
@@ -1913,12 +1965,20 @@ def test_unrestricted_in_creation_tx_initcode(
     )
     new_address = tx_1.created_contract
 
-    txs = [tx_1]
+    blocks = []
     if new_address_pre_funded:
-        txs.insert(
-            0,
-            Transaction(to=new_address, value=balance, sender=pre.fund_eoa()),
+        blocks.append(
+            Block(
+                txs=[
+                    Transaction(
+                        to=new_address,
+                        value=balance,
+                        sender=pre.fund_eoa(),
+                    )
+                ]
+            )
         )
+    blocks.append(Block(txs=[tx_1]))
 
     reverted = (
         fork == MONAD_EIGHT and new_address_pre_funded and selfdestruct
@@ -1944,7 +2004,7 @@ def test_unrestricted_in_creation_tx_initcode(
             if selfdestruct and not reverted
             else None,
         },
-        blocks=[Block(txs=txs)],
+        blocks=blocks,
     )
 
 

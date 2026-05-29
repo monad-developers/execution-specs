@@ -217,36 +217,78 @@ value_balance_violation_param_list = [
         2**256 - 1,
         False,
         id="well_above_reserve_maxed_balance",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         0,
         2**256 - 1,
         False,
         id="zero_maxed_balance",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         1,
         2**256 - 1,
         False,
         id="one_maxed_balance",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2**256 - 1 - TX_FEE,
         2**256 - 1,
         True,
         id="maxed_out",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2**256 - 1 - Spec.RESERVE_BALANCE,
         2**256 - 1,
         False,
         id="maxed_out_good",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2**256 - 1 - Spec.RESERVE_BALANCE + 1,
         2**256 - 1,
         True,
         id="maxed_out_minimal_violation",
+        marks=[
+            pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Seed account cannot fund 2**256-1 balance"
+                )
+            )
+        ],
     ),
     pytest.param(
         2 * Spec.RESERVE_BALANCE,
@@ -562,8 +604,18 @@ def test_multiple_violating_senders(
     else:
         wallet_code2 += refill_factory()(Op.ADDRESS)
 
-    wallet_address1 = pre.deploy_contract(code=wallet_code1)
-    wallet_address2 = pre.deploy_contract(code=wallet_code2)
+    # Defer wallet deploys via deterministic CREATE2 so fund_eoa with
+    # delegation does not invoke wallet code during setup (which would
+    # leak value into contract_address before the test runs). Use
+    # distinct salts so identical wallet code does not collide.
+    wallet_address1 = pre.deterministic_deploy_contract(
+        deploy_code=wallet_code1,
+        salt=int(bytes(pre.nonexistent_account()).hex(), 16),
+    )
+    wallet_address2 = pre.deterministic_deploy_contract(
+        deploy_code=wallet_code2,
+        salt=int(bytes(pre.nonexistent_account()).hex(), 16),
+    )
 
     if pre_delegated:
         sender1 = pre.fund_eoa(balance1, delegation=wallet_address1)
