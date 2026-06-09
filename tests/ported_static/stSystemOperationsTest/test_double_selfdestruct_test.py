@@ -7,8 +7,7 @@ Implements: SUC007.0, SUC007.1, SUC007.2, SUC007.3,
             SUC008.0, SUC008.1, SUC008.2, SUC008.3
 
 Ported from:
-tests/static/state_tests/stSystemOperationsTest
-doubleSelfdestructTestFiller.yml
+state_tests/stSystemOperationsTest/doubleSelfdestructTestFiller.yml
 """
 
 import pytest
@@ -17,9 +16,14 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
+)
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
 )
 from execution_testing.vm import Op
 
@@ -28,43 +32,77 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stSystemOperationsTest/doubleSelfdestructTestFiller.yml",  # noqa: E501
-    ],
+    ["state_tests/stSystemOperationsTest/doubleSelfdestructTestFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_data_hex, expected_post",
+    "d, g, v",
     [
-        ("f210011002", {}),
-        ("f410011002", {}),
-        ("f110011002", {}),
-        ("fa1001c0de", {}),
-        ("fa10011002", {}),
-        ("f21001c0de", {}),
-        ("f41001c0de", {}),
-        ("f11001c0de", {}),
-    ],
-    ids=[
-        "case0",
-        "case1",
-        "case2",
-        "case3",
-        "case4",
-        "case5",
-        "case6",
-        "case7",
+        pytest.param(
+            0,
+            0,
+            0,
+            id="called-self-destruct",
+        ),
+        pytest.param(
+            1,
+            0,
+            0,
+            id="called-self-destruct",
+        ),
+        pytest.param(
+            2,
+            0,
+            0,
+            id="called-self-destruct",
+        ),
+        pytest.param(
+            3,
+            0,
+            0,
+            id="caller-self-destruct",
+        ),
+        pytest.param(
+            4,
+            0,
+            0,
+            id="code-self-destruct",
+        ),
+        pytest.param(
+            5,
+            0,
+            0,
+            id="code-self-destruct",
+        ),
+        pytest.param(
+            6,
+            0,
+            0,
+            id="code-self-destruct",
+        ),
+        pytest.param(
+            7,
+            0,
+            0,
+            id="caller-self-destruct",
+        ),
     ],
 )
 @pytest.mark.pre_alloc_mutable
 def test_double_selfdestruct_test(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """The first test case required here."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """
+    The first test case required here
+    https://github.
+    """
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    contract_0 = Address(0x000000000000000000000000000000000000C0DE)
     sender = EOA(
         key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
     )
@@ -78,7 +116,9 @@ def test_double_selfdestruct_test(
         gas_limit=10000000000,
     )
 
-    # Source: Yul
+    pre[sender] = Account(balance=0xDE0B6B3A7640000, nonce=1)
+    # Source: yul
+    # berlin
     # {
     #    // If there's data, call this again and then
     #    // try to selfdestruct.
@@ -108,102 +148,147 @@ def test_double_selfdestruct_test(
     #    let called_ff := and(shr(240, calldataload(0)), 0xFFFF)
     #    if eq(calldatasize(), 2) {
     #      selfdestruct(called_ff)
-    #    }
-    # ... (1 more lines)
-    contract = pre.deploy_contract(
-        code=(
-            Op.JUMPI(pc=0x17, condition=Op.GT(Op.CALLDATASIZE, 0x2))
-            + Op.SHR(0xF0, Op.CALLDATALOAD(offset=0x0))
-            + Op.JUMPI(pc=0x15, condition=Op.EQ(0x2, Op.CALLDATASIZE))
-            + Op.STOP
-            + Op.JUMPDEST
-            + Op.SELFDESTRUCT
-            + Op.JUMPDEST
-            + Op.SHR(0xF8, Op.CALLDATALOAD(offset=0x0))
-            + Op.PUSH1[0xFA]
-            + Op.AND(Op.SHR(0xE8, Op.CALLDATALOAD(offset=0x0)), 0xFFFF)
-            + Op.SWAP2
-            + Op.PUSH1[0xFF]
-            + Op.AND(Op.SHR(0xD8, Op.CALLDATALOAD(offset=0x0)), 0xFFFF)
-            + Op.MSTORE8(
-                offset=0x0, value=Op.AND(Op.SHR(0x8, Op.DUP2), Op.DUP2)
+    # ... (2 more lines)
+    contract_0 = pre.deploy_contract(  # noqa: F841
+        code=Op.JUMPI(pc=0x17, condition=Op.GT(Op.CALLDATASIZE, 0x2))
+        + Op.SHR(0xF0, Op.CALLDATALOAD(offset=0x0))
+        + Op.JUMPI(pc=0x15, condition=Op.EQ(0x2, Op.CALLDATASIZE))
+        + Op.STOP
+        + Op.JUMPDEST
+        + Op.SELFDESTRUCT
+        + Op.JUMPDEST
+        + Op.SHR(0xF8, Op.CALLDATALOAD(offset=0x0))
+        + Op.PUSH1[0xFA]
+        + Op.AND(Op.SHR(0xE8, Op.CALLDATALOAD(offset=0x0)), 0xFFFF)
+        + Op.SWAP2
+        + Op.PUSH1[0xFF]
+        + Op.AND(Op.SHR(0xD8, Op.CALLDATALOAD(offset=0x0)), 0xFFFF)
+        + Op.MSTORE8(offset=0x0, value=Op.AND(Op.SHR(0x8, Op.DUP2), Op.DUP2))
+        + Op.MSTORE8(offset=0x1, value=Op.AND)
+        + Op.JUMPI(pc=0x90, condition=Op.EQ(Op.DUP2, 0xF1))
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0x7F, condition=Op.EQ(Op.DUP2, 0xF2))
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0x6F, condition=Op.EQ(Op.DUP2, 0xF4))
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0x61, condition=Op.EQ)
+        + Op.SELFDESTRUCT
+        + Op.JUMPDEST
+        + Op.POP(
+            Op.STATICCALL(
+                gas=Op.GAS,
+                address=0xC0DE,
+                args_offset=Op.DUP2,
+                args_size=0x2,
+                ret_offset=Op.DUP1,
+                ret_size=0x0,
             )
-            + Op.MSTORE8(offset=0x1, value=Op.AND)
-            + Op.JUMPI(pc=0x90, condition=Op.EQ(Op.DUP2, 0xF1))
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0x7F, condition=Op.EQ(Op.DUP2, 0xF2))
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0x6F, condition=Op.EQ(Op.DUP2, 0xF4))
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0x61, condition=Op.EQ)
-            + Op.SELFDESTRUCT
-            + Op.JUMPDEST
-            + Op.POP(
-                Op.STATICCALL(
-                    gas=Op.GAS,
-                    address=0xC0DE,
-                    args_offset=Op.DUP2,
-                    args_size=0x2,
-                    ret_offset=Op.DUP1,
-                    ret_size=0x0,
-                ),
+        )
+        + Op.SELFDESTRUCT
+        + Op.JUMPDEST
+        + Op.POP(
+            Op.DELEGATECALL(
+                gas=Op.GAS,
+                address=0xC0DE,
+                args_offset=Op.DUP2,
+                args_size=0x2,
+                ret_offset=Op.DUP1,
+                ret_size=0x0,
             )
-            + Op.SELFDESTRUCT
-            + Op.JUMPDEST
-            + Op.POP(
-                Op.DELEGATECALL(
-                    gas=Op.GAS,
-                    address=0xC0DE,
-                    args_offset=Op.DUP2,
-                    args_size=0x2,
-                    ret_offset=Op.DUP1,
-                    ret_size=0x0,
-                ),
+        )
+        + Op.JUMP(pc=0x5B)
+        + Op.JUMPDEST
+        + Op.POP(
+            Op.CALLCODE(
+                gas=Op.GAS,
+                address=0xC0DE,
+                value=Op.DUP1,
+                args_offset=Op.DUP2,
+                args_size=0x2,
+                ret_offset=Op.DUP1,
+                ret_size=0x0,
             )
-            + Op.JUMP(pc=0x5B)
-            + Op.JUMPDEST
-            + Op.POP(
-                Op.CALLCODE(
-                    gas=Op.GAS,
-                    address=0xC0DE,
-                    value=Op.DUP1,
-                    args_offset=Op.DUP2,
-                    args_size=0x2,
-                    ret_offset=Op.DUP1,
-                    ret_size=0x0,
-                ),
+        )
+        + Op.JUMP(pc=0x53)
+        + Op.JUMPDEST
+        + Op.POP(
+            Op.CALL(
+                gas=Op.GAS,
+                address=0xC0DE,
+                value=Op.DUP1,
+                args_offset=Op.DUP2,
+                args_size=0x2,
+                ret_offset=Op.DUP1,
+                ret_size=0x0,
             )
-            + Op.JUMP(pc=0x53)
-            + Op.JUMPDEST
-            + Op.POP(
-                Op.CALL(
-                    gas=Op.GAS,
-                    address=0xC0DE,
-                    value=Op.DUP1,
-                    args_offset=Op.DUP2,
-                    args_size=0x2,
-                    ret_offset=Op.DUP1,
-                    ret_size=0x0,
-                ),
-            )
-            + Op.JUMP(pc=0x4B)
-        ),
+        )
+        + Op.JUMP(pc=0x4B),
         balance=0xF4240,
-        address=Address("0x000000000000000000000000000000000000c0de"),  # noqa: E501
+        nonce=1,
+        address=Address(0x000000000000000000000000000000000000C0DE),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000, nonce=1)
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": [0, 1, 2], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(
+                    0x0000000000000000000000000000000000001001
+                ): Account.NONEXISTENT,
+                Address(0x0000000000000000000000000000000000001002): Account(
+                    balance=0xF4241
+                ),
+            },
+        },
+        {
+            "indexes": {"data": [3, 7], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(0x0000000000000000000000000000000000001001): Account(
+                    balance=0xF4241, nonce=0
+                ),
+                Address(
+                    0x0000000000000000000000000000000000001002
+                ): Account.NONEXISTENT,
+                contract_0: Account(nonce=1),
+            },
+        },
+        {
+            "indexes": {"data": [4, 5, 6], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(0x0000000000000000000000000000000000001001): Account(
+                    balance=0xF4241, nonce=0
+                ),
+                contract_0: Account(nonce=1),
+            },
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Bytes("f110011002"),
+        Bytes("f210011002"),
+        Bytes("f410011002"),
+        Bytes("fa10011002"),
+        Bytes("f11001c0de"),
+        Bytes("f21001c0de"),
+        Bytes("f41001c0de"),
+        Bytes("fa1001c0de"),
+    ]
+    tx_gas = [16777216]
+    tx_value = [1]
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=tx_data,
-        gas_limit=16777216,
+        to=contract_0,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
         nonce=1,
-        value=1,
+        error=_exc,
     )
-
-    post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

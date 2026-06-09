@@ -52,7 +52,7 @@ def calculate_selfdestruct_gas(
     originator_balance: int,
 ) -> int:
     """Calculate exact gas needed for SELFDESTRUCT."""
-    # G_NEW_ACCOUNT:
+    # NEW_ACCOUNT:
     # - Pre-EIP-161 (TangerineWhistle): charged when beneficiary is dead
     # - Post-EIP-161 (>=SpuriousDragon): charged when beneficiary is dead
     #   AND originator has balance > 0
@@ -145,7 +145,7 @@ def build_bal_expectations(
     beneficiary_in_bal: bool,
 ) -> BlockAccessListExpectation | None:
     """Build BAL expectations for >=Amsterdam."""
-    if not fork.header_bal_hash_required():
+    if not fork.is_eip_enabled(7928):
         return None
 
     victim_code = Op.SELFDESTRUCT(beneficiary)
@@ -351,13 +351,13 @@ def test_selfdestruct_to_account(
             code=Op.STOP, balance=beneficiary_initial_balance
         )
 
-    # Determine if beneficiary is dead (for G_NEW_ACCOUNT calculation)
+    # Determine if beneficiary is dead (for NEW_ACCOUNT calculation)
     # Contract with code is NOT dead even with balance=0
     beneficiary_dead = (
         beneficiary_initial_balance == 0 and beneficiary == "eoa"
     )
 
-    # Calculate exact gas for success (includes G_NEW_ACCOUNT if applicable)
+    # Calculate exact gas for success (includes NEW_ACCOUNT if applicable)
     inner_call_gas = calculate_selfdestruct_gas(
         fork,
         beneficiary_warm=warm,
@@ -367,7 +367,7 @@ def test_selfdestruct_to_account(
     if not is_success:
         inner_call_gas -= 1
 
-    # In BAL if: success OR G_NEW_ACCOUNT charged (OOG after access)
+    # In BAL if: success OR NEW_ACCOUNT charged (OOG after access)
     needs_new_account = False
     if beneficiary_dead:
         if fork >= SpuriousDragon:
@@ -463,7 +463,7 @@ def test_selfdestruct_state_access_boundary(
     Test state access boundary for account beneficiaries.
 
     Consensus check: beneficiary must be accessed at base cost boundary,
-    before G_NEW_ACCOUNT is evaluated.
+    before NEW_ACCOUNT is evaluated.
 
     - exact_gas: beneficiary IS accessed (in BAL)
     - exact_gas_minus_1: beneficiary NOT accessed (not in BAL)
@@ -478,14 +478,14 @@ def test_selfdestruct_state_access_boundary(
             code=Op.STOP, balance=beneficiary_initial_balance
         )
 
-    # Determine if beneficiary is dead (for G_NEW_ACCOUNT calculation)
+    # Determine if beneficiary is dead (for NEW_ACCOUNT calculation)
     # Contract with code is NOT dead even with balance=0
     beneficiary_dead = (
         beneficiary_initial_balance == 0 and beneficiary == "eoa"
     )
 
     # Calculate gas for state access boundary only (base + cold access)
-    # Does NOT include G_NEW_ACCOUNT
+    # Does NOT include NEW_ACCOUNT
     inner_call_gas = Op.SELFDESTRUCT(
         0,  # beneficiary address (generates a PUSH)
         address_warm=warm or fork < Berlin,
@@ -497,7 +497,7 @@ def test_selfdestruct_state_access_boundary(
 
     # Determine if operation succeeds at this gas level
     # At state access boundary, we have enough gas for base + cold access
-    # Operation succeeds if NO G_NEW_ACCOUNT is needed:
+    # Operation succeeds if NO NEW_ACCOUNT is needed:
     # - Beneficiary is alive (has balance or has code)
     # - OR beneficiary is dead but originator_balance=0 (>=SpuriousDragon)
     needs_new_account = False
@@ -507,7 +507,7 @@ def test_selfdestruct_state_access_boundary(
         else:
             needs_new_account = True
 
-    # At exact_gas: success if no G_NEW_ACCOUNT needed
+    # At exact_gas: success if no NEW_ACCOUNT needed
     # At exact_gas_minus_1: always OOG (before state access)
     operation_success = is_success and not needs_new_account
 
@@ -602,7 +602,7 @@ def test_selfdestruct_to_precompile(
     # Precompiles are dead when they have no balance
     beneficiary_dead = beneficiary_initial_balance == 0
 
-    # Calculate exact gas for success (includes G_NEW_ACCOUNT if applicable)
+    # Calculate exact gas for success (includes NEW_ACCOUNT if applicable)
     # Precompiles are always warm
     inner_call_gas = calculate_selfdestruct_gas(
         fork,
@@ -613,7 +613,7 @@ def test_selfdestruct_to_precompile(
     if not is_success:
         inner_call_gas -= 1
 
-    # In BAL if: success OR G_NEW_ACCOUNT charged (OOG after access)
+    # In BAL if: success OR NEW_ACCOUNT charged (OOG after access)
     needs_new_account = False
     if beneficiary_dead:
         if fork >= SpuriousDragon:
@@ -700,7 +700,7 @@ def test_selfdestruct_to_precompile_state_access_boundary(
     Test state access boundary for precompile beneficiaries.
 
     Consensus check: precompile must be accessed at base cost boundary,
-    before G_NEW_ACCOUNT is evaluated. Precompiles are always warm.
+    before NEW_ACCOUNT is evaluated. Precompiles are always warm.
 
     - exact_gas: precompile IS accessed (in BAL)
     - exact_gas_minus_1: precompile NOT accessed (not in BAL)
@@ -711,7 +711,7 @@ def test_selfdestruct_to_precompile_state_access_boundary(
 
     beneficiary_dead = beneficiary_initial_balance == 0
 
-    # State access boundary: base cost only (no G_NEW_ACCOUNT)
+    # State access boundary: base cost only (no NEW_ACCOUNT)
     # Precompiles are always warm
     inner_call_gas = Op.SELFDESTRUCT(
         0, address_warm=True, account_new=False
@@ -720,7 +720,7 @@ def test_selfdestruct_to_precompile_state_access_boundary(
     if not is_success:
         inner_call_gas -= 1
 
-    # Success at base cost if no G_NEW_ACCOUNT needed
+    # Success at base cost if no NEW_ACCOUNT needed
     needs_new_account = False
     if beneficiary_dead:
         if fork >= SpuriousDragon:
@@ -802,7 +802,7 @@ def test_selfdestruct_to_system_contract(
     Test SELFDESTRUCT success boundary for system contract beneficiaries.
 
     System contracts are always warm (no cold access charge) and always have
-    code (so beneficiary is never dead, no G_NEW_ACCOUNT charge).
+    code (so beneficiary is never dead, no NEW_ACCOUNT charge).
 
     - exact_gas: succeeds, balance transferred
     - exact_gas_minus_1: OOG, operation fails
@@ -830,7 +830,7 @@ def test_selfdestruct_to_system_contract(
 
     # Build minimal BAL expectations for test-specific accounts only
     expected_bal: BlockAccessListExpectation | None = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         account_expectations: Dict[Address, BalAccountExpectation | None] = {
             alice: BalAccountExpectation(
                 nonce_changes=[
@@ -952,7 +952,7 @@ def test_selfdestruct_to_self(
     Key characteristics:
     - Beneficiary is always warm (it's the executing contract)
     - Beneficiary is always alive (EIP-161 nonce=1)
-    - No G_NEW_ACCOUNT charge
+    - No NEW_ACCOUNT charge
     - No cold access charge (>=Berlin)
     - Balance is "transferred" to self (no net change until destruction)
 
@@ -967,7 +967,7 @@ def test_selfdestruct_to_self(
     alice = pre.fund_eoa()
     victim_code = Op.SELFDESTRUCT(Op.ADDRESS)
 
-    # Gas: ADDRESS + SELFDESTRUCT (no cold access, no G_NEW_ACCOUNT)
+    # Gas: ADDRESS + SELFDESTRUCT (no cold access, no NEW_ACCOUNT)
     base_gas = Op.SELFDESTRUCT(
         Op.ADDRESS, address_warm=True, account_new=False
     ).gas_cost(fork)
@@ -1006,7 +1006,7 @@ def test_selfdestruct_to_self(
 
     # Build BAL expectations
     expected_bal: BlockAccessListExpectation | None = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         if same_tx:
             if is_success:
                 # Created and destroyed in same tx - no net changes for victim
@@ -1135,7 +1135,7 @@ def test_initcode_selfdestruct_to_self(
     - During initcode, the contract has no code yet
     - Contract has nonce=1 (post-EIP-161) making it non-empty
     - Beneficiary is always warm (it's the executing contract)
-    - No G_NEW_ACCOUNT charge (contract has nonce > 0)
+    - No NEW_ACCOUNT charge (contract has nonce > 0)
     - No cold access charge (>=Berlin)
 
     Note: Gas boundary testing not possible for initcode since CREATE
@@ -1160,7 +1160,7 @@ def test_initcode_selfdestruct_to_self(
 
     # Build BAL expectations
     expected_bal: BlockAccessListExpectation | None = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         # Contract created and immediately destroyed - no net changes
         # for victim
         caller_expectation = BalAccountExpectation(
@@ -1189,6 +1189,102 @@ def test_initcode_selfdestruct_to_self(
         caller: Account(nonce=2),
         victim: Account.NONEXISTENT,
     }
+
+    blockchain_test(
+        pre=pre,
+        blocks=[Block(txs=[tx], expected_block_access_list=expected_bal)],
+        post=post,
+    )
+
+
+@pytest.mark.parametrize(
+    "originator_balance",
+    [0, 100],
+    ids=["no_balance", "has_balance"],
+)
+@pytest.mark.valid_from("TangerineWhistle")
+def test_selfdestruct_send_to_sender(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    fork: Fork,
+    originator_balance: int,
+) -> None:
+    """
+    SELFDESTRUCT on pre-existing contract where beneficiary is tx.sender.
+
+    Alice calls victim directly; victim runs `SELFDESTRUCT(CALLER)`. The
+    beneficiary coincides with tx.sender, so alice's BAL entry coalesces
+    `nonce_changes` (as sender) with `balance_changes` (as beneficiary).
+    Pre-Cancun: victim destroyed. >=Cancun: victim preserved with balance 0
+    (EIP-6780 — victim was not created same-tx).
+    """
+    alice_initial_balance = 10**18
+    alice = pre.fund_eoa(amount=alice_initial_balance)
+    victim_code = Op.SELFDESTRUCT(
+        Op.CALLER, address_warm=True, account_new=False
+    )
+    victim = pre.deploy_contract(code=victim_code, balance=originator_balance)
+
+    gas_price = 0xA
+    gas_limit = 100_000
+    tx = Transaction(
+        sender=alice,
+        to=victim,
+        gas_limit=gas_limit,
+        gas_price=gas_price,
+        protected=fork.supports_protected_txs(),
+    )
+
+    intrinsic_gas = fork.transaction_intrinsic_cost_calculator()(
+        calldata=b"", contract_creation=False
+    )
+    execution_gas = victim_code.gas_cost(fork)
+    alice_final_balance = (
+        alice_initial_balance
+        + originator_balance
+        - (intrinsic_gas + execution_gas) * gas_price
+    )
+
+    expected_bal: BlockAccessListExpectation | None = None
+    if fork.is_eip_enabled(7928):
+        alice_expectation = BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=1, post_nonce=1)],
+            balance_changes=[
+                BalBalanceChange(
+                    block_access_index=1, post_balance=alice_final_balance
+                )
+            ],
+        )
+        if originator_balance > 0:
+            victim_expectation = BalAccountExpectation(
+                balance_changes=[
+                    BalBalanceChange(block_access_index=1, post_balance=0)
+                ],
+                code_changes=[],
+                nonce_changes=[],
+                storage_changes=[],
+                storage_reads=[],
+            )
+        else:
+            victim_expectation = BalAccountExpectation.empty()
+        expected_bal = BlockAccessListExpectation(
+            account_expectations={
+                alice: alice_expectation,
+                victim: victim_expectation,
+            }
+        )
+
+    contract_destroyed = fork < Cancun
+    if contract_destroyed:
+        post: Dict[Address | EOA, Account | object] = {
+            alice: Account(nonce=1),
+            victim: Account.NONEXISTENT,
+        }
+    else:
+        post = {
+            alice: Account(nonce=1),
+            victim: Account(balance=0, code=victim_code),
+        }
 
     blockchain_test(
         pre=pre,

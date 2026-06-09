@@ -4,32 +4,41 @@ from itertools import zip_longest
 from typing import List
 
 import pytest
-from execution_testing import Alloc, Block, Fork, Header, Requests
+from execution_testing import (
+    Alloc,
+    Block,
+    Fork,
+    Header,
+    Requests,
+    TransitionFork,
+)
 
 from .helpers import ConsolidationRequest, ConsolidationRequestInteractionBase
 from .spec import Spec
 
 
 @pytest.fixture
-def update_pre(
+def prepared_blocks_consolidation_requests(
     pre: Alloc,
     blocks_consolidation_requests: List[
         List[ConsolidationRequestInteractionBase]
     ],
-) -> None:
+) -> List[List[ConsolidationRequestInteractionBase]]:
     """
-    Init state of the accounts. Every consolidation request defines its own
-    pre-state requirements, and this fixture aggregates them all.
+    Allocate accounts/contracts for each interaction in `pre` and return
+    copies with the allocated state populated. The parametrize value
+    `blocks_consolidation_requests` is not mutated, so it stays pristine
+    across fixture format runs.
     """
-    for requests in blocks_consolidation_requests:
-        for r in requests:
-            r.update_pre(pre)
+    return [
+        [r.update_pre(pre) for r in block_requests]
+        for block_requests in blocks_consolidation_requests
+    ]
 
 
 @pytest.fixture
 def included_requests(
-    update_pre: None,  # Fixture is used for its side effects
-    blocks_consolidation_requests: List[
+    prepared_blocks_consolidation_requests: List[
         List[ConsolidationRequestInteractionBase]
     ],
 ) -> List[List[ConsolidationRequest]]:
@@ -40,7 +49,7 @@ def included_requests(
     excess_consolidation_requests = 0
     carry_over_requests: List[ConsolidationRequest] = []
     per_block_included_requests: List[List[ConsolidationRequest]] = []
-    for block_consolidation_requests in blocks_consolidation_requests:
+    for block_consolidation_requests in prepared_blocks_consolidation_requests:
         # Get fee for the current block
         current_minimum_fee = Spec.get_fee(excess_consolidation_requests)
 
@@ -85,9 +94,8 @@ def timestamp() -> int:
 
 @pytest.fixture
 def blocks(
-    fork: Fork,
-    update_pre: None,  # Fixture is used for its side effects
-    blocks_consolidation_requests: List[
+    fork: Fork | TransitionFork,
+    prepared_blocks_consolidation_requests: List[
         List[ConsolidationRequestInteractionBase]
     ],
     included_requests: List[List[ConsolidationRequest]],
@@ -97,15 +105,14 @@ def blocks(
     blocks: List[Block] = []
 
     for block_requests, block_included_requests in zip_longest(  # type: ignore
-        blocks_consolidation_requests,
+        prepared_blocks_consolidation_requests,
         included_requests,
         fillvalue=[],
     ):
         header_verify: Header | None = None
-        if fork.header_requests_required(
-            block_number=len(blocks) + 1,
-            timestamp=timestamp,
-        ):
+        if fork.fork_at(
+            block_number=len(blocks) + 1, timestamp=timestamp
+        ).header_requests_required():
             header_verify = Header(
                 requests_hash=Requests(*block_included_requests)
             )

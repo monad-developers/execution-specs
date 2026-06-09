@@ -1,17 +1,16 @@
 """
-Test ported from static filler.
+Test_static_log0_non_empty_mem_log_mem_size1_log_mem_start31.
 
 Ported from:
-tests/static/state_tests/stStaticCall
-static_log0_nonEmptyMem_logMemSize1_logMemStart31Filler.json
+state_tests/stStaticCall/static_log0_nonEmptyMem_logMemSize1_logMemStart31Filler.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,21 +23,19 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stStaticCall/static_log0_nonEmptyMem_logMemSize1_logMemStart31Filler.json",  # noqa: E501
+        "state_tests/stStaticCall/static_log0_nonEmptyMem_logMemSize1_logMemStart31Filler.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
-@pytest.mark.pre_alloc_mutable
 @pytest.mark.slow
+@pytest.mark.pre_alloc_mutable
 def test_static_log0_non_empty_mem_log_mem_size1_log_mem_start31(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0xE04D1AC7DDDA0C98397D56A0B501E960D4CD325A39286919AC23C1A07009A869
-    )
+    """Test_static_log0_non_empty_mem_log_mem_size1_log_mem_start31."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0xDE0B6B3A7640000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -49,49 +46,45 @@ def test_static_log0_non_empty_mem_log_mem_size1_log_mem_start31(
         gas_limit=1000000,
     )
 
-    pre.deploy_contract(
-        code=(
-            Op.MSTORE(
-                offset=0x0,
-                value=0xAABBFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFCCDD,  # noqa: E501
-            )
-            + Op.LOG0(offset=0x1F, size=0x1)
-            + Op.STOP
-        ),
+    # Source: lll
+    # { (MSTORE 0 0xaabbffffffffffffffffffffffffffffffffffffffffffffffffffffffffccdd) (LOG0 31 1) }  # noqa: E501
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(
+            offset=0x0,
+            value=0xAABBFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFCCDD,  # noqa: E501
+        )
+        + Op.LOG0(offset=0x1F, size=0x1)
+        + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x897fee72afb437be678ee00c486726da08adb887"),  # noqa: E501
     )
-    # Source: LLL
+    # Source: lll
     # { [[ 0 ]] (STATICCALL 1000 <contract:0x0f572e5295c57f15886f9b263e2f6d2d6c7b5ec6> 0 0 0 0) }  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.SSTORE(
-                key=0x0,
-                value=Op.STATICCALL(
-                    gas=0x3E8,
-                    address=0x897FEE72AFB437BE678EE00C486726DA08ADB887,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
-            )
-            + Op.STOP
-        ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.SSTORE(
+            key=0x0,
+            value=Op.STATICCALL(
+                gas=0x3E8,
+                address=addr,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x0,
+            ),
+        )
+        + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0xe230b8d7763e30ca988447daa182146b0bea3764"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=210000,
-        value=100000,
+        value=0x186A0,
     )
 
-    post: dict = {}
+    post = {target: Account(storage={0: 0})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -12,12 +12,12 @@ Entry point for the Ethereum specification.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Final, List, Optional, Tuple, final
 
 from ethereum_rlp import rlp
 from ethereum_types.bytes import Bytes
 from ethereum_types.frozen import slotted_freezable
-from ethereum_types.numeric import U64, U256, Uint
+from ethereum_types.numeric import U64, U256, Uint, ulen
 
 from ethereum.crypto.hash import Hash32, keccak256
 from ethereum.exceptions import (
@@ -29,11 +29,18 @@ from ethereum.exceptions import (
     NonceMismatchError,
 )
 from ethereum.forks.bpo5.blocks import Header as PreviousHeader
-from ethereum.state import EMPTY_CODE_HASH, Address, BlockDiff, PreState
+from ethereum.merkle_patricia_trie import root, trie_set
+from ethereum.state import (
+    EMPTY_CODE_HASH,
+    Address,
+    BlockDiff,
+    State,
+    apply_changes_to_state,
+)
+from ethereum.utils.byte import left_pad_zero_bytes
 
 from . import vm
 from .block_access_lists import (
-    BlockAccessIndex,
     BlockAccessListBuilder,
     build_block_access_list,
     hash_block_access_list,
@@ -52,7 +59,7 @@ from .exceptions import (
     PriorityFeeGreaterThanMaxFeeError,
     TransactionTypeContractCreationError,
 )
-from .fork_types import Authorization, VersionedHash
+from .fork_types import Authorization, BlockAccessIndex, VersionedHash
 from .requests import (
     CONSOLIDATION_REQUEST_TYPE,
     DEPOSIT_REQUEST_TYPE,
@@ -60,14 +67,10 @@ from .requests import (
     compute_requests_hash,
     parse_deposit_requests,
 )
-from .state import (
-    State,
-    apply_changes_to_state,
-)
 from .state_tracker import (
     BlockState,
     TransactionState,
-    account_exists_and_is_empty,
+    create_ether,
     destroy_account,
     extract_block_diff,
     get_account,
@@ -77,7 +80,6 @@ from .state_tracker import (
     set_account_balance,
 )
 from .transactions import (
-    AccessListTransaction,
     BlobTransaction,
     FeeMarketTransaction,
     LegacyTransaction,
@@ -86,17 +88,16 @@ from .transactions import (
     decode_transaction,
     encode_transaction,
     get_transaction_hash,
+    has_access_list,
     recover_sender,
     validate_transaction,
 )
-from .trie import root, trie_set
 from .utils.hexadecimal import hex_to_address
 from .utils.message import prepare_message
 from .vm import Message
 from .vm.eoa_delegation import is_valid_delegation
 from .vm.gas import (
-    BLOB_SCHEDULE_MAX,
-    GAS_PER_BLOB,
+    GasCosts,
     calculate_blob_gas_price,
     calculate_data_fee,
     calculate_excess_blob_gas,
@@ -106,15 +107,15 @@ from .vm.interpreter import MessageCallOutput, process_message_call
 
 BASE_FEE_MAX_CHANGE_DENOMINATOR = Uint(8)
 ELASTICITY_MULTIPLIER = Uint(2)
-GAS_LIMIT_ADJUSTMENT_FACTOR = Uint(1024)
-GAS_LIMIT_MINIMUM = Uint(5000)
 EMPTY_OMMER_HASH = keccak256(rlp.encode([]))
 SYSTEM_ADDRESS = hex_to_address("0xfffffffffffffffffffffffffffffffffffffffe")
 BEACON_ROOTS_ADDRESS = hex_to_address(
     "0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02"
 )
 SYSTEM_TRANSACTION_GAS = Uint(30000000)
-MAX_BLOB_GAS_PER_BLOCK = BLOB_SCHEDULE_MAX * GAS_PER_BLOB
+MAX_BLOB_GAS_PER_BLOCK: Final[U64] = (
+    GasCosts.BLOB_SCHEDULE_MAX * GasCosts.PER_BLOB
+)
 VERSIONED_HASH_VERSION_KZG = b"\x01"
 GWEI_TO_WEI = U256(10**9)
 
@@ -133,6 +134,7 @@ MAX_RLP_BLOCK_SIZE = MAX_BLOCK_SIZE - SAFETY_MARGIN
 BLOB_COUNT_LIMIT = 6
 
 
+@final
 @slotted_freezable
 @dataclass
 class ChainContext:
@@ -150,6 +152,7 @@ class ChainContext:
     """Parent header used for header validation and system contracts."""
 
 
+@final
 @dataclass
 class BlockChain:
     """
@@ -266,7 +269,7 @@ def state_transition(chain: BlockChain, block: Block) -> None:
 
 def execute_block(
     block: Block,
-    pre_state: PreState,
+    pre_state: State,
     chain_context: ChainContext,
 ) -> BlockDiff:
     """
@@ -313,6 +316,7 @@ def execute_block(
         excess_blob_gas=block.header.excess_blob_gas,
         parent_beacon_block_root=block.header.parent_beacon_block_root,
         block_access_list_builder=BlockAccessListBuilder(),
+        slot_number=block.header.slot_number,
     )
 
     block_output = apply_body(
@@ -653,7 +657,7 @@ def make_receipt(
         Error in the top level frame of the transaction, if any.
     cumulative_gas_used :
         The total gas used so far in the block after the transaction was
-        executed.
+        executed. This is the gas used after refunds.
     logs :
         The logs produced by the transaction.
 
@@ -697,14 +701,14 @@ def process_checked_system_transaction(
         Output of processing the system transaction.
 
     """
-    # Read through BlockState (not pre-state) so that a system contract
-    # deployed by an earlier transaction in the same block is visible.
-    # See EIP-7002 and EIP-7251 for this edge case.
-    #
-    # This read is not recorded in the state tracker.
-    # However, this is fine because `process_unchecked_system_transaction`
-    # does its own get_account on the TransactionState that we do incorporate
-    # into BlockState.
+    # Pre-check that the system contract has code. We use a throwaway
+    # TransactionState here that is *never* propagated back to BlockState
+    # (no incorporate_tx_into_block call); the same get_account / get_code
+    # lookups are performed and properly tracked by
+    # process_unchecked_system_transaction below, which this function
+    # always calls. Reading via a TransactionState (rather than directly
+    # against pre_state) lets us see system contracts deployed earlier in
+    # the same block — see EIP-7002 and EIP-7251 for this edge case.
     untracked_state = TransactionState(parent=block_env.state)
     system_contract_code = get_code(
         untracked_state,
@@ -793,7 +797,6 @@ def process_unchecked_system_transaction(
         accessed_storage_keys=set(),
         disable_precompiles=False,
         parent_evm=None,
-        is_create=False,
     )
 
     system_tx_output = process_message_call(system_tx_message)
@@ -854,7 +857,7 @@ def apply_body(
 
     # EIP-7928: Post-execution operations use index N+1
     block_env.block_access_list_builder.block_access_index = BlockAccessIndex(
-        Uint(len(transactions)) + Uint(1)
+        ulen(transactions) + Uint(1)
     )
 
     process_withdrawals(block_env, block_output, withdrawals)
@@ -998,15 +1001,7 @@ def process_transaction(
     access_list_addresses = set()
     access_list_storage_keys = set()
     access_list_addresses.add(block_env.coinbase)
-    if isinstance(
-        tx,
-        (
-            AccessListTransaction,
-            FeeMarketTransaction,
-            BlobTransaction,
-            SetCodeTransaction,
-        ),
-    ):
+    if has_access_list(tx):
         for access in tx.access_list:
             access_list_addresses.add(access.account)
             for slot in access.slots:
@@ -1047,41 +1042,53 @@ def process_transaction(
 
     # Transactions with less execution_gas_used than the floor pay at the
     # floor cost.
-    tx_gas_used_after_refund = max(
-        tx_gas_used_after_refund, calldata_floor_gas_cost
+    tx_gas_used = max(tx_gas_used_after_refund, calldata_floor_gas_cost)
+    block_gas_used_in_tx = max(
+        tx_gas_used_before_refund, calldata_floor_gas_cost
     )
 
-    tx_gas_left = tx.gas - tx_gas_used_after_refund
+    tx_gas_left = tx.gas - tx_gas_used
     gas_refund_amount = tx_gas_left * effective_gas_price
 
     # For non-1559 transactions effective_gas_price == tx.gas_price
     priority_fee_per_gas = effective_gas_price - block_env.base_fee_per_gas
-    transaction_fee = tx_gas_used_after_refund * priority_fee_per_gas
+    transaction_fee = tx_gas_used * priority_fee_per_gas
 
     # refund gas
-    sender_balance_after_refund = get_account(tx_state, sender).balance + U256(
-        gas_refund_amount
-    )
-    set_account_balance(tx_state, sender, sender_balance_after_refund)
+    create_ether(tx_state, sender, U256(gas_refund_amount))
 
-    coinbase_balance_after_mining_fee = get_account(
-        tx_state, block_env.coinbase
-    ).balance + U256(transaction_fee)
+    # transfer miner fees
+    create_ether(tx_state, block_env.coinbase, U256(transaction_fee))
 
-    set_account_balance(
-        tx_state, block_env.coinbase, coinbase_balance_after_mining_fee
-    )
+    # EIP-7708: Emit burn logs for balances held by accounts marked for
+    # deletion AFTER miner fee transfer.
+    finalization_logs: List[Log] = []
+    for address in sorted(tx_output.accounts_to_delete):
+        balance = get_account(tx_state, address).balance
+        if balance > U256(0):
+            padded_address = left_pad_zero_bytes(address, 32)
+            finalization_logs.append(
+                Log(
+                    address=vm.SYSTEM_ADDRESS,
+                    topics=(
+                        vm.BURN_TOPIC,
+                        Hash32(padded_address),
+                    ),
+                    data=balance.to_be_bytes32(),
+                )
+            )
 
-    if coinbase_balance_after_mining_fee == 0 and account_exists_and_is_empty(
-        tx_state, block_env.coinbase
-    ):
-        destroy_account(tx_state, block_env.coinbase)
+    all_logs = tx_output.logs + tuple(finalization_logs)
 
-    block_output.block_gas_used += tx_gas_used_after_refund
+    block_output.cumulative_gas_used += tx_gas_used
+    block_output.block_gas_used += block_gas_used_in_tx
     block_output.blob_gas_used += tx_blob_gas_used
 
     receipt = make_receipt(
-        tx, tx_output.error, block_output.block_gas_used, tx_output.logs
+        tx,
+        tx_output.error,
+        block_output.cumulative_gas_used,
+        all_logs,
     )
 
     receipt_key = rlp.encode(Uint(index))
@@ -1093,7 +1100,7 @@ def process_transaction(
         receipt,
     )
 
-    block_output.block_logs += tx_output.logs
+    block_output.block_logs += all_logs
 
     for address in tx_output.accounts_to_delete:
         destroy_account(tx_state, address)
@@ -1118,9 +1125,7 @@ def process_withdrawals(
             rlp.encode(wd),
         )
 
-        current_balance = get_account(wd_state, wd.address).balance
-        new_balance = current_balance + wd.amount * GWEI_TO_WEI
-        set_account_balance(wd_state, wd.address, new_balance)
+        create_ether(wd_state, wd.address, wd.amount * GWEI_TO_WEI)
 
     incorporate_tx_into_block(wd_state, block_env.block_access_list_builder)
 
@@ -1131,14 +1136,14 @@ def check_gas_limit(gas_limit: Uint, parent_gas_limit: Uint) -> bool:
 
     The bounds of the gas limit, ``max_adjustment_delta``, is set as the
     quotient of the parent block's gas limit and the
-    ``GAS_LIMIT_ADJUSTMENT_FACTOR``. Therefore, if the gas limit that is
-    passed through as a parameter is greater than or equal to the *sum* of
-    the parent's gas and the adjustment delta then the limit for gas is too
-    high and fails this function's check. Similarly, if the limit is less
-    than or equal to the *difference* of the parent's gas and the adjustment
-    delta *or* the predefined ``GAS_LIMIT_MINIMUM`` then this function's
-    check fails because the gas limit doesn't allow for a sufficient or
-    reasonable amount of gas to be used on a block.
+    ``LIMIT_ADJUSTMENT_FACTOR``. Therefore, if the gas limit that is passed
+    through as a parameter is greater than or equal to the *sum* of the
+    parent's gas and the adjustment delta then the limit for gas is too high
+    and fails this function's check. Similarly, if the limit is less than or
+    equal to the *difference* of the parent's gas and the adjustment delta *or*
+    the predefined ``LIMIT_MINIMUM`` then this function's check fails because
+    the gas limit doesn't allow for a sufficient or reasonable amount of gas to
+    be used on a block.
 
     Parameters
     ----------
@@ -1154,12 +1159,12 @@ def check_gas_limit(gas_limit: Uint, parent_gas_limit: Uint) -> bool:
         True if gas limit constraints are satisfied, False otherwise.
 
     """
-    max_adjustment_delta = parent_gas_limit // GAS_LIMIT_ADJUSTMENT_FACTOR
+    max_adjustment_delta = parent_gas_limit // GasCosts.LIMIT_ADJUSTMENT_FACTOR
     if gas_limit >= parent_gas_limit + max_adjustment_delta:
         return False
     if gas_limit <= parent_gas_limit - max_adjustment_delta:
         return False
-    if gas_limit < GAS_LIMIT_MINIMUM:
+    if gas_limit < GasCosts.LIMIT_MINIMUM:
         return False
 
     return True

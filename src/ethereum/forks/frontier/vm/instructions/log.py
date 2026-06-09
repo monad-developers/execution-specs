@@ -12,15 +12,14 @@ Implementations of the EVM logging instructions.
 """
 
 from functools import partial
+from typing import Callable
 
 from ethereum_types.numeric import Uint
 
 from ...blocks import Log
 from .. import Evm
 from ..gas import (
-    GAS_LOG,
-    GAS_LOG_DATA_PER_BYTE,
-    GAS_LOG_TOPIC,
+    GasCosts,
     calculate_gas_extend_memory,
     charge_gas,
 )
@@ -58,9 +57,9 @@ def log_n(evm: Evm, num_topics: int) -> None:
     )
     charge_gas(
         evm,
-        GAS_LOG
-        + GAS_LOG_DATA_PER_BYTE * Uint(size)
-        + GAS_LOG_TOPIC * Uint(num_topics)
+        GasCosts.OPCODE_LOG_BASE
+        + GasCosts.OPCODE_LOG_DATA_PER_BYTE * Uint(size)
+        + GasCosts.OPCODE_LOG_TOPIC * Uint(num_topics)
         + extend_memory.cost,
     )
 
@@ -78,8 +77,8 @@ def log_n(evm: Evm, num_topics: int) -> None:
     evm.pc += Uint(1)
 
 
-log0 = partial(log_n, num_topics=0)
-log1 = partial(log_n, num_topics=1)
-log2 = partial(log_n, num_topics=2)
-log3 = partial(log_n, num_topics=3)
-log4 = partial(log_n, num_topics=4)
+log0: Callable[[Evm], None] = partial(log_n, num_topics=0)
+log1: Callable[[Evm], None] = partial(log_n, num_topics=1)
+log2: Callable[[Evm], None] = partial(log_n, num_topics=2)
+log3: Callable[[Evm], None] = partial(log_n, num_topics=3)
+log4: Callable[[Evm], None] = partial(log_n, num_topics=4)

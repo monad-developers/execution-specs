@@ -1,1 +1,1 @@
-"""Tests ported from stRecursiveCreate."""
+"""Ported static tests: stRecursiveCreate."""  # noqa: N999

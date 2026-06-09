@@ -1,65 +1,75 @@
 """
-Test ported from static filler.
+Test_out_of_gas_contract_creation.
 
 Ported from:
-tests/static/state_tests/stInitCodeTest/OutOfGasContractCreationFiller.json
+state_tests/stInitCodeTest/OutOfGasContractCreationFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
     Environment,
     StateTestFiller,
     Transaction,
+    compute_create_address,
 )
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
+)
+from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
 REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stInitCodeTest/OutOfGasContractCreationFiller.json",  # noqa: E501
-    ],
+    ["state_tests/stInitCodeTest/OutOfGasContractCreationFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_data_hex, tx_gas_limit, expected_post",
+    "d, g, v",
     [
-        ("600a80600c6000396000f200600160008035811a8100", 56000, {}),
-        ("600a80600c6000396000f200600160008035811a8100", 150000, {}),
-        (
-            "600160015560026001556003600155600460015560056001556006600155",
-            56000,
-            {},
+        pytest.param(
+            0,
+            0,
+            0,
+            id="d0-g0",
         ),
-        (
-            "600160015560026001556003600155600460015560056001556006600155",
-            150000,
-            {
-                Address("0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"): Account(
-                    storage={1: 6}
-                )
-            },
+        pytest.param(
+            0,
+            1,
+            0,
+            id="d0-g1",
+        ),
+        pytest.param(
+            1,
+            0,
+            0,
+            id="d1-g0",
+        ),
+        pytest.param(
+            1,
+            1,
+            0,
+            id="d1-g1",
         ),
     ],
-    ids=["case0", "case1", "case2", "case3"],
 )
-@pytest.mark.pre_alloc_mutable
 def test_out_of_gas_contract_creation(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
-    tx_gas_limit: int,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
+    """Test_out_of_gas_contract_creation."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(
+        amount=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF  # noqa: E501
     )
 
     env = Environment(
@@ -71,20 +81,69 @@ def test_out_of_gas_contract_creation(
         gas_limit=100000000000000,
     )
 
-    pre[sender] = Account(
-        balance=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
-    )
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": 0, "gas": 1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                compute_create_address(
+                    address=sender, nonce=0
+                ): Account.NONEXISTENT,
+            },
+        },
+        {
+            "indexes": {"data": 1, "gas": 1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                compute_create_address(address=sender, nonce=0): Account(
+                    nonce=1
+                ),
+            },
+        },
+        {
+            "indexes": {"data": -1, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                compute_create_address(
+                    address=sender, nonce=0
+                ): Account.NONEXISTENT,
+            },
+        },
+    ]
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Op.PUSH1[0xA]
+        + Op.CODECOPY(dest_offset=0x0, offset=0xC, size=Op.DUP1)
+        + Op.PUSH1[0x0]
+        + Op.CALLCODE
+        + Op.STOP
+        + Op.PUSH1[0x1]
+        + Op.PUSH1[0x0]
+        + Op.BYTE(Op.DUP2, Op.CALLDATALOAD(offset=Op.DUP1))
+        + Op.DUP2
+        + Op.STOP,
+        Op.SSTORE(key=0x1, value=0x1)
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.SSTORE(key=0x1, value=0x3)
+        + Op.SSTORE(key=0x1, value=0x4)
+        + Op.SSTORE(key=0x1, value=0x5)
+        + Op.SSTORE(key=0x1, value=0x6),
+    ]
+    tx_gas = [56000, 150000]
+    tx_value = [1]
 
     tx = Transaction(
         sender=sender,
         to=None,
-        data=tx_data,
-        gas_limit=tx_gas_limit,
-        value=1,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
+        error=_exc,
     )
-
-    post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

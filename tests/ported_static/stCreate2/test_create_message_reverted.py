@@ -2,7 +2,7 @@
 CreateMessageReverted for CREATE2.
 
 Ported from:
-tests/static/state_tests/stCreate2/CreateMessageRevertedFiller.json
+state_tests/stCreate2/CreateMessageRevertedFiller.json
 """
 
 import pytest
@@ -11,9 +11,14 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
+)
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
 )
 from execution_testing.vm import Op
 
@@ -22,33 +27,38 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stCreate2/CreateMessageRevertedFiller.json"],
+    ["state_tests/stCreate2/CreateMessageRevertedFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_gas_limit, expected_post",
+    "d, g, v",
     [
-        (80000, {}),
-        (
-            150000,
-            {
-                Address("0x244fe9a7867edcc140245e775071fbfe6ebedbae"): Account(
-                    storage={0: 12, 1: 13}
-                )
-            },
+        pytest.param(
+            0,
+            0,
+            0,
+            id="-g0",
+        ),
+        pytest.param(
+            0,
+            1,
+            0,
+            id="-g1",
         ),
     ],
-    ids=["case0", "case1"],
 )
 @pytest.mark.pre_alloc_mutable
 def test_create_message_reverted(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_gas_limit: int,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
     """CreateMessageReverted for CREATE2."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    contract_0 = Address(0xB94F5374FCE5EDBC8E2A8697C15331677E6EBF0B)
     sender = EOA(
         key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
     )
@@ -63,25 +73,54 @@ def test_create_message_reverted(
     )
 
     pre[sender] = Account(balance=0x2DC6C0)
-    # Source: LLL
+    # Source: lll
     # {(MSTORE 0 0x600c600055600d600155) (CREATE2 0 22 10 0)}
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE(offset=0x0, value=0x600C600055600D600155)
-            + Op.CREATE2(value=0x0, offset=0x16, size=0xA, salt=0x0)
-            + Op.STOP
-        ),
+    contract_0 = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(offset=0x0, value=0x600C600055600D600155)
+        + Op.CREATE2(value=0x0, offset=0x16, size=0xA, salt=0x0)
+        + Op.STOP,
         nonce=0,
-        address=Address("0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b"),  # noqa: E501
+        address=Address(0xB94F5374FCE5EDBC8E2A8697C15331677E6EBF0B),  # noqa: E501
     )
+
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": -1, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                Address(
+                    0x244FE9A7867EDCC140245E775071FBFE6EBEDBAE
+                ): Account.NONEXISTENT,
+            },
+        },
+        {
+            "indexes": {"data": -1, "gas": 1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                Address(0x244FE9A7867EDCC140245E775071FBFE6EBEDBAE): Account(
+                    storage={0: 12, 1: 13}, balance=0, nonce=1
+                ),
+            },
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Bytes(""),
+    ]
+    tx_gas = [80000, 150000]
+    tx_value = [100]
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        gas_limit=tx_gas_limit,
-        value=100,
+        to=contract_0,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
+        error=_exc,
     )
-
-    post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

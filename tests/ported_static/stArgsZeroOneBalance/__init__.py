@@ -1,1 +1,1 @@
-"""Tests ported from stArgsZeroOneBalance."""
+"""Ported static tests: stArgsZeroOneBalance."""  # noqa: N999

@@ -61,7 +61,7 @@ pytestmark = [
 
 
 @pytest.mark.with_all_contract_creating_tx_types
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_init_collision_create_tx(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -95,7 +95,7 @@ def test_init_collision_create_tx(
     )
 
     expected_block_access_list = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         expected_block_access_list = BlockAccessListExpectation(
             account_expectations={
                 created_contract_address: BalAccountExpectation.empty()

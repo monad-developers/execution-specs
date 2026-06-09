@@ -800,7 +800,7 @@ def gas_test_parameter_args(
         if execution_gas_allowance:
             # Leave some gas for the execution of the test code.
             max_gas -= 1_000_000
-        many_authorizations_count = max_gas // Spec.GAS_AUTH_PER_EMPTY_ACCOUNT
+        many_authorizations_count = max_gas // Spec.AUTH_PER_EMPTY_ACCOUNT
         cases += [
             pytest.param(
                 {
@@ -876,7 +876,7 @@ def test_gas_cost(
                 seen_authority.add(authority)
 
     discount_gas = (
-        Spec.GAS_AUTH_PER_EMPTY_ACCOUNT - Spec.REFUND_AUTH_PER_EXISTING_ACCOUNT
+        Spec.AUTH_PER_EMPTY_ACCOUNT - Spec.REFUND_AUTH_PER_EXISTING_ACCOUNT
     ) * discounted_authorizations
 
     # We calculate the exact gas required to execute the test code. We add
@@ -947,7 +947,7 @@ def test_gas_cost(
 @pytest.mark.parametrize(
     **gas_test_parameter_args(include_many=False, include_data=False)
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_account_warming(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -967,8 +967,8 @@ def test_account_warming(
     # check.
     overhead_cost = 3 * len(Op.CALL.kwargs)
 
-    cold_account_cost = fork.gas_costs().GAS_COLD_ACCOUNT_ACCESS
-    warm_account_cost = fork.gas_costs().GAS_WARM_ACCOUNT_ACCESS
+    cold_account_cost = fork.gas_costs().COLD_ACCOUNT_ACCESS
+    warm_account_cost = fork.gas_costs().WARM_ACCESS
 
     access_list_addresses = {
         access_list.address for access_list in access_list
@@ -1194,9 +1194,9 @@ def test_self_set_code_cost(
     callee_address = pre.deploy_contract(callee_code)
     callee_storage = Storage()
     callee_storage[slot_call_cost] = (
-        fork.gas_costs().GAS_WARM_ACCOUNT_ACCESS
+        fork.gas_costs().WARM_ACCESS
         if not pre_authorized
-        else fork.gas_costs().GAS_COLD_ACCOUNT_ACCESS
+        else fork.gas_costs().COLD_ACCOUNT_ACCESS
     ) + 100
 
     tx = Transaction(
@@ -1270,7 +1270,7 @@ def test_call_to_pre_authorized_oog(
     )
 
     expected_block_access_list = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         # Sender nonce changes, callee is accessed but storage unchanged (OOG)
         # auth_signer is tracked (we read its code to check delegation)
         # delegation is NOT tracked (OOG before reading it)

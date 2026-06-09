@@ -311,9 +311,8 @@ class TestMultipleWithdrawalsSameAddress:
 
     @pytest.fixture
     def addresses(self, fork: Fork) -> List[Address]:  # noqa: D102
-        addresses = [
-            Address(p) for p in fork.precompiles(block_number=0, timestamp=0)
-        ]
+        addresses = [Address(p) for p in fork.precompiles()]
+        addresses.sort()
         return addresses + [Address(2**160 - 1)]
 
     @pytest.fixture
@@ -607,7 +606,7 @@ class ZeroAmountTestCases(Enum):  # noqa: D101
     list(ZeroAmountTestCases),
     ids=[case.value for case in ZeroAmountTestCases],
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_zero_amount(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

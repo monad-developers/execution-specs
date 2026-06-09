@@ -1,20 +1,21 @@
 """
-Test ported from static filler.
+Test_mload32bit_bound_return.
 
 Ported from:
-tests/static/state_tests/stMemoryStressTest/mload32bitBound_returnFiller.json
+state_tests/stMemoryStressTest/mload32bitBound_returnFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -22,31 +23,38 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stMemoryStressTest/mload32bitBound_returnFiller.json",  # noqa: E501
-    ],
+    ["state_tests/stMemoryStressTest/mload32bitBound_returnFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_gas_limit, expected_post",
+    "d, g, v",
     [
-        (150000, {}),
-        (16777216, {}),
+        pytest.param(
+            0,
+            0,
+            0,
+            id="-g0",
+        ),
+        pytest.param(
+            0,
+            1,
+            0,
+            id="-g1",
+        ),
     ],
-    ids=["case0", "case1"],
 )
 @pytest.mark.pre_alloc_mutable
 def test_mload32bit_bound_return(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_gas_limit: int,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x7DD14755C573E37C1F649B0C53B9815F76AEBD636DF7CCFA97F4579F33BA59A0
-    )
+    """Test_mload32bit_bound_return."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x186A0C3B1E19A180)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -57,22 +65,26 @@ def test_mload32bit_bound_return(
         gas_limit=17592320524892,
     )
 
-    pre[sender] = Account(balance=0x186A0C3B1E19A180)
-    # Source: LLL
+    # Source: lll
     # { (RETURN 0 4294967295) }
-    contract = pre.deploy_contract(
+    target = pre.deploy_contract(  # noqa: F841
         code=Op.RETURN(offset=0x0, size=0xFFFFFFFF) + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0xd9cba08b7a9695800f57e226045176cf420ca0c1"),  # noqa: E501
     )
+
+    tx_data = [
+        Bytes(""),
+    ]
+    tx_gas = [150000, 16777216]
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        gas_limit=tx_gas_limit,
+        to=target,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
     )
 
-    post = expected_post
+    post = {target: Account(storage={})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -4,14 +4,15 @@ Define the types used by the t8n tool.
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ethereum_rlp import Simple, rlp
 from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U64, U256, Uint
 
 from ethereum.crypto.hash import Hash32, keccak256
-from ethereum.state import EMPTY_CODE_HASH
+from ethereum.merkle_patricia_trie import root, trie_get
+from ethereum.state import EMPTY_CODE_HASH, apply_changes_to_state
 from ethereum.utils.hexadecimal import hex_to_bytes, hex_to_u256, hex_to_uint
 
 from ..loaders.transaction_loader import TransactionLoad, UnsupportedTxError
@@ -123,7 +124,7 @@ class Txs:
     def __init__(self, t8n: "T8N", stdin: Optional[Dict] = None):
         self.t8n = t8n
         self.successfully_parsed: List[int] = []
-        self.transactions: List[Tuple[Uint, Any]] = []
+        self.transactions: List[Any] = []
         self.rejected_txs = {}
         self.rlp_input = False
         self.all_txs = []
@@ -318,8 +319,8 @@ class Result:
         """
         receipts: List[Any] = []
         for key in block_output.receipt_keys:
-            tx = t8n.fork.trie_get(block_output.transactions_trie, key)
-            receipt = t8n.fork.trie_get(block_output.receipts_trie, key)
+            tx = trie_get(block_output.transactions_trie, key)
+            receipt = trie_get(block_output.receipts_trie, key)
 
             assert tx is not None
             assert receipt is not None
@@ -340,38 +341,28 @@ class Result:
         Update the result after processing the inputs.
         """
         self.gas_used = block_output.block_gas_used
-        self.tx_root = t8n.fork.root(block_output.transactions_trie)
-        self.receipt_root = t8n.fork.root(block_output.receipts_trie)
+        self.tx_root = root(block_output.transactions_trie)
+        self.receipt_root = root(block_output.receipts_trie)
         self.bloom = t8n.fork.logs_bloom(block_output.block_logs)
         self.logs_hash = keccak256(rlp.encode(block_output.block_logs))
-        if t8n.fork.has_block_state:
-            # TODO: remove this once the state tracker is ported over
-            # to the older forks
-            from ethereum.forks.amsterdam.state import apply_changes_to_state
-            from ethereum.forks.amsterdam.state_tracker import (
-                extract_block_diff,
+        block_diff = t8n.fork.extract_block_diff(t8n._block_state)
+        state_root_value, _ = (
+            t8n.alloc.state.compute_state_root_and_trie_changes(
+                block_diff.account_changes,
+                block_diff.storage_changes,
+                block_diff.storage_clears,
             )
-
-            block_diff = extract_block_diff(t8n._block_state)
-            state_root_value, _ = (
-                t8n.alloc.state.compute_state_root_and_trie_changes(
-                    block_diff.account_changes, block_diff.storage_changes
-                )
-            )
-            self.state_root = state_root_value
-            # Apply diffs to pre-state for alloc output
-            apply_changes_to_state(t8n.alloc.state, block_diff)
-        else:
-            self.state_root = t8n.fork.state_root(block_env.state)
+        )
+        self.state_root = state_root_value
+        # Apply diffs to pre-state for alloc output
+        apply_changes_to_state(t8n.alloc.state, block_diff)
         self.receipts = self.get_receipts_from_output(t8n, block_output)
 
         if hasattr(block_env, "base_fee_per_gas"):
             self.base_fee = block_env.base_fee_per_gas
 
         if hasattr(block_output, "withdrawals_trie"):
-            self.withdrawals_root = t8n.fork.root(
-                block_output.withdrawals_trie
-            )
+            self.withdrawals_root = root(block_output.withdrawals_trie)
 
         if hasattr(block_env, "excess_blob_gas"):
             self.excess_blob_gas = block_env.excess_blob_gas
@@ -385,72 +376,6 @@ class Result:
             self.block_access_list_hash = t8n.fork.hash_block_access_list(
                 block_output.block_access_list
             )
-
-    @staticmethod
-    def _block_access_list_to_json(account_changes: Any) -> Any:
-        """
-        Convert BlockAccessList to JSON format matching the Pydantic models.
-        """
-        json_account_changes = []
-        for account in account_changes:
-            account_data: Dict[str, Any] = {
-                "address": "0x" + account.address.hex()
-            }
-
-            if account.storage_changes:
-                storage_changes = []
-                for slot_change in account.storage_changes:
-                    slot_data: Dict[str, Any] = {
-                        "slot": int(slot_change.slot),
-                        "slotChanges": [],
-                    }
-                    for change in slot_change.changes:
-                        slot_data["slotChanges"].append(
-                            {
-                                "blockAccessIndex": int(
-                                    change.block_access_index
-                                ),
-                                "postValue": int(change.new_value),
-                            }
-                        )
-                    storage_changes.append(slot_data)
-                account_data["storageChanges"] = storage_changes
-
-            if account.storage_reads:
-                account_data["storageReads"] = [
-                    int(slot) for slot in account.storage_reads
-                ]
-
-            if account.balance_changes:
-                account_data["balanceChanges"] = [
-                    {
-                        "blockAccessIndex": int(change.block_access_index),
-                        "postBalance": int(change.post_balance),
-                    }
-                    for change in account.balance_changes
-                ]
-
-            if account.nonce_changes:
-                account_data["nonceChanges"] = [
-                    {
-                        "blockAccessIndex": int(change.block_access_index),
-                        "postNonce": int(change.new_nonce),
-                    }
-                    for change in account.nonce_changes
-                ]
-
-            if account.code_changes:
-                account_data["codeChanges"] = [
-                    {
-                        "blockAccessIndex": int(change.block_access_index),
-                        "newCode": "0x" + change.new_code.hex(),
-                    }
-                    for change in account.code_changes
-                ]
-
-            json_account_changes.append(account_data)
-
-        return json_account_changes
 
     def json_encode_receipts(self) -> Any:
         """
@@ -533,9 +458,10 @@ class Result:
             data["blockException"] = self.block_exception
 
         if self.block_access_list is not None:
-            # Convert BAL to JSON format
-            data["blockAccessList"] = self._block_access_list_to_json(
-                self.block_access_list
+            # Output BAL as RLP-encoded hex bytes; the testing framework
+            # handles JSON serialization.
+            data["blockAccessList"] = encode_to_hex(
+                rlp.encode(self.block_access_list)
             )
 
         if self.block_access_list_hash is not None:

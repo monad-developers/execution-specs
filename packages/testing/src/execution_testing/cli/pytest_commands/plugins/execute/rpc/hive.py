@@ -21,7 +21,7 @@ from execution_testing.base_types import (
     to_json,
 )
 from execution_testing.fixtures.blockchain import FixtureHeader
-from execution_testing.forks import Fork
+from execution_testing.forks import Fork, TransitionFork
 from execution_testing.rpc import EngineRPC, EthRPC
 from execution_testing.test_types import (
     DETERMINISTIC_FACTORY_ADDRESS,
@@ -118,13 +118,23 @@ def base_pre(
     )
 
 
-@pytest.fixture(scope="session")
-def base_pre_genesis(
-    session_fork: Fork,
-    base_pre: Alloc,
+def build_genesis_header(
+    session_fork: Fork | TransitionFork,
+    base_pre: Alloc | None = None,
 ) -> Tuple[Alloc, FixtureHeader]:
-    """Create a genesis block from the blockchain test definition."""
-    env = Environment().set_fork_requirements(session_fork)
+    """
+    Build a hive genesis ``(pre_alloc, FixtureHeader)`` for ``session_fork``.
+
+    ``base_pre`` is merged on top of the fork's required system contracts;
+    callers that fund accounts post-genesis (e.g. fill-stateful via CL
+    withdrawals) can pass ``None`` for an empty extra allocation.
+    """
+    block_number = 0
+    timestamp = 1
+    genesis_fork = session_fork.fork_at(
+        block_number=block_number, timestamp=timestamp
+    )
+    env = Environment().set_fork_requirements(genesis_fork)
     assert env.withdrawals is None or len(env.withdrawals) == 0, (
         "withdrawals must be empty at genesis"
     )
@@ -133,15 +143,14 @@ def base_pre_genesis(
         or env.parent_beacon_block_root == Hash(0)
     ), "parent_beacon_block_root must be empty at genesis"
 
-    pre_alloc = Alloc.merge(
-        Alloc.model_validate(session_fork.pre_allocation_blockchain()),
-        base_pre,
+    pre_alloc = Alloc.model_validate(
+        session_fork.transitions_to().pre_allocation_blockchain()
     )
+    if base_pre is not None:
+        pre_alloc = Alloc.merge(pre_alloc, base_pre)
     if empty_accounts := pre_alloc.empty_accounts():
         raise Exception(f"Empty accounts in pre state: {empty_accounts}")
     state_root = pre_alloc.state_root()
-    block_number = 0
-    timestamp = 1
     genesis = FixtureHeader(
         parent_hash=0,
         ommers_hash=EmptyOmmersRoot,
@@ -168,18 +177,67 @@ def base_pre_genesis(
         ),
         parent_beacon_block_root=env.parent_beacon_block_root,
         requests_hash=Requests()
-        if session_fork.header_requests_required(
-            block_number=block_number, timestamp=timestamp
-        )
+        if genesis_fork.header_requests_required()
         else None,
         block_access_list_hash=Hash(EmptyTrieRoot)
-        if session_fork.header_bal_hash_required(
-            block_number=block_number, timestamp=timestamp
-        )
+        if genesis_fork.header_bal_hash_required()
         else None,
     )
 
     return (pre_alloc, genesis)
+
+
+def build_client_genesis_dict(
+    pre_alloc: Alloc,
+    genesis_header: FixtureHeader,
+) -> dict:
+    """
+    Convert ``(pre_alloc, FixtureHeader)`` into the JSON-compatible dict
+    that hive writes to ``/genesis.json``.
+    """
+    # NOTE: to_json() excludes None values.
+    genesis = to_json(genesis_header)
+    alloc = to_json(pre_alloc)
+    # NOTE: nethermind requires account keys without '0x' prefix.
+    genesis["alloc"] = {k.replace("0x", ""): v for k, v in alloc.items()}
+    return genesis
+
+
+def build_client_files(
+    client_genesis_dict: dict,
+) -> Mapping[str, io.BufferedReader]:
+    """Wrap ``client_genesis_dict`` in the BufferedReader hive expects."""
+    genesis_bytes = json.dumps(client_genesis_dict).encode("utf-8")
+    buffered: io.BufferedReader = io.BufferedReader(
+        cast(io.RawIOBase, io.BytesIO(genesis_bytes))
+    )
+    files: dict = {"/genesis.json": buffered}
+    return files
+
+
+def build_hive_environment(
+    session_fork: Fork | TransitionFork,
+    chain_id: int,
+) -> dict:
+    """Build the hive client environment from the fork's ruleset."""
+    assert session_fork in ruleset, (
+        f"fork '{session_fork}' missing in hive ruleset"
+    )
+    return {
+        "HIVE_CHAIN_ID": str(chain_id),
+        "HIVE_FORK_DAO_VOTE": "1",
+        "HIVE_NODETYPE": "full",
+        **{k: f"{v:d}" for k, v in ruleset[session_fork].items()},
+    }
+
+
+@pytest.fixture(scope="session")
+def base_pre_genesis(
+    session_fork: Fork | TransitionFork,
+    base_pre: Alloc,
+) -> Tuple[Alloc, FixtureHeader]:
+    """Create a genesis block from the blockchain test definition."""
+    return build_genesis_header(session_fork, base_pre)
 
 
 @pytest.fixture(scope="session")
@@ -188,38 +246,19 @@ def client_genesis(base_pre_genesis: Tuple[Alloc, FixtureHeader]) -> dict:
     Convert the fixture's genesis block header and pre-state to a client
     genesis state.
     """
-    genesis = to_json(
-        base_pre_genesis[1]
-    )  # NOTE: to_json() excludes None values
-    alloc = to_json(base_pre_genesis[0])
-    # NOTE: nethermind requires account keys without '0x' prefix
-    genesis["alloc"] = {k.replace("0x", ""): v for k, v in alloc.items()}
-    return genesis
-
-
-@pytest.fixture(scope="session")
-def buffered_genesis(client_genesis: dict) -> io.BufferedReader:
-    """
-    Create a buffered reader for the genesis block header of the current test
-    fixture.
-    """
-    genesis_json = json.dumps(client_genesis)
-    genesis_bytes = genesis_json.encode("utf-8")
-    return io.BufferedReader(cast(io.RawIOBase, io.BytesIO(genesis_bytes)))
+    return build_client_genesis_dict(*base_pre_genesis)
 
 
 @pytest.fixture(scope="session")
 def client_files(
-    buffered_genesis: io.BufferedReader,
+    client_genesis: dict,
 ) -> Mapping[str, io.BufferedReader]:
     """
     Define the files that hive will start the client with.
 
     For this type of test, only the genesis is passed
     """
-    files = {}
-    files["/genesis.json"] = buffered_genesis
-    return files
+    return build_client_files(client_genesis)
 
 
 @pytest.fixture(scope="session")
@@ -228,15 +267,7 @@ def environment(session_fork: Fork, chain_config: ChainConfig) -> dict:
     Define the environment that hive will start the client with using the fork
     rules specific for the simulator.
     """
-    assert session_fork in ruleset, (
-        f"fork '{session_fork}' missing in hive ruleset"
-    )
-    return {
-        "HIVE_CHAIN_ID": str(chain_config.chain_id),
-        "HIVE_FORK_DAO_VOTE": "1",
-        "HIVE_NODETYPE": "full",
-        **{k: f"{v:d}" for k, v in ruleset[session_fork].items()},
-    }
+    return build_hive_environment(session_fork, chain_config.chain_id)
 
 
 @pytest.fixture(scope="session")
@@ -402,7 +433,7 @@ def eth_rpc(
     request: pytest.FixtureRequest,
     client: Client,
     engine_rpc: EngineRPC,
-    session_fork: Fork,
+    session_fork: Fork | TransitionFork,
     session_temp_folder: Path,
     max_transactions_per_batch: int | None,
     use_testing_build_block: bool,

@@ -1,16 +1,16 @@
 """
-Test ported from static filler.
+Test_log2_dejavu.
 
 Ported from:
-tests/static/state_tests/stMemoryTest/log2_dejavuFiller.json
+state_tests/stMemoryTest/log2_dejavuFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stMemoryTest/log2_dejavuFiller.json"],
+    ["state_tests/stMemoryTest/log2_dejavuFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -30,11 +30,9 @@ def test_log2_dejavu(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x7DD1D0EC78FE936B0E88F8C21226F51F048579915C7BAFF1C5D7FD84B2139BF1
-    )
+    """Test_log2_dejavu."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x271000000000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -45,22 +43,25 @@ def test_log2_dejavu(
         gas_limit=52949672960,
     )
 
-    # Source: raw bytecode
-    contract = pre.deploy_contract(
-        code=Op.PUSH1[0xFF] + Op.PUSH1[0xFF] + Op.PUSH4[0xFFFFFFF] + Op.LOG2,
+    # Source: raw
+    # 0x60FF60FF630FFFFFFFA2
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.PUSH1[0xFF] * 2 + Op.PUSH4[0xFFFFFFF] + Op.LOG2,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x38ac6ccffb48040475cf67e7040adebb1dd11dec"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x271000000000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=100000,
         value=10,
     )
 
-    post: dict = {}
+    post = {
+        target: Account(storage={}, nonce=0),
+        sender: Account(storage={}, code=b"", nonce=1),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

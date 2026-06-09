@@ -47,8 +47,8 @@ def test_blake2_precompile_delegatecall(
         to=account,
         sender=pre.fund_eoa(),
         gas_limit=20_000
-        + gas_costs.GAS_STORAGE_SET
-        + gas_costs.GAS_COLD_SLOAD
+        + gas_costs.STORAGE_SET
+        + gas_costs.COLD_STORAGE_ACCESS
         + fork.transaction_intrinsic_cost_calculator()(),
         protected=True,
     )

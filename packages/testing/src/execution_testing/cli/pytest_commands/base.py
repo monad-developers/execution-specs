@@ -1,11 +1,12 @@
 """Base classes and utilities for pytest-based CLI commands."""
 
+import os
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from os.path import realpath
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, ClassVar, List, Optional
 
 import click
 import pytest
@@ -57,6 +58,15 @@ class PytestRunner:
     console: Console = field(default_factory=lambda: Console(highlight=False))
     """Console to use for output."""
 
+    error_console: Console = field(
+        default_factory=lambda: Console(stderr=True, highlight=False)
+    )
+    """Console for diagnostic output.
+
+    Written to stderr so it doesn't pollute stdout captures such as the
+    `fill --help` subprocess in `docs/scripts/generate_fill_help.py`.
+    """
+
     def run_single(self, execution: PytestExecution) -> int:
         """Run pytest once with the given configuration and arguments."""
         root_dir_arg = ["--rootdir", "."]
@@ -75,9 +85,15 @@ class PytestRunner:
                 "execution_testing.cli."
                 "pytest_commands.plugins.fix_package_test_path",
             ]
-        if self._is_verbose(execution.args):
+        if self._is_verbose(execution.args) or "CI" in os.environ:
             pytest_cmd = f"pytest {' '.join(pytest_args)}"
-            self.console.print(f"Executing: [bold]{pytest_cmd}[/bold]")
+            self.error_console.print(f"Executing: [bold]{pytest_cmd}[/bold]")
+            summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary_path:
+                with Path(summary_path).open("a") as summary:
+                    summary.write(
+                        f"### Executing\n\n```bash\n{pytest_cmd}\n```\n\n"
+                    )
 
         return pytest.main(pytest_args)
 
@@ -137,6 +153,9 @@ class PytestCommand:
     pytest_ini_folder: Path = PYTEST_INI_FOLDER
     """Folder where the pytest configuration files are located."""
 
+    allowed_exit_codes: ClassVar[List[pytest.ExitCode]] = [pytest.ExitCode.OK]
+    """Exit codes treated as successful for executions of this command."""
+
     @property
     def config_path(self) -> Path:
         """Path to the pytest configuration file."""
@@ -173,6 +192,7 @@ class PytestCommand:
                 config_file=self.config_path,
                 command_logic_test_paths=self.test_args,
                 args=processed_args,
+                allowed_exit_codes=self.allowed_exit_codes,
             )
         ]
 

@@ -1,9 +1,8 @@
 """
-Test ported from static filler.
+Test_transaction_to_addressh160minus_one.
 
 Ported from:
-tests/static/state_tests/stTransactionTest
-TransactionToAddressh160minusOneFiller.json
+state_tests/stTransactionTest/TransactionToAddressh160minusOneFiller.json
 """
 
 import pytest
@@ -12,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -23,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stTransactionTest/TransactionToAddressh160minusOneFiller.json",  # noqa: E501
+        "state_tests/stTransactionTest/TransactionToAddressh160minusOneFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -32,12 +32,11 @@ def test_transaction_to_addressh160minus_one(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_transaction_to_addressh160minus_one."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xF79127A3004ABDE26A4CBD80C428CB10F829FA11B54D36E7B326F4F4A5927ACF
     )
-    contract = Address("0xffffffffffffffffffffffffffffffffffffffff")
 
     env = Environment(
         fee_recipient=coinbase,
@@ -52,11 +51,16 @@ def test_transaction_to_addressh160minus_one(
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=Address(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF),
+        data=Bytes(""),
         gas_limit=22000,
         value=100,
     )
 
-    post: dict = {}
+    post = {
+        Address(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF): Account(
+            balance=100
+        ),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

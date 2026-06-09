@@ -1148,10 +1148,10 @@ def test_charge_gas_before_oom_check(
         call_value = 1
         inner_offset = 32
         inner_gas = (
-            7 * gas_costs.GAS_VERY_LOW
-            + gas_costs.GAS_WARM_ACCOUNT_ACCESS
-            + gas_costs.GAS_CALL_VALUE
-            + gas_costs.GAS_NEW_ACCOUNT
+            7 * gas_costs.VERY_LOW
+            + gas_costs.WARM_ACCESS
+            + gas_costs.CALL_VALUE
+            + gas_costs.NEW_ACCOUNT
             + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
             - 1
         )
@@ -1161,9 +1161,9 @@ def test_charge_gas_before_oom_check(
         call_value = 1 if trigger_oog else 0
         inner_offset = 32
         inner_gas = (
-            7 * gas_costs.GAS_VERY_LOW
-            + gas_costs.GAS_WARM_ACCOUNT_ACCESS
-            + gas_costs.GAS_CALL_VALUE
+            7 * gas_costs.VERY_LOW
+            + gas_costs.WARM_ACCESS
+            + gas_costs.CALL_VALUE
             + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
             - 1
         )
@@ -1173,8 +1173,8 @@ def test_charge_gas_before_oom_check(
         call_value = 0
         inner_offset = 32
         inner_gas = (
-            7 * gas_costs.GAS_VERY_LOW
-            + gas_costs.GAS_COLD_ACCOUNT_ACCESS
+            7 * gas_costs.VERY_LOW
+            + gas_costs.COLD_ACCOUNT_ACCESS
             + fork.memory_expansion_gas_calculator()(new_bytes=inner_offset)
             - 1
         )
@@ -1185,8 +1185,8 @@ def test_charge_gas_before_oom_check(
         inner_offset = 1024 * 1024 if trigger_oog else 32
         inner_gas = (
             7
-            + gas_costs.GAS_VERY_LOW
-            + gas_costs.GAS_WARM_ACCOUNT_ACCESS
+            + gas_costs.VERY_LOW
+            + gas_costs.WARM_ACCESS
             + fork.memory_expansion_gas_calculator()(new_bytes=1024 * 1024)
             - 1
         )
@@ -1223,9 +1223,9 @@ def test_charge_gas_before_oom_check(
             slot_inner_gas_consumed,
             Op.LT(
                 inner_gas
-                + gas_costs.GAS_WARM_ACCOUNT_ACCESS
-                + gas_costs.GAS_VERY_LOW * 8
-                + gas_costs.GAS_COPY,
+                + gas_costs.WARM_ACCESS
+                + gas_costs.VERY_LOW * 8
+                + gas_costs.OPCODE_COPY_PER_WORD,
                 Op.SUB(Op.MLOAD(mem_gas), Op.GAS),
             ),
         )

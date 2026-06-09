@@ -1,1 +1,1 @@
-"""Tests ported from stWalletTest."""
+"""Ported static tests: stWalletTest."""  # noqa: N999

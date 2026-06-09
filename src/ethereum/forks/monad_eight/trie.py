@@ -34,8 +34,8 @@ from ethereum_types.frozen import slotted_freezable
 from ethereum_types.numeric import U256, Uint
 from typing_extensions import assert_type
 
+from ethereum import merkle_patricia_trie as previous_trie
 from ethereum.crypto.hash import keccak256
-from ethereum.forks.prague import trie as previous_trie
 from ethereum.state import Account, Address, Root
 from ethereum.utils.hexadecimal import hex_to_bytes
 
@@ -195,6 +195,7 @@ def encode_node(node: Node, storage_root: Optional[Bytes] = None) -> Bytes:
     elif isinstance(node, Bytes):
         return node
     else:
+        assert isinstance(node, Uint)
         return previous_trie.encode_node(node, storage_root)
 
 

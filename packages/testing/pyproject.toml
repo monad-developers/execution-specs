@@ -12,7 +12,7 @@ description = "Ethereum execution layer client test generation and runner framew
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-license-files = [ "LICENSE" ]
+license-files = ["LICENSE"]
 keywords = ["ethereum", "testing", "blockchain"]
 classifiers = [
     "Programming Language :: Python :: 3.11",
@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.1.0,<9",
-    "ethereum-hive>=0.1.0a1,<1.0.0",
+    "ethereum-hive>=0.1.0a5,<1.0.0",
     "ethereum-execution",
     "gitpython>=3.1.31,<4",
     "PyJWT>=2.3.0,<3",
@@ -39,19 +39,20 @@ dependencies = [
     "pydantic>=2.12.3,<3",
     "rich>=13.7.0,<15",
     "filelock>=3.15.1,<4",
-    "ethereum-types>=0.3.0,<0.4",
+    "ethereum-types>=0.4.1,<0.5",
     "pyyaml>=6.0.2,<7",
     "types-pyyaml>=6.0.12.20240917,<7",
     "pytest-json-report>=1.5.0,<2",
     "typing-extensions>=4.12.2,<5",
     "questionary>=2.1.0,<3",
-    "ethereum-rlp>=0.1.5,<0.2",
+    "ethereum-rlp>=0.1.6,<0.2",
     "pytest-regex>=0.2.0,<0.3",
     "eth-abi>=5.2.0",
     "joblib>=1.4.2",
     "ckzg>=2.1.3,<3",
     "tenacity>=9.0.0,<10",
     "Jinja2>=3,<4",
+    "ijson>=3.3,<4",
 ]
 
 [project.urls]
@@ -59,7 +60,6 @@ Homepage = "https://github.com/ethereum/execution-specs"
 Documentation = "https://eest.ethereum.org"
 Repository = "https://github.com/ethereum/execution-specs"
 Issues = "https://github.com/ethereum/execution-specs/issues"
-Changelog = "https://eest.ethereum.org/main/CHANGELOG/"
 
 [dependency-groups]
 test = [
@@ -67,12 +67,12 @@ test = [
 ]
 lint = [
     "ruff==0.13.2",
-    "mypy==1.17.0",
+    "mypy==1.20.0",
     "types-requests>=2.31,<2.33",
 ]
 dev = [
-    {include-group = "test"},
-    {include-group = "lint"},
+    { include-group = "test" },
+    { include-group = "lint" },
 ]
 
 [project.scripts]
@@ -84,12 +84,13 @@ checkfixtures = "execution_testing.cli.check_fixtures:check_fixtures"
 check_eip_versions = "execution_testing.cli.pytest_commands.check_eip_versions:check_eip_versions"
 consume = "execution_testing.cli.pytest_commands.consume:consume"
 protec = "execution_testing.cli.pytest_commands.consume:consume"
+build-block = "execution_testing.cli.pytest_commands.build_block:build_block"
+fill-stateful = "execution_testing.cli.pytest_commands.fill_stateful:fill_stateful"
 checklist = "execution_testing.cli.pytest_commands.checklist:checklist"
 generate_checklist_stubs = "execution_testing.cli.generate_checklist_stubs:generate_checklist_stubs"
 genindex = "execution_testing.cli.gen_index:generate_fixtures_index_cli"
 gentest = "execution_testing.cli.gentest:generate"
-pyspelling_soft_fail = "execution_testing.cli.tox_helpers:pyspelling"
-markdownlintcli2_soft_fail = "execution_testing.cli.tox_helpers:markdownlint"
+markdownlintcli2_soft_fail = "execution_testing.cli.ci_helpers:markdownlint"
 order_fixtures = "execution_testing.cli.order_fixtures:order_fixtures"
 evm_bytes = "execution_testing.cli.evm_bytes:evm_bytes"
 hasher = "execution_testing.cli.hasher:main"
@@ -99,7 +100,6 @@ groupstats = "execution_testing.cli.show_pre_alloc_group_stats:main"
 extract_config = "execution_testing.cli.extract_config:extract_config"
 compare_fixtures = "execution_testing.cli.compare_fixtures:main"
 modify_static_test_gas_limits = "execution_testing.cli.modify_static_test_gas_limits:main"
-validate_changelog = "execution_testing.cli.tox_helpers:validate_changelog"
 benchmark_parser = "execution_testing.cli.benchmark_parser:main"
 
 [tool.setuptools.packages.find]
@@ -107,7 +107,7 @@ where = ["src"]
 exclude = ["*tests*"]
 
 [tool.setuptools.package-data]
-"execution_testing.forks" = ["forks/contracts/*.bin"]
+"execution_testing.forks" = ["forks/eips/**/*.bin"]
 "execution_testing.cli.pytest_commands.plugins.execute" = ["eth_config/networks.yml"]
 "execution_testing.cli.eest.make" = ["templates/*.j2"]
 "execution_testing.cli.pytest_commands" = ["pytest_ini_files/*.ini"]

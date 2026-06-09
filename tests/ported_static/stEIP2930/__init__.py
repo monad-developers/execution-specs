@@ -1,1 +1,1 @@
-"""Tests ported from stEIP2930."""
+"""Ported static tests: stEIP2930."""  # noqa: N999

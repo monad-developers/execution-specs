@@ -1,6 +1,6 @@
 """Ethereum test fork definitions."""
 
-from .base_fork import ForkAttribute
+from .base_fork import RefundTypes
 from .forks.forks import (
     BPO1,
     BPO2,
@@ -50,6 +50,7 @@ from .helpers import (
     ALL_TRANSITION_FORKS,
     Fork,
     ForkAdapter,
+    ForkEIPSetAdapter,
     ForkOrNoneAdapter,
     ForkRangeDescriptor,
     ForkSet,
@@ -84,13 +85,14 @@ __all__ = [
     "ALL_TRANSITION_FORKS",
     "Fork",
     "ForkAdapter",
+    "ForkEIPSetAdapter",
     "ForkOrNoneAdapter",
     "ForkSet",
     "ForkSetAdapter",
     "TransitionFork",
     "TransitionForkAdapter",
     "TransitionForkOrNoneAdapter",
-    "ForkAttribute",
+    "RefundTypes",
     "Amsterdam",
     "ArrowGlacier",
     "Berlin",

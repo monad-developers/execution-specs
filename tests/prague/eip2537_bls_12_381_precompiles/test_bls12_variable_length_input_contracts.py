@@ -174,7 +174,7 @@ def tx_gas_limit_calculator(
     memory_expansion_gas_calculator = fork.memory_expansion_gas_calculator()
     gas_costs = fork.gas_costs()
     extra_gas = (
-        10_000 + gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
+        10_000 + gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
     ) * len(precompile_gas_list)
     return (
         extra_gas
@@ -358,7 +358,7 @@ def test_invalid_zero_gas_g1msm(
 )
 @pytest.mark.parametrize("expected_output", [Spec.INVALID], ids=[""])
 @pytest.mark.parametrize("precompile_address", [Spec.G1MSM])
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_invalid_gas_g1msm(
     state_test: StateTestFiller,
     env: Environment,
@@ -517,7 +517,7 @@ def test_invalid_zero_gas_g2msm(
 )
 @pytest.mark.parametrize("expected_output", [Spec.INVALID], ids=[""])
 @pytest.mark.parametrize("precompile_address", [Spec.G2MSM])
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_invalid_gas_g2msm(
     state_test: StateTestFiller,
     env: Environment,

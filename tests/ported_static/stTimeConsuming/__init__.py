@@ -1,1 +1,1 @@
-"""Tests ported from stTimeConsuming."""
+"""Ported static tests: stTimeConsuming."""  # noqa: N999

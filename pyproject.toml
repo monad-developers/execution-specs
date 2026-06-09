@@ -24,8 +24,8 @@ dependencies = [
     "coincurve>=20,<21",
     "typing_extensions>=4.4",
     "py-ecc>=8.0.0b2,<9",
-    "ethereum-types>=0.3.0,<0.4",
-    "ethereum-rlp>=0.1.5,<0.2",
+    "ethereum-types>=0.4.1,<0.5",
+    "ethereum-rlp>=0.1.6,<0.2",
     "cryptography>=45.0.1,<46",
     "platformdirs>=4.2,<5",
     "libcst>=1.8,<2",
@@ -215,7 +215,7 @@ test = [
 ]
 lint = [
     "codespell==2.4.1",
-    "mypy==1.17.0",
+    "mypy==1.20.0",
     "ruff==0.13.2",
     "vulture==2.14.0",
     "types-requests>=2.31,<2.33",
@@ -226,7 +226,7 @@ actionlint = [
     "shellcheck-py>=0.10",
 ]
 doc = [
-    "docc>=0.4.0,<0.5.0",
+    "docc>=0.6.1,<0.7.0",
     "fladrif>=0.2.0,<0.3.0",
     "mistletoe>=1.5.0,<2",
 ]
@@ -272,7 +272,9 @@ ethereum-spec-evm = "ethereum_spec_tools.evm_tools:main"
 whitelist = "ethereum_spec_tools.whitelist:main"
 
 [project.entry-points."docc.plugins"]
+"ethereum_spec_tools.docc.listing" = "ethereum_spec_tools.docc:EthereumListingDiscover"
 "ethereum_spec_tools.docc.discover" = "ethereum_spec_tools.docc:EthereumDiscover"
+"ethereum_spec_tools.docc.python" = "ethereum_spec_tools.docc:EthereumPythonDiscover"
 "ethereum_spec_tools.docc.build" = "ethereum_spec_tools.docc:EthereumBuilder"
 "ethereum_spec_tools.docc.fix-indexes" = "ethereum_spec_tools.docc:FixIndexTransform"
 "ethereum_spec_tools.docc.minimize-diffs" = "ethereum_spec_tools.docc:MinimizeDiffsTransform"
@@ -290,17 +292,21 @@ markers = [
     "json_blockchain_tests: marks tests as json_blockchain_tests (deselect with '-m \"not json_blockchain_tests\"')",
     "json_state_tests: marks tests as json_state_tests (deselect with '-m \"not json_state_tests\"')",
     "vm_test: marks tests as vm_test (deselect with '-m \"not vm_test\"')",
-    "json_loader: marks tests as minimal set for json_loader coverage (select with '-m json_loader')",
+    "eels_base_coverage: Minimized subset selected to preserve high EELS line-coverage parity (select with '-m eels_base_coverage')",
+    "repricing: marks tests for gas repricing analysis",
+    "stub_parametrize: parametrize test from address stubs by prefix",
 ]
 
 [tool.coverage.run]
 omit = [
-    "*/ethereum/*_glacier/*",
-    "*/ethereum/dao_fork/*",
+    "*/ethereum/forks/*_glacier/*",
+    "*/ethereum/forks/dao_fork/*",
+    "*/ethereum/forks/bpo*/*",
 ]
 
 [tool.docc]
 context = [
+    "docc.listing.context",
     "docc.references.context",
     "docc.search.context",
     "docc.html.context",
@@ -308,9 +314,9 @@ context = [
 discovery = [
     "docc.search.discover",
     "docc.html.discover",
-    "docc.python.discover",
+    "ethereum_spec_tools.docc.python",
     "ethereum_spec_tools.docc.discover",
-    "docc.listing.discover",
+    "ethereum_spec_tools.docc.listing",
     "docc.files.discover",
 ]
 build = [
@@ -321,6 +327,7 @@ build = [
     "docc.resources.build",
 ]
 transform = [
+    "docc.listing.transform",
     "docc.python.transform",
     "docc.verbatim.transform",
     "docc.mistletoe.transform",
@@ -337,7 +344,7 @@ excluded_references = [
     "ethereum_spec_tools.lint.lints",   # This is a namespace package.
 ]
 
-[tool.docc.plugins."docc.python.discover"]
+[tool.docc.plugins."ethereum_spec_tools.docc.python"]
 paths = [
     "src",
 ]
@@ -357,7 +364,7 @@ files = [
 ]
 
 [tool.docc.output]
-path = "api_docs"
+path = ".just/docs-spec"
 extension = ".html"
 
 [tool.vulture]
@@ -421,6 +428,7 @@ ignore = [
 "tests/*" = ["ARG001"]
 "vulture_whitelist.py" = [
     "B018",  # Useless expression (intentional for Vulture whitelisting)
+    "E402",  # Module-level imports throughout file (needed for whitelisting)
     "F403",  # Star imports needed for whitelisting
     "F405",  # Undefined names from star imports
 ]
@@ -434,8 +442,12 @@ builtin = "clear,code,usage"
 # Version control & tooling, build artifacts, data files, test fixtures, temp files, lock files
 skip = [
     ".devcontainer",
+    # Local AI memory and notes files (gitignored, may exist as symlinks)
+    "CLAUDE.local.md",
+    ".mb",
+    "mb",
     ".git",
-    ".tox",
+    ".just",
     ".venv",
     ".ruff_cache",
     ".mypy_cache",
@@ -483,7 +495,7 @@ exclude = [
     "^\\.git/",
     "^\\.pytest_cache/",
     "^\\.ruff_cache/",
-    "^\\.tox/",
+    "^\\.just/",
     "^\\.venv/",
     "^\\.vscode/",
     "^fixtures/",

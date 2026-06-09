@@ -167,8 +167,8 @@ def intrinsic_gas_data_floor_minimum_delta(fork: Fork) -> int:
     gas_costs = fork.gas_costs()
     extra = 50
     return (
-        gas_costs.GAS_COLD_SLOAD
-        + gas_costs.GAS_STORAGE_RESET
+        gas_costs.COLD_STORAGE_ACCESS
+        + gas_costs.STORAGE_RESET
         + extra
         - gas_costs.REFUND_STORAGE_CLEAR
     )

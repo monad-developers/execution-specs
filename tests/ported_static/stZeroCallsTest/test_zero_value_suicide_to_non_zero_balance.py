@@ -1,9 +1,8 @@
 """
-Test ported from static filler.
+Test_zero_value_suicide_to_non_zero_balance.
 
 Ported from:
-tests/static/state_tests/stZeroCallsTest
-ZeroValue_SUICIDE_ToNonZeroBalanceFiller.json
+state_tests/stZeroCallsTest/ZeroValue_SUICIDE_ToNonZeroBalanceFiller.json
 """
 
 import pytest
@@ -12,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +24,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stZeroCallsTest/ZeroValue_SUICIDE_ToNonZeroBalanceFiller.json",  # noqa: E501
+        "state_tests/stZeroCallsTest/ZeroValue_SUICIDE_ToNonZeroBalanceFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,12 +33,12 @@ def test_zero_value_suicide_to_non_zero_balance(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_zero_value_suicide_to_non_zero_balance."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    addr = Address(0x9089DA66E8BBC08846842A301905501BC8525DC4)
     sender = EOA(
         key=0x4F31B3206FBF0E0E598B9B1A7D8AC86302A0FF1D8930738F1BEBAE9B67173E52
     )
-    callee = Address("0x9089da66e8bbc08846842a301905501bc8525dc4")
 
     env = Environment(
         fee_recipient=coinbase,
@@ -49,25 +49,36 @@ def test_zero_value_suicide_to_non_zero_balance(
         gas_limit=10000000,
     )
 
-    # Source: LLL
-    # { (SELFDESTRUCT <eoa:0xc94f5374fce5edbc8e2a8697c15331677e6ebf0b>) }
-    contract = pre.deploy_contract(
-        code=(
-            Op.SELFDESTRUCT(address=0x9089DA66E8BBC08846842A301905501BC8525DC4)
-            + Op.STOP
-        ),
-        nonce=0,
-        address=Address("0x888748026558f849c1b2433ea5e1daf1444dfc60"),  # noqa: E501
-    )
-    pre[callee] = Account(balance=100, nonce=0)
     pre[sender] = Account(balance=0xE8D4A51000)
+    pre[addr] = Account(balance=100)
+    # Source: lll
+    # { (SELFDESTRUCT <eoa:0xc94f5374fce5edbc8e2a8697c15331677e6ebf0b>) }
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.SELFDESTRUCT(
+            address=0x9089DA66E8BBC08846842A301905501BC8525DC4
+        )
+        + Op.STOP,
+        nonce=0,
+        address=Address(0x888748026558F849C1B2433EA5E1DAF1444DFC60),  # noqa: E501
+    )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=600000,
     )
 
-    post: dict = {}
+    post = {
+        target: Account(
+            storage={},
+            code=bytes.fromhex(
+                "739089da66e8bbc08846842a301905501bc8525dc4ff00"
+            ),
+            balance=0,
+            nonce=0,
+        ),
+        addr: Account(balance=100),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -2,15 +2,14 @@
 Ori Pomerantz qbzzt1@gmail.com.
 
 Ported from:
-tests/static/state_tests/stEIP1559/tipTooHighFiller.yml
+state_tests/stEIP1559/tipTooHighFiller.yml
 """
 
 import pytest
 from execution_testing import (
-    EOA,
-    Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -23,20 +22,18 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stEIP1559/tipTooHighFiller.yml"],
+    ["state_tests/stEIP1559/tipTooHighFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
-@pytest.mark.pre_alloc_mutable
 @pytest.mark.exception_test
+@pytest.mark.pre_alloc_mutable
 def test_tip_too_high(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Ori Pomerantz qbzzt1@gmail.com."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0xDE0C95357363DA5C1C5A73BD7C2781CA5C9FECC1014103B5E1D1E990AE8208EC
-    )
+    """Ori Pomerantz qbzzt1@gmail."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0xDE0B6B3A7640000, nonce=1)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -47,27 +44,27 @@ def test_tip_too_high(
         gas_limit=71794957647893862,
     )
 
-    pre[sender] = Account(balance=0xDE0B6B3A7640000, nonce=1)
-    # Source: Yul
+    # Source: yul
+    # london
     # {
     #     sstore(0, add(1,1))
     # }
-    contract = pre.deploy_contract(
+    target = pre.deploy_contract(  # noqa: F841
         code=Op.SSTORE(key=0x0, value=0x2) + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0xec75f5d282f63da54cb0dad4ff8eaaa070d2da2b"),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=bytes.fromhex("00"),
+        to=target,
+        data=Bytes("00"),
         gas_limit=400000,
+        value=0x186A0,
         max_fee_per_gas=1000,
         max_priority_fee_per_gas=1001,
         nonce=1,
-        value=100000,
+        access_list=[],
         error=TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS,
     )
 

@@ -124,9 +124,9 @@ def test_extra_withdrawals(
         requests=requests_list
     )
     # prepare withdrawal senders
-    withdrawal_request_transaction.update_pre(pre=pre)
+    prepared = withdrawal_request_transaction.update_pre(pre=pre)
     # get transaction list
-    txs: List[Transaction] = withdrawal_request_transaction.transactions()
+    txs: List[Transaction] = prepared.transactions()
 
     blockchain_test(
         pre=pre,
@@ -147,7 +147,7 @@ def test_extra_withdrawals(
 @generate_system_contract_error_test(  # type: ignore[arg-type]
     max_gas_limit=Spec_EIP7002.SYSTEM_CALL_GAS_LIMIT,
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_system_contract_errors() -> None:
     """
     Test system contract raising different errors when called by the system

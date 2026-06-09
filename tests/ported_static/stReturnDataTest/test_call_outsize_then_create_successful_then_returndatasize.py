@@ -1,17 +1,16 @@
 """
-Test ported from static filler.
+Test_call_outsize_then_create_successful_then_returndatasize.
 
 Ported from:
-tests/static/state_tests/stReturnDataTest
-call_outsize_then_create_successful_then_returndatasizeFiller.json
+state_tests/stReturnDataTest/call_outsize_then_create_successful_then_returndatasizeFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stReturnDataTest/call_outsize_then_create_successful_then_returndatasizeFiller.json",  # noqa: E501
+        "state_tests/stReturnDataTest/call_outsize_then_create_successful_then_returndatasizeFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,11 +32,9 @@ def test_call_outsize_then_create_successful_then_returndatasize(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x834185262E53584684BF2B72C64E510013C235D0F45E462DB65900455DF45A35
-    )
+    """Test_call_outsize_then_create_successful_then_returndatasize."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x6400000000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -48,60 +45,52 @@ def test_call_outsize_then_create_successful_then_returndatasize(
         gas_limit=111669149696,
     )
 
-    pre.deploy_contract(
-        code=(
-            Op.MSTORE(
-                offset=0x0,
-                value=0x111122223333444455556666777788889999AAAABBBBCCCCDDDDEEEEFFFF,  # noqa: E501
-            )
-            + Op.RETURN(offset=0x0, size=0x20)
-            + Op.STOP
-            + Op.STOP
-        ),
+    # Source: lll
+    # { (seq (MSTORE 0 0x0000111122223333444455556666777788889999aaaabbbbccccddddeeeeffff) (RETURN 0 32) (STOP) ) }  # noqa: E501
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(
+            offset=0x0,
+            value=0x111122223333444455556666777788889999AAAABBBBCCCCDDDDEEEEFFFF,  # noqa: E501
+        )
+        + Op.RETURN(offset=0x0, size=0x20)
+        + Op.STOP * 2,
         nonce=0,
-        address=Address("0x24b406508240d6f2783499d1fd65fedd0feeef37"),  # noqa: E501
     )
-    # Source: LLL
+    # Source: lll
     # { (seq (CALL 0x0900000000 <contract:0x0aabbccdd5c57f15886f9b263e2f6d2d6c7b5ec6> 0 0 0 0 0x20) (CREATE 0 0 (lll (seq (mstore 0 0x112233) (RETURN 0 32)  (STOP) ) 0)) (SSTORE 0 (RETURNDATASIZE)) (STOP) )}  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.POP(
-                Op.CALL(
-                    gas=0x900000000,
-                    address=0x24B406508240D6F2783499D1FD65FEDD0FEEEF37,
-                    value=0x0,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x20,
-                ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.POP(
+            Op.CALL(
+                gas=0x900000000,
+                address=addr,
+                value=0x0,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x20,
             )
-            + Op.PUSH1[0xE]
-            + Op.CODECOPY(dest_offset=0x0, offset=0x3C, size=Op.DUP1)
-            + Op.PUSH1[0x0]
-            + Op.PUSH1[0x0]
-            + Op.POP(Op.CREATE)
-            + Op.SSTORE(key=0x0, value=Op.RETURNDATASIZE)
-            + Op.STOP
-            + Op.STOP
-            + Op.INVALID
-            + Op.MSTORE(offset=0x0, value=0x112233)
-            + Op.RETURN(offset=0x0, size=0x20)
-            + Op.STOP
-            + Op.STOP
-        ),
-        storage={0x0: 0x1},
+        )
+        + Op.PUSH1[0xE]
+        + Op.CODECOPY(dest_offset=0x0, offset=0x3C, size=Op.DUP1)
+        + Op.PUSH1[0x0] * 2
+        + Op.POP(Op.CREATE)
+        + Op.SSTORE(key=0x0, value=Op.RETURNDATASIZE)
+        + Op.STOP * 2
+        + Op.INVALID
+        + Op.MSTORE(offset=0x0, value=0x112233)
+        + Op.RETURN(offset=0x0, size=0x20)
+        + Op.STOP * 2,
+        storage={0: 1},
         nonce=0,
-        address=Address("0x3875f9536b829cb75f84cdcb2f72b000b5a41855"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x6400000000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=100000,
     )
 
-    post: dict = {}
+    post = {target: Account(storage={0: 0})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

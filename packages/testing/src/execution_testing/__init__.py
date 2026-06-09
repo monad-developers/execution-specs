@@ -30,7 +30,7 @@ from .exceptions import (
     TransactionException,
 )
 from .fixtures import BaseFixture, FixtureCollector
-from .forks import Fork, GasCosts
+from .forks import Fork, GasCosts, RefundTypes, TransitionFork
 from .specs import (
     BaseTest,
     BenchmarkTest,
@@ -41,6 +41,7 @@ from .specs import (
     BlockchainTest,
     BlockchainTestFiller,
     Header,
+    OpcodeTarget,
     StateTest,
     StateTestFiller,
     TransactionTest,
@@ -51,6 +52,7 @@ from .test_types import (
     EOA,
     Alloc,
     AuthorizationTuple,
+    BalAccountAbsentValues,
     BalAccountChange,
     BalAccountExpectation,
     BalBalanceChange,
@@ -99,6 +101,7 @@ from .tools import (
     Switch,
     TransactionWithCost,
     While,
+    WhileGas,
     extend_with_defaults,
     gas_test,
     generate_system_contract_deploy_test,
@@ -123,6 +126,7 @@ __all__ = (
     "Address",
     "Alloc",
     "AuthorizationTuple",
+    "BalAccountAbsentValues",
     "BalAccountChange",
     "BalAccountExpectation",
     "BalBalanceChange",
@@ -173,6 +177,7 @@ __all__ = (
     "Macros",
     "MemoryVariable",
     "NetworkWrappedTransaction",
+    "OpcodeTarget",
     "Op",
     "Opcode",
     "OpcodeCallArg",
@@ -180,6 +185,7 @@ __all__ = (
     "ParameterSet",
     "ReferenceSpec",
     "ReferenceSpecTypes",
+    "RefundTypes",
     "Removable",
     "Requests",
     "SequentialAddressLayout",
@@ -201,7 +207,9 @@ __all__ = (
     "TransactionTestFiller",
     "TransactionType",
     "TransactionWithCost",
+    "TransitionFork",
     "While",
+    "WhileGas",
     "CoerceBytes",
     "Withdrawal",
     "WithdrawalRequest",

@@ -68,6 +68,8 @@ def test_json_dict() -> None:
                 config=FixtureConfig(fork=Prague),
                 snapshot_block_number=0,
                 snapshot_block_hash=Hash(0),
+                start_block_number=0,
+                start_block_hash=Hash(0),
                 setup_payloads=[
                     FixtureEngineNewPayload.from_fixture_header(
                         fork=Prague,
@@ -149,7 +151,6 @@ def test_base_fixtures_parsing(fixture: BaseFixture) -> None:
         "t8n-version",
         "test_case_description",
         fixture_source_url="fixture_source_url",
-        opcode_count=None,
         ref_spec=None,
         _info_metadata={},
     )

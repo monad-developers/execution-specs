@@ -1,1 +1,1 @@
-"""Tests ported from stMemExpandingEIP150Calls."""
+"""Ported static tests: stMemExpandingEIP150Calls."""  # noqa: N999

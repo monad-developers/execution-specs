@@ -5,7 +5,7 @@ from enum import Enum
 from hashlib import sha256
 from os.path import realpath
 from pathlib import Path
-from typing import Any, ClassVar, List, Literal, cast
+from typing import Any, ClassVar, List
 
 import ckzg  # type: ignore
 import platformdirs
@@ -81,12 +81,12 @@ class Blob(CamelModel):
         """
         Return filename this blob would have as string (with .json extension).
         """
-        amount_cell_proofs: int = cast(
-            int, fork.get_blob_constant("AMOUNT_CELL_PROOFS")
-        )
+        amount_cell_proofs = fork.get_blob_constant("AMOUNT_CELL_PROOFS")
         return (
             "blob_"
             + str(seed)
+            + "_"
+            + fork.name().lower()
             + "_cell_proofs_"
             + str(amount_cell_proofs)
             + ".json"
@@ -98,11 +98,7 @@ class Blob(CamelModel):
         Return the Path to the blob that would be created with these
         parameters.
         """
-        # determine amount of cell proofs for this fork (0 or 128)
-        would_be_filename: str = Blob.get_filename(fork, seed)
-
-        # return path to blob
-        return CACHED_BLOBS_DIRECTORY / would_be_filename
+        return CACHED_BLOBS_DIRECTORY / Blob.get_filename(fork, seed)
 
     @staticmethod
     def from_fork(fork: Fork, seed: int = 0, timestamp: int = 0) -> "Blob":
@@ -118,23 +114,16 @@ class Blob(CamelModel):
 
             # generate blob
             ints: list[int] = [
-                rng.randrange(cast(int, fork.get_blob_constant("BLS_MODULUS")))
+                rng.randrange(fork.get_blob_constant("BLS_MODULUS"))
                 for _ in range(
-                    cast(
-                        int, fork.get_blob_constant("FIELD_ELEMENTS_PER_BLOB")
-                    )
+                    fork.get_blob_constant("FIELD_ELEMENTS_PER_BLOB")
                 )
             ]
 
             encoded: list[bytes] = [
                 i.to_bytes(
-                    cast(
-                        int, fork.get_blob_constant("BYTES_PER_FIELD_ELEMENT")
-                    ),
-                    cast(
-                        Literal["big"],
-                        fork.get_blob_constant("KZG_ENDIANNESS"),
-                    ),
+                    fork.get_blob_constant("BYTES_PER_FIELD_ELEMENT"),
+                    "big",
                 )
                 for i in ints
             ]
@@ -153,12 +142,8 @@ class Blob(CamelModel):
             Note: Each cell holds the exact same copy of this commitment.
             """
             # sanity check
-            field_elements: int = cast(
-                int, fork.get_blob_constant("FIELD_ELEMENTS_PER_BLOB")
-            )
-            bytes_per_field: int = cast(
-                int, fork.get_blob_constant("BYTES_PER_FIELD_ELEMENT")
-            )
+            field_elements = fork.get_blob_constant("FIELD_ELEMENTS_PER_BLOB")
+            bytes_per_field = fork.get_blob_constant("BYTES_PER_FIELD_ELEMENT")
             assert len(data) == field_elements * bytes_per_field, (
                 f"Expected blob of length "
                 f"{field_elements * bytes_per_field} but got blob of length "
@@ -190,9 +175,7 @@ class Blob(CamelModel):
                 #  7a1d5962cd3dfb5f7b3e41aab728c55/tests/core/pyspec/eth2spec/
                 #  test/utils/kzg_tests.py#L58-L66)
                 z_valid_size: bytes = z.to_bytes(
-                    cast(
-                        int, fork.get_blob_constant("BYTES_PER_FIELD_ELEMENT")
-                    ),
+                    fork.get_blob_constant("BYTES_PER_FIELD_ELEMENT"),
                     byteorder="big",
                 )
                 proof, _ = ckzg.compute_kzg_proof(
@@ -344,9 +327,7 @@ class Blob(CamelModel):
         Check whether all cell proofs are valid and returns True only if that
         is the case.
         """
-        amount_cell_proofs: int = cast(
-            int, self.fork.get_blob_constant("AMOUNT_CELL_PROOFS")
-        )
+        amount_cell_proofs = self.fork.get_blob_constant("AMOUNT_CELL_PROOFS")
 
         assert amount_cell_proofs > 0, (
             f"verify_cell_kzg_proof_batch() is not available for your fork: "
@@ -389,9 +370,7 @@ class Blob(CamelModel):
         missing cells. If no assertion is triggered the reconstruction was
         successful.
         """
-        amount_cell_proofs: int = cast(
-            int, self.fork.get_blob_constant("AMOUNT_CELL_PROOFS")
-        )
+        amount_cell_proofs = self.fork.get_blob_constant("AMOUNT_CELL_PROOFS")
 
         assert amount_cell_proofs > 0, (
             f"delete_cells_then_recover_them() is not available for fork: "
@@ -483,9 +462,7 @@ class Blob(CamelModel):
             return Bytes(bytes([b[0] ^ 0xFF]))
 
         # >=osaka
-        amount_cell_proofs: int = cast(
-            int, self.fork.get_blob_constant("AMOUNT_CELL_PROOFS")
-        )
+        amount_cell_proofs = self.fork.get_blob_constant("AMOUNT_CELL_PROOFS")
         if amount_cell_proofs > 0:
             assert isinstance(self.proof, list), (
                 "proof was expected to be a list but it isn't"

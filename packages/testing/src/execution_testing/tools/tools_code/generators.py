@@ -108,39 +108,19 @@ class Initcode(Bytecode):
 
         return instance
 
-    def execution_gas(
-        self,
-        fork: Type[ForkOpcodeInterface],
-        *,
-        block_number: int = 0,
-        timestamp: int = 0,
-    ) -> int:
+    def execution_gas(self, fork: Type[ForkOpcodeInterface]) -> int:
         """
         Gas cost of executing the initcode, charged before the code
         deposit fee.
         """
-        return self.gas_cost(
-            fork,
-            block_number=block_number,
-            timestamp=timestamp,
-        ) - self.deployment_gas(
-            fork,
-            block_number=block_number,
-            timestamp=timestamp,
-        )
+        return self.gas_cost(fork) - self.deployment_gas(fork)
 
-    def deployment_gas(
-        self,
-        fork: Type[ForkOpcodeInterface],
-        *,
-        block_number: int = 0,
-        timestamp: int = 0,
-    ) -> int:
+    def deployment_gas(self, fork: Type[ForkOpcodeInterface]) -> int:
         """
         Gas cost of deploying the contract.
         """
         return Op.RETURN(code_deposit_size=len(self.deploy_code)).gas_cost(
-            fork, block_number=block_number, timestamp=timestamp
+            fork
         )
 
 
@@ -272,6 +252,49 @@ class While(Bytecode):
             )
         else:
             bytecode += Op.JUMP(Op.SUB(Op.PC, Op.PUSH4[len(body) + 6]))
+        return super().__new__(cls, bytecode)
+
+
+class WhileGas(Bytecode):
+    """
+    Helper class to generate a gas-bounded while-loop.
+
+    Similar to While but automatically generates a condition that checks
+    whether there is sufficient remaining gas for another iteration.
+    """
+
+    _iteration_cost: int
+
+    def __new__(
+        cls,
+        *,
+        body: Bytecode | Op,
+        fork: Type[ForkOpcodeInterface],
+        extra_gas: int = 0,
+    ) -> Self:
+        """
+        Assemble the loop bytecode with an automatic gas check condition.
+
+        The loop continues while the remaining gas exceeds the cost of one
+        full iteration (body + loop overhead + extra_gas).
+        """
+        # Build a temporary While with a dummy condition of the same byte
+        # length to calculate the real per-iteration gas cost.
+        dummy_condition = Op.GT(Op.GAS, Op.PUSH4[0])
+        dummy_loop = While(body=body, condition=dummy_condition)
+
+        # After GAS reads the remaining gas, the exit path still executes
+        # GT + PUSH4[offset] + PC + SUB + JUMPI. We must ensure enough gas
+        # remains for this exit path after a full iteration, otherwise the
+        # loop OOGs on exit instead of terminating cleanly.
+        exit_overhead = (
+            Op.GT + Op.PUSH4[0] + Op.PC + Op.SUB + Op.JUMPI
+        ).gas_cost(fork)
+        minimum_gas = dummy_loop.gas_cost(fork) + extra_gas + exit_overhead
+
+        # Now build the real condition with the actual cost.
+        condition = Op.GT(Op.GAS, Op.PUSH4[minimum_gas])
+        bytecode = While(body=body, condition=condition)
         return super().__new__(cls, bytecode)
 
 
@@ -1328,15 +1351,8 @@ class FixedIterationsBytecode(IteratingBytecode):
         instance.iteration_count = iteration_count
         return instance
 
-    def gas_cost(
-        self,
-        fork: Type[ForkOpcodeInterface],
-        *,
-        block_number: int = 0,
-        timestamp: int = 0,
-    ) -> int:
+    def gas_cost(self, fork: Type[ForkOpcodeInterface]) -> int:
         """Return the cost of iterating through the bytecode N times."""
-        del block_number, timestamp
         return self.gas_cost_by_iteration_count(
             fork=fork,
             iteration_count=self.iteration_count,

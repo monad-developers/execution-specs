@@ -1,16 +1,16 @@
 """
-Test ported from static filler.
+Test_suicide_send_ether_to_me.
 
 Ported from:
-tests/static/state_tests/stSystemOperationsTest/suicideSendEtherToMeFiller.json
+state_tests/stSystemOperationsTest/suicideSendEtherToMeFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,9 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stSystemOperationsTest/suicideSendEtherToMeFiller.json",  # noqa: E501
-    ],
+    ["state_tests/stSystemOperationsTest/suicideSendEtherToMeFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -32,11 +30,9 @@ def test_suicide_send_ether_to_me(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0xE04D1AC7DDDA0C98397D56A0B501E960D4CD325A39286919AC23C1A07009A869
-    )
+    """Test_suicide_send_ether_to_me."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0xDE0B6B3A7640000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -47,23 +43,25 @@ def test_suicide_send_ether_to_me(
         gas_limit=10000000,
     )
 
-    # Source: LLL
+    # Source: lll
     # { (SELFDESTRUCT (ADDRESS) )}
-    contract = pre.deploy_contract(
+    target = pre.deploy_contract(  # noqa: F841
         code=Op.SELFDESTRUCT(address=Op.ADDRESS) + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x3b11a41d66b30b30d4d5be673f7d5c7d72c9fca8"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=1000000,
-        value=100000,
+        value=0x186A0,
     )
 
-    post: dict = {}
+    post = {
+        sender: Account(balance=0xDE0B6B3A75E81AC, nonce=1),
+        target: Account(storage={}, balance=0xDE0B6B3A76586A0, nonce=0),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

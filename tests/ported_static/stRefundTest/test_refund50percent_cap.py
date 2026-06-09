@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_refund50percent_cap.
 
 Ported from:
-tests/static/state_tests/stRefundTest/refund50percentCapFiller.json
+state_tests/stRefundTest/refund50percentCapFiller.json
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stRefundTest/refund50percentCapFiller.json"],
+    ["state_tests/stRefundTest/refund50percentCapFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -30,8 +31,8 @@ def test_refund50percent_cap(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0xeb201d2887816e041f6e807e804f64f3a7a226fe")
+    """Test_refund50percent_cap."""
+    coinbase = Address(0xEB201D2887816E041F6E807E804F64F3A7A226FE)
     sender = EOA(
         key=0xDC4EFA209AECDD4C2D5201A419EA27506151B4EC687F14A613229E310932491B
     )
@@ -45,50 +46,44 @@ def test_refund50percent_cap(
         gas_limit=1000000,
     )
 
-    pre[sender] = Account(balance=0x989680)
     pre[coinbase] = Account(balance=0, nonce=1)
-    # Source: LLL
+    pre[sender] = Account(balance=0x989680)
+    # Source: lll
     # { @@1 @@2 [[ 10 ]] (EXP 2 0xff) [[ 11 ]] (BALANCE (ADDRESS)) [[ 1 ]] 0 [[ 2 ]] 0 [[ 3 ]] 0 [[ 4 ]] 0 [[ 5 ]] 0 [[ 6 ]] 0 }  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.POP(Op.SLOAD(key=0x1))
-            + Op.POP(Op.SLOAD(key=0x2))
-            + Op.SSTORE(key=0xA, value=Op.EXP(0x2, 0xFF))
-            + Op.SSTORE(key=0xB, value=Op.BALANCE(address=Op.ADDRESS))
-            + Op.SSTORE(key=0x1, value=0x0)
-            + Op.SSTORE(key=0x2, value=0x0)
-            + Op.SSTORE(key=0x3, value=0x0)
-            + Op.SSTORE(key=0x4, value=0x0)
-            + Op.SSTORE(key=0x5, value=0x0)
-            + Op.SSTORE(key=0x6, value=0x0)
-            + Op.STOP
-        ),
-        storage={
-            0x1: 0x1,
-            0x2: 0x1,
-            0x3: 0x1,
-            0x4: 0x1,
-            0x5: 0x1,
-            0x6: 0x1,
-        },
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.POP(Op.SLOAD(key=0x1))
+        + Op.POP(Op.SLOAD(key=0x2))
+        + Op.SSTORE(key=0xA, value=Op.EXP(0x2, 0xFF))
+        + Op.SSTORE(key=0xB, value=Op.BALANCE(address=Op.ADDRESS))
+        + Op.SSTORE(key=0x1, value=0x0)
+        + Op.SSTORE(key=0x2, value=0x0)
+        + Op.SSTORE(key=0x3, value=0x0)
+        + Op.SSTORE(key=0x4, value=0x0)
+        + Op.SSTORE(key=0x5, value=0x0)
+        + Op.SSTORE(key=0x6, value=0x0)
+        + Op.STOP,
+        storage={1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1},
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0xef67f354c8505e1056889970c3d9b5e0fe65d1e2"),  # noqa: E501
+        address=Address(0xEF67F354C8505E1056889970C3D9B5E0FE65D1E2),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=100000,
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 10: 0x8000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
                 11: 0xDE0B6B3A7640000,
             },
         ),
+        coinbase: Account(balance=0),
+        sender: Account(balance=0x8CF0A0),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -1,1 +1,1 @@
-"""Tests ported from stCallCodes."""
+"""Ported static tests: stCallCodes."""  # noqa: N999

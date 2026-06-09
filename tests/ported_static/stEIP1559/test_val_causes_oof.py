@@ -2,19 +2,23 @@
 Ori Pomerantz qbzzt1@gmail.com.
 
 Ported from:
-tests/static/state_tests/stEIP1559/valCausesOOFFiller.yml
+state_tests/stEIP1559/valCausesOOFFiller.yml
 """
 
 import pytest
 from execution_testing import (
-    EOA,
-    Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
+    Hash,
     StateTestFiller,
     Transaction,
     TransactionException,
+)
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
 )
 from execution_testing.vm import Op
 
@@ -23,136 +27,88 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stEIP1559/valCausesOOFFiller.yml"],
+    ["state_tests/stEIP1559/valCausesOOFFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_data_hex, tx_gas_limit, tx_value, tx_error, expected_post",
+    "d, g, v",
     [
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000001",  # noqa: E501
-            100000,
             0,
-            None,
-            {
-                Address("0x71e12b76ab6be1efbc98ac17ebfe5faf488da45e"): Account(
-                    storage={1: 24743}
-                )
-            },
-            id="case0",
+            0,
+            0,
+            id="d0-g0-v0",
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000001",  # noqa: E501
-            100000,
+            0,
+            0,
             1,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            {},
-            id="case1",
+            id="d0-g0-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000001",  # noqa: E501
-            90000,
             0,
-            None,
-            {
-                Address("0x71e12b76ab6be1efbc98ac17ebfe5faf488da45e"): Account(
-                    storage={1: 24743}
-                )
-            },
-            id="case2",
-        ),
-        pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000001",  # noqa: E501
-            90000,
             1,
-            None,
-            {
-                Address("0x71e12b76ab6be1efbc98ac17ebfe5faf488da45e"): Account(
-                    storage={1: 24743}
-                )
-            },
-            id="case3",
+            0,
+            id="d0-g1-v0",
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000001",  # noqa: E501
-            110000,
             0,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            {},
-            id="case4",
+            1,
+            1,
+            id="d0-g1-v1",
+        ),
+        pytest.param(
+            0,
+            2,
+            0,
+            id="d0-g2-v0",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000001",  # noqa: E501
-            110000,
+            0,
+            2,
             1,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            {},
-            id="case5",
+            id="d0-g2-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000002",  # noqa: E501
-            100000,
+            1,
             0,
-            None,
-            {
-                Address("0x71e12b76ab6be1efbc98ac17ebfe5faf488da45e"): Account(
-                    storage={1: 24743, 2: 24743}
-                )
-            },
-            id="case6",
+            0,
+            id="d1-g0-v0",
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000002",  # noqa: E501
-            100000,
             1,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            {},
-            id="case7",
+            0,
+            1,
+            id="d1-g0-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000002",  # noqa: E501
-            90000,
-            0,
-            None,
-            {
-                Address("0x71e12b76ab6be1efbc98ac17ebfe5faf488da45e"): Account(
-                    storage={1: 24743, 2: 24743}
-                )
-            },
-            id="case8",
-        ),
-        pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000002",  # noqa: E501
-            90000,
             1,
-            None,
-            {
-                Address("0x71e12b76ab6be1efbc98ac17ebfe5faf488da45e"): Account(
-                    storage={1: 24743, 2: 24743}
-                )
-            },
-            id="case9",
+            1,
+            0,
+            id="d1-g1-v0",
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000002",  # noqa: E501
-            110000,
+            1,
+            1,
+            1,
+            id="d1-g1-v1",
+        ),
+        pytest.param(
+            1,
+            2,
             0,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            {},
-            id="case10",
+            id="d1-g2-v0",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "693c61390000000000000000000000000000000000000000000000000000000000000002",  # noqa: E501
-            110000,
             1,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            {},
-            id="case11",
+            2,
+            1,
+            id="d1-g2-v1",
             marks=pytest.mark.exception_test,
         ),
     ],
@@ -161,17 +117,14 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_val_causes_oof(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
-    tx_gas_limit: int,
-    tx_value: int,
-    tx_error: object,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """Ori Pomerantz qbzzt1@gmail.com."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x7608AB0A661408930040C5E3EB5B0C6520ACBB6CE5B28DDBE53676109E8EA24B
-    )
+    """Ori Pomerantz qbzzt1@gmail."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x5F5E100, nonce=1)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -182,8 +135,8 @@ def test_val_causes_oof(
         gas_limit=71794957647893862,
     )
 
-    pre[sender] = Account(balance=0x5F5E100, nonce=1)
-    # Source: Yul
+    # Source: yul
+    # london
     # {
     #     // This loop runs a number of times specified in the data,
     #     // so the gas cost depends on the data
@@ -191,36 +144,73 @@ def test_val_causes_oof(
     #        sstore(i, 0x60A7)
     #     }     // for loop
     # }
-    contract = pre.deploy_contract(
-        code=(
-            Op.CALLDATALOAD(offset=0x4)
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0xC, condition=Op.GT(Op.DUP2, 0x0))
-            + Op.STOP
-            + Op.JUMPDEST
-            + Op.SSTORE(key=Op.DUP2, value=0x60A7)
-            + Op.NOT(0x0)
-            + Op.ADD
-            + Op.JUMP(pc=0x3)
-        ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.CALLDATALOAD(offset=0x4)
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0xC, condition=Op.GT(Op.DUP2, 0x0))
+        + Op.STOP
+        + Op.JUMPDEST
+        + Op.SSTORE(key=Op.DUP2, value=0x60A7)
+        + Op.NOT(0x0)
+        + Op.ADD
+        + Op.JUMP(pc=0x3),
         balance=0x5AF3107A4000,
         nonce=0,
-        address=Address("0x71e12b76ab6be1efbc98ac17ebfe5faf488da45e"),  # noqa: E501
     )
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": -1, "gas": [0, 1], "value": 0},
+            "network": [">=Cancun"],
+            "result": {},
+        },
+        {
+            "indexes": {"data": -1, "gas": 0, "value": 1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Cancun": TransactionException.INSUFFICIENT_ACCOUNT_FUNDS
+            },
+        },
+        {
+            "indexes": {"data": -1, "gas": 1, "value": 1},
+            "network": [">=Cancun"],
+            "result": {},
+        },
+        {
+            "indexes": {"data": -1, "gas": 2, "value": -1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Cancun": TransactionException.INSUFFICIENT_ACCOUNT_FUNDS
+            },
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Bytes("693c6139") + Hash(0x1),
+        Bytes("693c6139") + Hash(0x2),
+    ]
+    tx_gas = [100000, 90000, 110000]
+    tx_value = [0, 1]
+    tx_access_lists: dict[int, list] = {
+        0: [],
+        1: [],
+    }
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=tx_data,
-        gas_limit=tx_gas_limit,
+        to=target,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
         max_fee_per_gas=1000,
+        max_priority_fee_per_gas=0,
         nonce=1,
-        value=tx_value,
-        error=tx_error,
+        access_list=tx_access_lists.get(d),
+        error=_exc,
     )
-
-    post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

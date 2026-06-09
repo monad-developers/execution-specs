@@ -408,8 +408,8 @@ def test_blake2b(
     sender = pre.fund_eoa()
 
     gas_costs = fork.gas_costs()
-    sstore_cost = gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
-    blake_cost = data.rounds * gas_costs.GAS_PRECOMPILE_BLAKE2F_PER_ROUND
+    sstore_cost = gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
+    blake_cost = data.rounds * gas_costs.PRECOMPILE_BLAKE2F_PER_ROUND
 
     data_bytes = data.create_blake2b_tx_data()
 
@@ -454,7 +454,7 @@ def max_tx_gas_limit(fork: Fork) -> int:
 def non_max_tx_gas_limits(fork: Fork) -> List[int]:
     """List of tx gas limits below transaction max."""
     gas_costs = fork.gas_costs()
-    sstore_cost = gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
+    sstore_cost = gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
     return [
         40_000 + 3 * sstore_cost,
         50_000 + 3 * sstore_cost,
@@ -540,7 +540,7 @@ def tx_gas_limits(fork: Fork) -> List[int]:
         ),
     ],
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_blake2b_invalid_gas(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -652,7 +652,7 @@ def test_blake2b_invalid_gas(
         ),
     ],
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_blake2b_gas_limit(
     state_test: StateTestFiller,
     pre: Alloc,

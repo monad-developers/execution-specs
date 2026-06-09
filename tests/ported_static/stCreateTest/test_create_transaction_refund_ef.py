@@ -1,8 +1,9 @@
 """
 Test combination of gas refund and EF-prefixed create transaction failure.
 
+
 Ported from:
-tests/static/state_tests/stCreateTest/CreateTransactionRefundEFFiller.yml
+state_tests/stCreateTest/CreateTransactionRefundEFFiller.yml
 """
 
 import pytest
@@ -14,6 +15,7 @@ from execution_testing import (
     Environment,
     StateTestFiller,
     Transaction,
+    compute_create_address,
 )
 from execution_testing.vm import Op
 
@@ -22,9 +24,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stCreateTest/CreateTransactionRefundEFFiller.yml",  # noqa: E501
-    ],
+    ["state_tests/stCreateTest/CreateTransactionRefundEFFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -33,13 +33,13 @@ def test_create_transaction_refund_ef(
     pre: Alloc,
 ) -> None:
     """Test combination of gas refund and EF-prefixed create transaction..."""
-    coinbase = Address("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b")
+    contract_0 = Address(0x00000000000000000000000000000000005EF94D)
     sender = EOA(
         key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
     )
 
     env = Environment(
-        fee_recipient=coinbase,
+        fee_recipient=sender,
         number=1,
         timestamp=1000,
         prev_randao=0x20000,
@@ -47,29 +47,40 @@ def test_create_transaction_refund_ef(
         gas_limit=1000000,
     )
 
-    # Source: Yul
-    # {
+    pre[sender] = Account(balance=0x5AF3107A4000)
+    # Source: yul
+    # berlin {
     #   sstore(0,0)
     # }
-    contract = pre.deploy_contract(
+    contract_0 = pre.deploy_contract(  # noqa: F841
         code=Op.SSTORE(key=Op.DUP1, value=0x0) + Op.STOP,
-        storage={0x0: 0x1},
+        storage={0: 1},
         nonce=0,
-        address=Address("0x00000000000000000000000000000000005ef94d"),  # noqa: E501
+        address=Address(0x00000000000000000000000000000000005EF94D),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x5AF3107A4000)
 
     tx = Transaction(
         sender=sender,
         to=None,
-        data=bytes.fromhex(
-            "600080808080625ef94d61c350f15060ef60005360016000f3"
-        ),
+        data=Op.POP(
+            Op.CALL(
+                gas=0xC350,
+                address=contract_0,
+                value=Op.DUP1,
+                args_offset=Op.DUP1,
+                args_size=Op.DUP1,
+                ret_offset=Op.DUP1,
+                ret_size=0x0,
+            )
+        )
+        + Op.MSTORE8(offset=0x0, value=0xEF)
+        + Op.RETURN(offset=0x0, size=0x1),
         gas_limit=100000,
     )
 
     post = {
-        contract: Account(storage={0: 1}),
+        contract_0: Account(storage={0: 1}),
+        compute_create_address(address=sender, nonce=0): Account.NONEXISTENT,
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

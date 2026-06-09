@@ -1,7 +1,7 @@
 """Shared pre-alloc functionality."""
 
 from enum import IntFlag, auto
-from typing import Any, Literal, Set
+from typing import Any, Dict, Literal, Set
 
 from pydantic import PrivateAttr
 
@@ -18,7 +18,7 @@ from execution_testing.base_types.conversions import (
     FixedSizeBytesConvertible,
     NumberConvertible,
 )
-from execution_testing.forks import Fork
+from execution_testing.forks import Fork, TransitionFork
 from execution_testing.test_types import EOA
 from execution_testing.test_types import Alloc as BaseAlloc
 
@@ -35,7 +35,7 @@ class Alloc(BaseAlloc):
     Allocation subclass that enforces rules set by the allocation flags.
     """
 
-    _fork: Fork = PrivateAttr()
+    _fork: Fork | TransitionFork = PrivateAttr()
     _flags: AllocFlags = PrivateAttr(AllocFlags.NONE)
     _set_addresses: Set[Address] = PrivateAttr(default_factory=set)
     _deleted_addresses: Set[Address] = PrivateAttr(default_factory=set)
@@ -43,6 +43,7 @@ class Alloc(BaseAlloc):
     _hardcoded_addresses_deployed_to: Set[Address] = PrivateAttr(
         default_factory=set
     )
+    _stub_eoas: Dict[str, EOA] = PrivateAttr(default_factory=dict)
 
     def is_mutable(self) -> bool:
         """Return whether the pre-alloc is mutable."""
@@ -62,12 +63,24 @@ class Alloc(BaseAlloc):
         *args: Any,
         fork: Fork,
         flags: AllocFlags,
+        stub_eoas: Dict[str, EOA] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize allocation with the given properties."""
         super().__init__(*args, **kwargs)
         self._fork = fork
         self._flags = flags
+        if stub_eoas is not None:
+            self._stub_eoas = stub_eoas
+
+    def stub_eoa(self, label: str) -> EOA:
+        """Return the EOA for a key-bearing stub."""
+        if label not in self._stub_eoas:
+            raise ValueError(
+                f"Stub EOA '{label}' not found. "
+                "Provide --address-stubs with a pkey entry."
+            )
+        return self._stub_eoas[label].copy()
 
     def __setitem__(
         self,

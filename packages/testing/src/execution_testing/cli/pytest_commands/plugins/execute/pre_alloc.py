@@ -4,10 +4,9 @@ from dataclasses import dataclass
 from itertools import count
 from pathlib import Path
 from random import randint
-from typing import Any, Dict, Generator, Iterator, List, Literal, Self, Tuple
+from typing import Any, Dict, Generator, Iterator, List, Literal, Tuple
 
 import pytest
-import yaml
 from filelock import FileLock
 from pydantic import PrivateAttr
 
@@ -15,7 +14,6 @@ from execution_testing.base_types import (
     Account,
     Address,
     Bytes,
-    EthereumTestRootModel,
     Hash,
     HexNumber,
     Number,
@@ -29,7 +27,7 @@ from execution_testing.base_types.conversions import (
     BytesConvertible,
     NumberConvertible,
 )
-from execution_testing.forks import Fork
+from execution_testing.forks import Fork, TransitionFork
 from execution_testing.logging import get_logger
 from execution_testing.rpc import EthRPC
 from execution_testing.rpc.rpc_types import TransactionByHashResponse
@@ -38,6 +36,7 @@ from execution_testing.test_types import (
     EOA,
     AuthorizationTuple,
     ChainConfig,
+    TestPhase,
     Transaction,
     TransactionTestMetadata,
     compute_deterministic_create2_address,
@@ -45,6 +44,8 @@ from execution_testing.test_types import (
 from execution_testing.tools import Initcode
 from execution_testing.vm import Bytecode, Op
 
+from ..shared.address_stubs import AddressStubs
+from ..shared.execute_fill import stub_eoas_key
 from ..shared.pre_alloc import Alloc as SharedAlloc
 from ..shared.pre_alloc import AllocFlags
 from .contracts import (
@@ -53,52 +54,6 @@ from .contracts import (
 )
 
 logger = get_logger(__name__)
-
-
-class AddressStubs(EthereumTestRootModel[Dict[str, Address]]):
-    """
-    Address stubs class.
-
-    The key represents the label that is used in the test to tag the contract,
-    and the value is the address where the contract is already located at in
-    the current network.
-    """
-
-    root: Dict[str, Address]
-
-    def __contains__(self, item: str) -> bool:
-        """Check if an item is in the address stubs."""
-        return item in self.root
-
-    def __getitem__(self, item: str) -> Address:
-        """Get an item from the address stubs."""
-        return self.root[item]
-
-    @classmethod
-    def model_validate_json_or_file(cls, json_data_or_path: str) -> Self:
-        """
-        Try to load from file if the value resembles a path that ends with
-        .json/.yml and the file exists.
-        """
-        lower_json_data_or_path = json_data_or_path.lower()
-        if (
-            lower_json_data_or_path.endswith(".json")
-            or lower_json_data_or_path.endswith(".yml")
-            or lower_json_data_or_path.endswith(".yaml")
-        ):
-            path = Path(json_data_or_path)
-            if path.is_file():
-                path_suffix = path.suffix.lower()
-                if path_suffix == ".json":
-                    return cls.model_validate_json(path.read_text())
-                elif path_suffix in [".yml", ".yaml"]:
-                    loaded_yaml = yaml.safe_load(path.read_text())
-                    if loaded_yaml is None:
-                        return cls(root={})
-                    return cls.model_validate(loaded_yaml)
-        if json_data_or_path.strip() == "":
-            return cls(root={})
-        return cls.model_validate_json(json_data_or_path)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -156,6 +111,14 @@ def address_stubs(
 
 
 @pytest.fixture(scope="session")
+def stub_eoas(
+    request: pytest.FixtureRequest,
+) -> Dict[str, EOA]:
+    """Return stub EOAs pre-populated during configuration."""
+    return request.config.stash.get(stub_eoas_key, {})
+
+
+@pytest.fixture(scope="session")
 def skip_cleanup(request: pytest.FixtureRequest) -> bool:
     """Return whether to skip cleanup phase after each test."""
     skip = request.config.getoption("skip_cleanup")
@@ -179,7 +142,7 @@ def eoa_iterator(request: pytest.FixtureRequest) -> Iterator[EOA]:
 
 @pytest.fixture(scope="session", autouse=True)
 def execute_required_contracts(
-    session_fork: Fork,
+    session_fork: Fork | TransitionFork,
     session_worker_key: EOA,
     eth_rpc: EthRPC,
     sender_funding_transactions_gas_price: int,
@@ -195,7 +158,6 @@ def execute_required_contracts(
         logger.info(
             "Checking if deterministic factory contract is already deployed"
         )
-        tx_index = 0
         if (
             check_deterministic_factory_deployment(
                 eth_rpc=eth_rpc, fork=session_fork
@@ -203,11 +165,10 @@ def execute_required_contracts(
             is None
         ):
             try:
-                tx_index = deploy_deterministic_factory_contract(
+                deploy_deterministic_factory_contract(
                     eth_rpc=eth_rpc,
                     seed_key=session_worker_key,
                     gas_price=sender_funding_transactions_gas_price,
-                    tx_index=tx_index,
                 )
             except Exception as e:
                 raise RuntimeError(
@@ -281,6 +242,8 @@ class Alloc(SharedAlloc):
     _deferred_fund_addresses: List[_DeferredFundAddress] = PrivateAttr(
         default_factory=list
     )
+    _block_number: int = PrivateAttr()
+    _timestamp: int = PrivateAttr()
 
     def __init__(
         self,
@@ -291,6 +254,8 @@ class Alloc(SharedAlloc):
         chain_id: int,
         node_id: str = "",
         address_stubs: AddressStubs | None = None,
+        block_number: int = 0,
+        timestamp: int = 0,
         **kwargs: Any,
     ) -> None:
         """Initialize the pre-alloc with the given parameters."""
@@ -301,6 +266,8 @@ class Alloc(SharedAlloc):
         self._chain_id = chain_id
         self._node_id = node_id
         self._address_stubs = address_stubs or AddressStubs(root={})
+        self._block_number = block_number
+        self._timestamp = timestamp
 
     def code_pre_processor(self, code: Bytecode) -> Bytecode:
         """Pre-processes the code before setting it."""
@@ -322,6 +289,11 @@ class Alloc(SharedAlloc):
         pending_tx = PendingTransaction(
             **kwargs,
         )
+        # Pending txs are setup by definition; override Transaction's
+        # test_phase default (sourced from TestPhaseManager) so a
+        # ``pre.fund_eoa`` call inside ``TestPhaseManager.execution()``
+        # doesn't bleed an EXECUTION phase onto a setup tx.
+        pending_tx.test_phase = TestPhase.SETUP
         pending_tx.metadata = TransactionTestMetadata(
             test_id=self._node_id,
             phase="setup",
@@ -350,13 +322,14 @@ class Alloc(SharedAlloc):
         trip.
         """
         del storage
-        gas_costs = self._fork.gas_costs()
+        fork = self._fork.fork_at(
+            block_number=self._block_number, timestamp=self._timestamp
+        )
+        gas_costs = fork.gas_costs()
         memory_expansion_gas_calculator = (
-            self._fork.memory_expansion_gas_calculator()
+            fork.memory_expansion_gas_calculator()
         )
-        calldata_gas_calculator = self._fork.calldata_gas_calculator(
-            block_number=0, timestamp=0
-        )
+        calldata_gas_calculator = fork.calldata_gas_calculator()
         if not isinstance(deploy_code, Bytes):
             deploy_code = Bytes(deploy_code)
         if initcode is None:
@@ -365,30 +338,28 @@ class Alloc(SharedAlloc):
             initcode = Bytes(initcode)
         salt = Hash(salt)
         contract_address = compute_deterministic_create2_address(
-            salt=salt, initcode=initcode, fork=self._fork
+            salt=salt, initcode=initcode, fork=fork
         )
 
         # Pre-compute the gas limit for the deploy transaction.
-        max_code_size = self._fork.max_code_size()
+        max_code_size = fork.max_code_size()
         if len(deploy_code) > max_code_size:
             raise ValueError(
                 f"code too large: {len(deploy_code)} > {max_code_size}"
             )
-        max_initcode_size = self._fork.max_initcode_size()
+        max_initcode_size = fork.max_initcode_size()
         if len(initcode) > max_initcode_size:
             raise ValueError(
                 f"initcode too large {len(initcode)} > {max_initcode_size}"
             )
-        deploy_gas_limit = gas_costs.GAS_TX_BASE + gas_costs.GAS_TX_CREATE
-        deploy_gas_limit += (
-            len(deploy_code) * gas_costs.GAS_CODE_DEPOSIT_PER_BYTE
-        )
+        deploy_gas_limit = gas_costs.TX_BASE + gas_costs.TX_CREATE
+        deploy_gas_limit += len(deploy_code) * gas_costs.CODE_DEPOSIT_PER_BYTE
         deploy_gas_limit += memory_expansion_gas_calculator(
             new_bytes=len(initcode)
         )
         deploy_gas_limit += calldata_gas_calculator(data=initcode)
         deploy_gas_limit = deploy_gas_limit * 2
-        tx_gas_limit_cap = self._fork.transaction_gas_limit_cap()
+        tx_gas_limit_cap = fork.transaction_gas_limit_cap()
         if tx_gas_limit_cap and deploy_gas_limit > tx_gas_limit_cap:
             raise ValueError(
                 f"deterministic deploy gas limit exceeds the transaction "
@@ -433,22 +404,23 @@ class Alloc(SharedAlloc):
         if storage is None:
             storage = {}
         assert address is None, "address parameter is not supported"
-
-        gas_costs = self._fork.gas_costs()
+        fork = self._fork.fork_at(
+            block_number=self._block_number, timestamp=self._timestamp
+        )
+        gas_costs = fork.gas_costs()
         memory_expansion_gas_calculator = (
-            self._fork.memory_expansion_gas_calculator()
+            fork.memory_expansion_gas_calculator()
         )
-        calldata_gas_calculator = self._fork.calldata_gas_calculator(
-            block_number=0, timestamp=0
-        )
+        calldata_gas_calculator = fork.calldata_gas_calculator()
 
         if not isinstance(storage, Storage):
             storage = Storage(storage)  # type: ignore
 
-        if stub is not None and self._address_stubs is not None:
+        if stub is not None:
             if stub not in self._address_stubs:
                 raise ValueError(
-                    f"Stub name {stub} not found in address stubs"
+                    f"Stub '{stub}' not found in address stubs. "
+                    "Provide --address-stubs with a mapping file."
                 )
             contract_address = self._address_stubs[stub]
             logger.info(
@@ -475,7 +447,7 @@ class Alloc(SharedAlloc):
 
         initcode_prefix = Bytecode()
 
-        deploy_gas_limit = gas_costs.GAS_TX_BASE + gas_costs.GAS_TX_CREATE
+        deploy_gas_limit = gas_costs.TX_BASE + gas_costs.TX_CREATE
 
         if len(storage.root) > 0:
             initcode_prefix += sum(
@@ -488,11 +460,11 @@ class Alloc(SharedAlloc):
         )
         code = self.code_pre_processor(code)
 
-        max_code_size = self._fork.max_code_size()
+        max_code_size = fork.max_code_size()
         if len(code) > max_code_size:
             raise ValueError(f"code too large: {len(code)} > {max_code_size}")
 
-        deploy_gas_limit += len(code) * gas_costs.GAS_CODE_DEPOSIT_PER_BYTE
+        deploy_gas_limit += len(code) * gas_costs.CODE_DEPOSIT_PER_BYTE
 
         prepared_initcode = Initcode(
             deploy_code=code, initcode_prefix=initcode_prefix
@@ -501,7 +473,7 @@ class Alloc(SharedAlloc):
             new_bytes=len(bytes(prepared_initcode))
         )
 
-        max_initcode_size = self._fork.max_initcode_size()
+        max_initcode_size = fork.max_initcode_size()
         initcode_len = len(prepared_initcode)
         if initcode_len > max_initcode_size:
             raise ValueError(
@@ -511,7 +483,7 @@ class Alloc(SharedAlloc):
         deploy_gas_limit += calldata_gas_calculator(data=prepared_initcode)
 
         deploy_gas_limit = deploy_gas_limit * 2
-        tx_gas_limit_cap = self._fork.transaction_gas_limit_cap()
+        tx_gas_limit_cap = fork.transaction_gas_limit_cap()
         if tx_gas_limit_cap and deploy_gas_limit > tx_gas_limit_cap:
             raise ValueError(
                 f"deploy gas limit exceeds the transaction gas limit cap: "
@@ -756,6 +728,9 @@ class Alloc(SharedAlloc):
         deferred = self._deferred_deterministic_deploys
         if not deferred:
             return
+        fork = self._fork.fork_at(
+            block_number=self._block_number, timestamp=self._timestamp
+        )
         self._deferred_deterministic_deploys = []
 
         addresses = [d.contract_address for d in deferred]
@@ -779,7 +754,7 @@ class Alloc(SharedAlloc):
                 if not factory_checked:
                     assert (
                         check_deterministic_factory_deployment(
-                            eth_rpc=self._eth_rpc, fork=self._fork
+                            eth_rpc=self._eth_rpc, fork=fork
                         )
                         is not None
                     ), "Deployment contract code is not found"
@@ -929,6 +904,9 @@ class Alloc(SharedAlloc):
         """
         minimum_balance = 0
         gas_consumption = 0
+        fork = self._fork.fork_at(
+            block_number=self._block_number, timestamp=self._timestamp
+        )
         for tx in self._pending_txs:
             if tx.value is None:
                 # WARN: This currently fails if there's an account with
@@ -957,7 +935,7 @@ class Alloc(SharedAlloc):
                 max_fee_per_blob_gas=max_fee_per_blob_gas,
             )
             gas_consumption += tx.gas_limit
-            minimum_balance += tx.signer_minimum_balance(fork=self._fork)
+            minimum_balance += tx.signer_minimum_balance(fork=fork)
         return minimum_balance + gas_consumption * gas_price, gas_consumption
 
     def send_pending_transactions(self) -> List[TransactionByHashResponse]:
@@ -978,6 +956,23 @@ class Alloc(SharedAlloc):
         for response in responses:
             logger.debug(f"Transaction response: {response.model_dump_json()}")
         return responses
+
+    def pending_transactions(self) -> List[Transaction]:
+        """
+        Return the queued setup transactions, signed; clears the queue.
+
+        Used by fill-stateful to materialise ``pre.fund_eoa`` /
+        ``pre.deploy_contract`` calls into a synthetic setup block.
+        Unset ``value`` is coerced to ``0`` (live-send path would default
+        it before broadcast).
+        """
+        txs: List[Transaction] = []
+        for tx in self._pending_txs:
+            if tx.value is None:
+                tx.value = HexNumber(0)
+            txs.append(tx.with_signature_and_sender())
+        self._pending_txs.clear()
+        return txs
 
 
 @pytest.fixture(scope="function")
@@ -1006,6 +1001,7 @@ def pre(
     eth_rpc: EthRPC,
     chain_config: ChainConfig,
     address_stubs: AddressStubs | None,
+    stub_eoas: Dict[str, EOA],
     skip_cleanup: bool,
     max_fee_per_gas: int,
     max_priority_fee_per_gas: int,
@@ -1027,6 +1023,7 @@ def pre(
     pre = Alloc(
         fork=actual_fork,
         flags=alloc_flags,
+        stub_eoas=stub_eoas,
         sender=worker_key,
         eth_rpc=eth_rpc,
         eoa_iterator=eoa_iterator,

@@ -1,9 +1,8 @@
 """
-Test ported from static filler.
+Test_returndatacopy_after_successful_callcode.
 
 Ported from:
-tests/static/state_tests/stReturnDataTest
-returndatacopy_after_successful_callcodeFiller.json
+state_tests/stReturnDataTest/returndatacopy_after_successful_callcodeFiller.json
 """
 
 import pytest
@@ -12,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +24,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stReturnDataTest/returndatacopy_after_successful_callcodeFiller.json",  # noqa: E501
+        "state_tests/stReturnDataTest/returndatacopy_after_successful_callcodeFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,8 +33,8 @@ def test_returndatacopy_after_successful_callcode(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_returndatacopy_after_successful_callcode."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0x834185262E53584684BF2B72C64E510013C235D0F45E462DB65900455DF45A35
     )
@@ -48,52 +48,51 @@ def test_returndatacopy_after_successful_callcode(
         gas_limit=111669149696,
     )
 
-    pre.deploy_contract(
-        code=(
-            Op.MSTORE(
-                offset=0x0,
-                value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
-            )
-            + Op.RETURN(offset=0x0, size=0x20)
-            + Op.STOP
-        ),
+    pre[sender] = Account(balance=0x6400000000)
+    # Source: lll
+    # { (MSTORE 0x0 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff) (RETURN 0 32) }  # noqa: E501
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(
+            offset=0x0,
+            value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
+        )
+        + Op.RETURN(offset=0x0, size=0x20)
+        + Op.STOP,
         balance=0x6400000000,
         nonce=0,
-        address=Address("0x53b272d553d8179d017aae6f3badf0570743593a"),  # noqa: E501
+        address=Address(0x53B272D553D8179D017AAE6F3BADF0570743593A),  # noqa: E501
     )
-    # Source: LLL
+    # Source: lll
     # {  (CALLCODE 60000 <contract:0x1000000000000000000000000000000000000002> 0 0 0 0 0) (RETURNDATACOPY 0x0 0x0 32) (SSTORE 0 (MLOAD 0))}  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.POP(
-                Op.CALLCODE(
-                    gas=0xEA60,
-                    address=0x53B272D553D8179D017AAE6F3BADF0570743593A,
-                    value=0x0,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.POP(
+            Op.CALLCODE(
+                gas=0xEA60,
+                address=addr,
+                value=0x0,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x0,
             )
-            + Op.RETURNDATACOPY(dest_offset=0x0, offset=0x0, size=0x20)
-            + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
-            + Op.STOP
-        ),
-        storage={0x0: 0xFFFFFFFFFFFF},
+        )
+        + Op.RETURNDATACOPY(dest_offset=0x0, offset=0x0, size=0x20)
+        + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
+        + Op.STOP,
+        storage={0: 0xFFFFFFFFFFFF},
         nonce=0,
-        address=Address("0x7e319028b16c006ecc1b068cce1a1c9b0b457b0d"),  # noqa: E501
+        address=Address(0x7E319028B16C006ECC1B068CCE1A1C9B0B457B0D),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x6400000000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=100000,
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 0: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
             },

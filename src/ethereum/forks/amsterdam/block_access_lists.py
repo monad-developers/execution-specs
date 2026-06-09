@@ -13,59 +13,22 @@ See [`BlockAccessList`][bal] for more detail.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, TypeAlias
+from typing import Dict, List, Optional, Set, Tuple, TypeAlias, final
 
 from ethereum_rlp import rlp
 from ethereum_types.bytes import Bytes, Bytes32
 from ethereum_types.frozen import slotted_freezable
-from ethereum_types.numeric import U16, U64, U256, Uint
+from ethereum_types.numeric import U64, U256, Uint, ulen
 
 from ethereum.crypto.hash import Hash32, keccak256
 from ethereum.state import EMPTY_CODE_HASH, Account, Address, PreState
 
 from .exceptions import BlockAccessListGasLimitExceededError
+from .fork_types import BlockAccessIndex
 from .state_tracker import BlockState, TransactionState, get_code
 
-# TODO: Either remove or generalize these type aliases (#2260).
 
-StorageKey: TypeAlias = U256
-"""
-Slot within an [`Account`](ref:ethereum.state.Account)'s storage.
-"""
-
-StorageValue: TypeAlias = U256
-"""
-Value associated with a [`StorageKey`] within an [`Account`]'s storage.
-
-[`StorageKey`]: ref:ethereum.forks.amsterdam.block_access_lists.StorageKey
-[`Account`]: ref:ethereum.state.Account
-"""
-
-CodeData: TypeAlias = Bytes
-"""
-Bytecode associated with an [`Account`](ref:ethereum.state.Account).
-"""
-
-BlockAccessIndex: TypeAlias = U16
-"""
-Position within the set of all changes in a [`Block`].
-
-[`Block`]: ref:ethereum.forks.amsterdam.blocks.Block
-"""
-
-Balance: TypeAlias = U256
-"""
-Balance associated with an [`Account`], in wei.
-
-[`Account`]: ref:ethereum.state.Account
-"""
-
-Nonce: TypeAlias = U64
-"""
-Nonce associated with an [`Account`](ref:ethereum.state.Account).
-"""
-
-
+@final
 @slotted_freezable
 @dataclass
 class StorageChange:
@@ -84,7 +47,7 @@ class StorageChange:
     [`Block`]: ref:ethereum.forks.amsterdam.blocks.Block
     """
 
-    new_value: StorageValue
+    new_value: U256
     """
     Value of an [`Account`]'s storage slot after this change has been applied.
 
@@ -92,6 +55,7 @@ class StorageChange:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class BalanceChange:
@@ -110,7 +74,7 @@ class BalanceChange:
     [`Block`]: ref:ethereum.forks.amsterdam.blocks.Block
     """
 
-    post_balance: Balance
+    post_balance: U256
     """
     Balance of an [`Account`] after this change has been applied.
 
@@ -118,6 +82,7 @@ class BalanceChange:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class NonceChange:
@@ -136,7 +101,7 @@ class NonceChange:
     [`Block`]: ref:ethereum.forks.amsterdam.blocks.Block
     """
 
-    new_nonce: Nonce
+    new_nonce: U64
     """
     Nonce of an [`Account`] after this change has been applied.
 
@@ -144,6 +109,7 @@ class NonceChange:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class CodeChange:
@@ -162,7 +128,7 @@ class CodeChange:
     [`Block`]: ref:ethereum.forks.amsterdam.blocks.Block
     """
 
-    new_code: CodeData
+    new_code: Bytes
     """
     Code of an [`Account`] after this change has been applied.
 
@@ -170,6 +136,7 @@ class CodeChange:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class SlotChanges:
@@ -181,7 +148,7 @@ class SlotChanges:
     [`Account`]: ref:ethereum.state.Account
     """  # noqa: E501
 
-    slot: StorageKey
+    slot: U256
     """
     Location within an [`Account`]'s storage that has been modified.
 
@@ -194,6 +161,7 @@ class SlotChanges:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class AccountChanges:
@@ -215,7 +183,7 @@ class AccountChanges:
     [`Account`]: ref:ethereum.state.Account
     """
 
-    storage_reads: Tuple[StorageKey, ...]
+    storage_reads: Tuple[U256, ...]
     """
     Storage slots of the associated [`Account`] that have been read but not
     changed.
@@ -271,6 +239,7 @@ A `BlockAccessList` includes, for example, the targets of:
 """
 
 
+@final
 @dataclass
 class AccountData:
     """
@@ -311,6 +280,7 @@ class AccountData:
     """
 
 
+@final
 @dataclass
 class BlockAccessListBuilder:
     """
@@ -744,7 +714,7 @@ def validate_block_access_list_gas_limit(
     The total number of items (addresses + unique storage keys) must not
     exceed ``block_gas_limit // GAS_BLOCK_ACCESS_LIST_ITEM``.
     """
-    from .vm.gas import GAS_BLOCK_ACCESS_LIST_ITEM
+    from .vm.gas import GasCosts
 
     bal_items = Uint(0)
     for account in block_access_list:
@@ -760,11 +730,11 @@ def validate_block_access_list_gas_limit(
             unique_slots.add(slot)
 
         # Count each unique storage key as one item
-        bal_items += Uint(len(unique_slots))
+        bal_items += ulen(unique_slots)
 
-    if bal_items > block_gas_limit // GAS_BLOCK_ACCESS_LIST_ITEM:
+    if bal_items > block_gas_limit // GasCosts.BLOCK_ACCESS_LIST_ITEM:
         raise BlockAccessListGasLimitExceededError(
             f"Block access list exceeds gas limit, {bal_items} items "
             f"exceeds limit of "
-            f"{block_gas_limit // GAS_BLOCK_ACCESS_LIST_ITEM}."
+            f"{block_gas_limit // GasCosts.BLOCK_ACCESS_LIST_ITEM}."
         )

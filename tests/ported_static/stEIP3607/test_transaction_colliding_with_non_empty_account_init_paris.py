@@ -2,8 +2,7 @@
 Account with non-empty code attempts to send tx to create a contract.
 
 Ported from:
-tests/static/state_tests/stEIP3607
-transactionCollidingWithNonEmptyAccount_init_ParisFiller.yml
+state_tests/stEIP3607/transactionCollidingWithNonEmptyAccount_init_ParisFiller.yml
 """
 
 import pytest
@@ -17,6 +16,11 @@ from execution_testing import (
     Transaction,
     TransactionException,
 )
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
+)
+from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
 REFERENCE_SPEC_VERSION = "N/A"
@@ -24,30 +28,55 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stEIP3607/transactionCollidingWithNonEmptyAccount_init_ParisFiller.yml",  # noqa: E501
+        "state_tests/stEIP3607/transactionCollidingWithNonEmptyAccount_init_ParisFiller.yml"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_data_hex",
+    "d, g, v",
     [
-        "00",
-        "60206000f3",
-        "600080808061271073cc7c3c64708397216f5f8aeb34a43f1749693fa95af100",
-        "600080808073cc7c3c64708397216f5f8aeb34a43f1749693fa95af400",
+        pytest.param(
+            0,
+            0,
+            0,
+            id="d0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            1,
+            0,
+            0,
+            id="d1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            2,
+            0,
+            0,
+            id="d2",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            3,
+            0,
+            0,
+            id="d3",
+            marks=pytest.mark.exception_test,
+        ),
     ],
-    ids=["case0", "case1", "case2", "case3"],
 )
 @pytest.mark.pre_alloc_mutable
-@pytest.mark.exception_test
 def test_transaction_colliding_with_non_empty_account_init_paris(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
     """Account with non-empty code attempts to send tx to create a contract."""
-    coinbase = Address("0xeb201d2887816e041f6e807e804f64f3a7a226fe")
-    contract = Address("0x76fae819612a29489a1a43208613d8f8557b8898")
+    coinbase = Address(0xEB201D2887816E041F6E807E804F64F3A7A226FE)
+    addr = Address(0x76FAE819612A29489A1A43208613D8F8557B8898)
     sender = EOA(
         key=0x3696BFBDBC65B14F4DC76D7762E0567E1DD55F053314276E47969D22E70A554E
     )
@@ -61,34 +90,64 @@ def test_transaction_colliding_with_non_empty_account_init_paris(
         gas_limit=71794957647893862,
     )
 
-    pre[contract] = Account(balance=10, nonce=0)
-    # Source: raw bytecode
-    pre.deploy_contract(
-        code=bytes.fromhex("00"),
-        balance=0xDE0B6B3A7640000,
-        nonce=0,
-        address=sender,  # noqa: E501
-    )
-    # Source: raw bytecode
-    pre.deploy_contract(
-        code=bytes.fromhex("00"),
+    pre[coinbase] = Account(balance=0, nonce=1)
+    pre[sender] = Account(balance=0xDE0B6B3A7640000, code=Op.STOP)
+    pre[addr] = Account(balance=10)
+    # Source: raw
+    # 0x00
+    addr_2 = pre.deploy_contract(  # noqa: F841
+        code=Op.STOP,
         balance=10,
         nonce=0,
-        address=Address("0xcc7c3c64708397216f5f8aeb34a43f1749693fa9"),  # noqa: E501
+        address=Address(0xCC7C3C64708397216F5F8AEB34A43F1749693FA9),  # noqa: E501
     )
-    pre[coinbase] = Account(balance=0, nonce=1)
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": -1, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Frontier": TransactionException.SENDER_NOT_EOA
+            },
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Op.STOP,
+        Op.RETURN(offset=0x0, size=0x20),
+        Op.CALL(
+            gas=Op.GAS,
+            address=addr_2,
+            value=0x2710,
+            args_offset=Op.DUP1,
+            args_size=Op.DUP1,
+            ret_offset=Op.DUP1,
+            ret_size=0x0,
+        )
+        + Op.STOP,
+        Op.DELEGATECALL(
+            gas=Op.GAS,
+            address=addr_2,
+            args_offset=Op.DUP1,
+            args_size=Op.DUP1,
+            ret_offset=Op.DUP1,
+            ret_size=0x0,
+        )
+        + Op.STOP,
+    ]
+    tx_gas = [400000]
+    tx_value = [100000]
 
     tx = Transaction(
         sender=sender,
         to=None,
-        data=tx_data,
-        gas_limit=400000,
-        value=100000,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
         error=TransactionException.SENDER_NOT_EOA,
     )
-
-    post: dict = {}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

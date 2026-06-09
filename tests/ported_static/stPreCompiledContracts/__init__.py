@@ -1,1 +1,1 @@
-"""Tests ported from stPreCompiledContracts."""
+"""Ported static tests: stPreCompiledContracts."""  # noqa: N999

@@ -9,6 +9,7 @@ from execution_testing import (
     Address,
     Alloc,
     AuthorizationTuple,
+    BalAccountAbsentValues,
     BalAccountExpectation,
     BalBalanceChange,
     BalCodeChange,
@@ -19,15 +20,22 @@ from execution_testing import (
     BlockAccessListExpectation,
     BlockchainTestFiller,
     BlockException,
+    Conditional,
+    EIPChecklist,
     Environment,
     Fork,
     Hash,
     Header,
+    Initcode,
     Op,
+    StateTestFiller,
     Transaction,
+    TransactionException,
+    Withdrawal,
     add_kzg_version,
     compute_create_address,
 )
+from execution_testing import Macros as Om
 
 from .spec import ref_spec_7928
 
@@ -37,6 +45,7 @@ REFERENCE_SPEC_VERSION = ref_spec_7928.version
 pytestmark = pytest.mark.valid_from("Amsterdam")
 
 
+@EIPChecklist.BlockHeaderField.Test.ValueBehavior.Accept()
 def test_bal_nonce_changes(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -572,6 +581,118 @@ def test_bal_block_rewards(
         blocks=[block],
         post={},
         genesis_environment=genesis_env,
+    )
+
+
+@pytest.mark.parametrize(
+    "same_tx", [False, True], ids=["pre_deploy", "same_tx"]
+)
+def test_bal_selfdestruct_to_coinbase(
+    pre: Alloc,
+    state_test: StateTestFiller,
+    fork: Fork,
+    same_tx: bool,
+) -> None:
+    """
+    Ensure BAL records SELFDESTRUCT when the beneficiary is the coinbase.
+
+    Post-Cancun (EIP-6780) the contract is only actually destroyed when
+    created in the same tx; the pre-deployed path only transfers balance
+    and preserves the contract. Both shapes must appear in BAL.
+    """
+    alice = pre.fund_eoa()
+    coinbase = pre.fund_eoa(amount=0)
+    victim_balance = 100
+    victim_code = Op.SELFDESTRUCT(Op.COINBASE)
+
+    # Match gas_price to base_fee so the priority-fee tip is zero;
+    # coinbase's BAL entry then carries only the SELFDESTRUCT transfer.
+    base_fee_per_gas = 7
+    env = Environment(
+        base_fee_per_gas=base_fee_per_gas, fee_recipient=coinbase
+    )
+
+    tx_gas_limit = fork.transaction_gas_limit_cap()
+    account_expectations: dict[Address, BalAccountExpectation]
+
+    if same_tx:
+        initcode = Initcode(deploy_code=victim_code)
+        factory_code = Om.MSTORE(initcode, 0) + Op.CALL(
+            gas=Op.GAS,
+            address=Op.CREATE(
+                value=victim_balance, offset=0, size=len(initcode)
+            ),
+        )
+        factory = pre.deploy_contract(
+            code=factory_code, balance=victim_balance
+        )
+        victim = compute_create_address(address=factory, nonce=1)
+        tx_target = factory
+        post = {
+            factory: Account(balance=0),
+            victim: Account.NONEXISTENT,
+            coinbase: Account(balance=victim_balance),
+        }
+        account_expectations = {
+            factory: BalAccountExpectation(
+                nonce_changes=[
+                    BalNonceChange(block_access_index=1, post_nonce=2)
+                ],
+                balance_changes=[
+                    BalBalanceChange(block_access_index=1, post_balance=0)
+                ],
+            ),
+            # Created and destroyed in the same tx — empty changes.
+            victim: BalAccountExpectation.empty(),
+            coinbase: BalAccountExpectation(
+                balance_changes=[
+                    BalBalanceChange(
+                        block_access_index=1, post_balance=victim_balance
+                    )
+                ],
+            ),
+        }
+    else:
+        victim = pre.deploy_contract(code=victim_code, balance=victim_balance)
+        tx_target = victim
+        # Pre-deployed and not same-tx: post-Cancun preserves the contract.
+        post = {
+            victim: Account(balance=0, code=victim_code),
+            coinbase: Account(balance=victim_balance),
+        }
+        account_expectations = {
+            victim: BalAccountExpectation(
+                balance_changes=[
+                    BalBalanceChange(block_access_index=1, post_balance=0)
+                ],
+            ),
+            coinbase: BalAccountExpectation(
+                balance_changes=[
+                    BalBalanceChange(
+                        block_access_index=1, post_balance=victim_balance
+                    )
+                ],
+            ),
+        }
+
+    tx = Transaction(
+        sender=alice,
+        to=tx_target,
+        gas_limit=tx_gas_limit,
+        gas_price=base_fee_per_gas,
+    )
+
+    state_test(
+        env=env,
+        pre=pre,
+        post=post,
+        tx=tx,
+        blockchain_test_header_verify=Header(
+            base_fee_per_gas=base_fee_per_gas
+        ),
+        expected_block_access_list=BlockAccessListExpectation(
+            account_expectations=account_expectations,
+        ),
     )
 
 
@@ -1233,6 +1354,188 @@ def test_bal_aborted_account_access(
     )
 
 
+@pytest.mark.parametrize(
+    "inner_action",
+    ["sstore", "sload", "balance", "extcodesize"],
+)
+@pytest.mark.parametrize(
+    "outer_abort",
+    [
+        pytest.param(Op.REVERT(0, 0), id="outer_revert"),
+        pytest.param(Op.INVALID, id="outer_invalid"),
+    ],
+)
+def test_bal_parent_revert_state_access(
+    pre: Alloc,
+    state_test: StateTestFiller,
+    fork: Fork,
+    inner_action: str,
+    outer_abort: Op,
+) -> None:
+    """Ensure BAL captures child-frame state access when the parent reverts."""
+    alice = pre.fund_eoa()
+    extra_target = pre.deploy_contract(code=Op.STOP)
+
+    if inner_action == "sstore":
+        # Write demoted to read by parent revert; pre-set 0xDEAD so the
+        # post-state confirms the slot was unchanged.
+        inner = pre.deploy_contract(
+            code=Op.SSTORE(1, 0x42) + Op.STOP,
+            storage={1: 0xDEAD},
+        )
+    elif inner_action == "sload":
+        inner = pre.deploy_contract(
+            code=Op.POP(Op.SLOAD(1)) + Op.STOP,
+            storage={1: 0xDEAD},
+        )
+    elif inner_action == "balance":
+        inner = pre.deploy_contract(
+            code=Op.POP(Op.BALANCE(extra_target)) + Op.STOP
+        )
+    elif inner_action == "extcodesize":
+        inner = pre.deploy_contract(
+            code=Op.POP(Op.EXTCODESIZE(extra_target)) + Op.STOP
+        )
+    else:
+        raise ValueError(f"unknown inner_action: {inner_action}")
+    outer = pre.deploy_contract(
+        code=Op.CALL(gas=Op.GAS, address=inner) + outer_abort
+    )
+
+    tx = Transaction(
+        sender=alice, to=outer, gas_limit=fork.transaction_gas_limit_cap()
+    )
+
+    account_expectations: dict[Address, BalAccountExpectation]
+    if inner_action in ("sstore", "sload"):
+        account_expectations = {
+            inner: BalAccountExpectation(storage_reads=[1]),
+        }
+    elif inner_action in ("balance", "extcodesize"):
+        account_expectations = {
+            inner: BalAccountExpectation.empty(),
+            extra_target: BalAccountExpectation.empty(),
+        }
+    else:
+        raise ValueError(f"unknown inner_action: {inner_action}")
+
+    post: dict = {alice: Account(nonce=1)}
+    if inner_action in ("sstore", "sload"):
+        # Slot 1 stays at its pre-state value: SSTORE demoted to read,
+        # SLOAD never mutates.
+        post[inner] = Account(storage={1: 0xDEAD})
+
+    state_test(
+        pre=pre,
+        post=post,
+        tx=tx,
+        expected_block_access_list=BlockAccessListExpectation(
+            account_expectations=account_expectations,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "inner_op",
+    [pytest.param("call", id="call"), pytest.param("create", id="create")],
+)
+def test_bal_outer_revert_with_inner_insufficient_funds(
+    pre: Alloc,
+    state_test: StateTestFiller,
+    fork: Fork,
+    inner_op: str,
+) -> None:
+    """
+    Outer REVERT + inner CALL/CREATE that fails on insufficient funds.
+
+    Inner writes two slots and then attempts a value-bearing CALL or
+    CREATE that fails (balance=0 < value). The opcode's state-touching
+    costs are charged before the balance check, so the failed CALL's
+    target stays in BAL with empty changes, while CREATE fails before
+    `track_address` and the would-be address does not appear at all.
+    Inner's writes demote to reads under outer's REVERT; the post-state
+    checks confirm none of the rolled-back state leaked through.
+    """
+    alice = pre.fund_eoa()
+    slot_a, slot_b = 1, 2
+    insufficient_value = 100
+
+    if inner_op == "call":
+        target = pre.deploy_contract(code=Op.STOP)
+        inner = pre.deploy_contract(
+            code=(
+                Op.SSTORE(slot_a, 0x42)
+                + Op.SSTORE(
+                    slot_b,
+                    Op.CALL(
+                        gas=100_000,
+                        address=target,
+                        value=insufficient_value,
+                    ),
+                )
+                + Op.STOP
+            ),
+            balance=0,
+        )
+        extra_account = target
+        extra_bal: BalAccountExpectation | None = BalAccountExpectation.empty()
+        extra_post: Account | None = Account(balance=0)
+    elif inner_op == "create":
+        initcode_bytes = bytes(Initcode(deploy_code=Op.STOP))
+        inner = pre.deploy_contract(
+            code=(
+                Op.MSTORE(0, Op.PUSH32(initcode_bytes))
+                + Op.SSTORE(slot_a, 0x42)
+                + Op.SSTORE(
+                    slot_b,
+                    Op.CREATE(
+                        value=insufficient_value,
+                        offset=32 - len(initcode_bytes),
+                        size=len(initcode_bytes),
+                    ),
+                )
+                + Op.STOP
+            ),
+            balance=0,
+        )
+        extra_account = compute_create_address(address=inner, nonce=1)
+        extra_bal = None
+        extra_post = Account.NONEXISTENT
+    else:
+        raise ValueError(f"unknown inner_op: {inner_op}")
+
+    outer = pre.deploy_contract(
+        code=Op.CALL(gas=Op.GAS, address=inner) + Op.REVERT(0, 0)
+    )
+
+    tx = Transaction(
+        sender=alice, to=outer, gas_limit=fork.transaction_gas_limit_cap()
+    )
+
+    state_test(
+        pre=pre,
+        post={
+            alice: Account(nonce=1),
+            outer: Account(balance=0, storage={}),
+            inner: Account(balance=0, storage={}),
+            extra_account: extra_post,
+        },
+        tx=tx,
+        expected_block_access_list=BlockAccessListExpectation(
+            account_expectations={
+                alice: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                ),
+                outer: BalAccountExpectation.empty(),
+                inner: BalAccountExpectation(storage_reads=[slot_a, slot_b]),
+                extra_account: extra_bal,
+            },
+        ),
+    )
+
+
 def test_bal_fully_unmutated_account(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -1501,29 +1804,26 @@ def test_bal_precompile_funded(
     )
 
 
-@pytest.mark.parametrize_by_fork(
-    "precompile",
-    lambda fork: [
-        pytest.param(addr, id=f"0x{int.from_bytes(addr, 'big'):02x}")
-        for addr in fork.precompiles(block_number=0, timestamp=0)
-    ],
-)
-def test_bal_precompile_call(
+@pytest.mark.with_all_precompiles
+@pytest.mark.with_all_call_opcodes
+def test_bal_precompile_call_opcode(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
-    precompile: Address,
+    precompile: int,
+    call_opcode: Op,
 ) -> None:
     """
-    Ensure BAL records precompile when called via contract.
+    Ensure BAL records the precompile address regardless of call opcode.
 
-    Alice calls Oracle contract which calls precompile.
-    BAL must include precompile with no balance/storage/code changes.
+    Alice calls Oracle contract which invokes the precompile via the
+    parametrized call opcode. For DELEGATECALL/CALLCODE the precompile
+    provides the code but is not the call target, so its access has to
+    be recorded explicitly rather than incidentally.
     """
     alice = pre.fund_eoa()
 
-    # Oracle contract that calls the precompile
     oracle = pre.deploy_contract(
-        code=Op.CALL(100_000, precompile, 0, 0, 0, 0, 0) + Op.STOP
+        code=call_opcode(gas=100_000, address=precompile) + Op.STOP
     )
 
     tx = Transaction(
@@ -1985,7 +2285,7 @@ def test_bal_multiple_storage_writes_same_slot(
         pytest.param([2, 3, 4], id="depth_3"),
     ],
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_bal_nested_delegatecall_storage_writes_net_zero(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -2115,39 +2415,52 @@ def test_bal_create_transaction_empty_code(
     )
 
 
-def test_bal_cross_tx_storage_revert_to_zero(
+@pytest.mark.parametrize(
+    "tx2_value",
+    [
+        pytest.param(0x0, id="tx2_reverts_to_zero"),
+        pytest.param(0xABCD, id="tx2_rewrites_same_value"),
+    ],
+)
+def test_bal_cross_tx_storage_write(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
+    tx2_value: int,
 ) -> None:
     """
-    Ensure BAL captures storage changes when tx1 writes a non-zero value
-    and tx2 reverts it back to zero. This is a regression test for the
-    blobhash scenario where slot changes were being incorrectly filtered
-    as net-zero across transaction boundaries.
+    Tx1's storage_change must be preserved regardless of tx2's write.
 
-    Tx1: slot 0 = 0x0 -> 0xABCD (change at block_access_index=1)
-    Tx2: slot 0 = 0xABCD -> 0x0 (change MUST be at block_access_index=2)
+    Regression for the blobhash scenario where back-to-pre writes were
+    filtered as net-zero across tx boundaries. The same-value case
+    additionally exercises the uniqueness rule: a slot in storage_changes
+    MUST NOT also appear in storage_reads.
     """
     alice = pre.fund_eoa()
+    tx1_value = 0xABCD
 
-    # Contract that writes to slot 0 based on calldata
     contract = pre.deploy_contract(code=Op.SSTORE(0, Op.CALLDATALOAD(0)))
 
-    # Tx1: Write slot 0 = 0xABCD
     tx1 = Transaction(
         sender=alice,
         to=contract,
-        data=Hash(0xABCD),
+        data=Hash(tx1_value),
         gas_limit=100_000,
     )
 
-    # Tx2: Write slot 0 = 0x0 (revert to zero)
     tx2 = Transaction(
         sender=alice,
         to=contract,
-        data=Hash(0x0),
+        data=Hash(tx2_value),
         gas_limit=100_000,
     )
+
+    slot_changes = [
+        BalStorageChange(block_access_index=1, post_value=tx1_value),
+    ]
+    if tx2_value != tx1_value:
+        slot_changes.append(
+            BalStorageChange(block_access_index=2, post_value=tx2_value)
+        )
 
     account_expectations = {
         alice: BalAccountExpectation(
@@ -2158,18 +2471,9 @@ def test_bal_cross_tx_storage_revert_to_zero(
         ),
         contract: BalAccountExpectation(
             storage_changes=[
-                BalStorageSlot(
-                    slot=0,
-                    slot_changes=[
-                        BalStorageChange(
-                            block_access_index=1, post_value=0xABCD
-                        ),
-                        # CRITICAL: tx2's write to 0x0 MUST appear
-                        # even though it returns slot to original value
-                        BalStorageChange(block_access_index=2, post_value=0x0),
-                    ],
-                ),
+                BalStorageSlot(slot=0, slot_changes=slot_changes),
             ],
+            storage_reads=[],
         ),
     }
 
@@ -2185,7 +2489,683 @@ def test_bal_cross_tx_storage_revert_to_zero(
         ],
         post={
             alice: Account(nonce=2),
-            contract: Account(storage={0: 0x0}),
+            contract: Account(storage={0: tx2_value}),
+        },
+    )
+
+
+def test_bal_cross_tx_storage_chain(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+) -> None:
+    """
+    Verify clients apply BAL state changes from prior transactions before
+    executing later transactions in the same block.
+
+    Each Tx i seeds slots 0 and 1 with `1`, then computes a
+    Fibonacci-style sum into slot i: `slot[i] = SLOAD(i-1) + SLOAD(i-2)`.
+    Every Tx i>=2 depends on the two immediately preceding writes, so
+    any parallelization that fails to apply a prior Tx's BAL storage
+    change cascades into a wrong slot value and a different state root.
+    """
+    chain_length = 8
+    # i<2 seeds slot i with 1; i>=2 computes the Fibonacci sum.
+    contract = pre.deploy_contract(
+        code=Conditional(
+            condition=Op.LT(Op.CALLDATALOAD(0), 2),
+            if_true=Op.SSTORE(Op.CALLDATALOAD(0), 1),
+            if_false=Op.SSTORE(
+                Op.CALLDATALOAD(0),
+                Op.ADD(
+                    Op.SLOAD(Op.SUB(Op.CALLDATALOAD(0), 1)),
+                    Op.SLOAD(Op.SUB(Op.CALLDATALOAD(0), 2)),
+                ),
+            ),
+        ),
+    )
+
+    fib = [1, 1]
+    for i in range(2, chain_length):
+        fib.append(fib[i - 1] + fib[i - 2])
+
+    txs = []
+    senders = []
+    for i in range(chain_length):
+        sender = pre.fund_eoa()
+        senders.append(sender)
+        txs.append(
+            Transaction(
+                sender=sender,
+                to=contract,
+                data=Hash(i),
+                gas_limit=100_000,
+            )
+        )
+
+    account_expectations: dict = {
+        sender: BalAccountExpectation(
+            nonce_changes=[
+                BalNonceChange(block_access_index=i + 1, post_nonce=1)
+            ],
+        )
+        for i, sender in enumerate(senders)
+    }
+    account_expectations[contract] = BalAccountExpectation(
+        storage_changes=[
+            BalStorageSlot(
+                slot=i,
+                slot_changes=[
+                    BalStorageChange(
+                        block_access_index=i + 1, post_value=fib[i]
+                    ),
+                ],
+            )
+            for i in range(chain_length)
+        ],
+        nonce_changes=[],
+        balance_changes=[],
+        code_changes=[],
+        storage_reads=[],
+    )
+
+    blockchain_test(
+        pre=pre,
+        blocks=[
+            Block(
+                txs=txs,
+                expected_block_access_list=BlockAccessListExpectation(
+                    account_expectations=account_expectations
+                ),
+            )
+        ],
+        post={
+            contract: Account(
+                storage={i: fib[i] for i in range(chain_length)}
+            ),
+        },
+    )
+
+
+@pytest.mark.with_all_create_opcodes
+def test_bal_cross_tx_deploy_then_call(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    create_opcode: Op,
+) -> None:
+    """
+    Verify clients apply Tx1's CREATE to their state view before
+    executing Tx2's CALL in the same block. Tx1 deploys a contract at a
+    deterministic address whose runtime code writes a sentinel to slot 0.
+    Tx2 CALLs that address. A client that parallelizes Tx2 without
+    applying Tx1's `code_changes` would hit an empty account, the CALL
+    would no-op, and slot 0 would remain 0.
+    """
+    sentinel = 0x42
+    alice = pre.fund_eoa()
+    bob = pre.fund_eoa()
+
+    runtime = Op.SSTORE(0, sentinel) + Op.STOP
+    initcode = Initcode(deploy_code=runtime)
+    initcode_bytes = bytes(initcode)
+
+    salt = 0
+    is_create2 = create_opcode == Op.CREATE2
+    if is_create2:
+        deploy_op = Op.CREATE2(
+            value=0, offset=0, size=Op.CALLDATASIZE, salt=salt
+        )
+    else:
+        deploy_op = Op.CREATE(value=0, offset=0, size=Op.CALLDATASIZE)
+    factory_code = (
+        Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE)
+        + Op.SSTORE(0, deploy_op)
+        + Op.STOP
+    )
+    factory = pre.deploy_contract(code=factory_code)
+    target = compute_create_address(
+        address=factory,
+        nonce=1,
+        salt=salt,
+        initcode=initcode_bytes,
+        opcode=create_opcode,
+    )
+
+    tx_deploy = Transaction(
+        sender=alice,
+        to=factory,
+        data=initcode_bytes,
+        gas_limit=500_000,
+    )
+    tx_call = Transaction(
+        sender=bob,
+        to=target,
+        gas_limit=100_000,
+    )
+
+    account_expectations = {
+        target: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=1, post_nonce=1)],
+            code_changes=[
+                BalCodeChange(block_access_index=1, new_code=bytes(runtime))
+            ],
+            storage_changes=[
+                BalStorageSlot(
+                    slot=0,
+                    slot_changes=[
+                        BalStorageChange(
+                            block_access_index=2, post_value=sentinel
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    }
+
+    blockchain_test(
+        pre=pre,
+        blocks=[
+            Block(
+                txs=[tx_deploy, tx_call],
+                expected_block_access_list=BlockAccessListExpectation(
+                    account_expectations=account_expectations
+                ),
+            )
+        ],
+        post={
+            target: Account(
+                nonce=1, code=bytes(runtime), storage={0: sentinel}
+            ),
+            factory: Account(nonce=2, storage={0: target}),
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "failure_mode",
+    [
+        pytest.param("none", id="no_failure"),
+        pytest.param("collision", id="mid_chain_collision"),
+        pytest.param("oog", id="mid_chain_oog"),
+    ],
+)
+@pytest.mark.pre_alloc_mutable()
+def test_bal_cross_tx_factory_nonce_create_chain(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    fork: Fork,
+    failure_mode: str,
+) -> None:
+    """
+    Cross-tx CREATE chain: 8 senders share a factory whose CREATE
+    address derives solely from `factory.nonce`. `collision` and `oog`
+    test opposite parallelization hazards mid-chain — collision still
+    bumps factory.nonce (later txs slide forward), OOG does not (later
+    txs slide backward, reusing the OOG'd slot).
+    """
+    chain_length = 8
+    failure_index = 3 if failure_mode in ("collision", "oog") else None
+
+    factory_code = (
+        Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE)
+        + Op.CREATE(0, 0, Op.CALLDATASIZE)
+        + Op.STOP
+    )
+    factory = pre.deploy_contract(code=factory_code)
+    factory_pre_nonce = 1
+
+    deploy_code = Op.STOP
+    initcode = Initcode(deploy_code=deploy_code)
+    collision_code = Op.PUSH1(0x42) + Op.STOP
+
+    targets = [
+        compute_create_address(address=factory, nonce=factory_pre_nonce + k)
+        for k in range(chain_length)
+    ]
+
+    if failure_mode == "collision":
+        assert failure_index is not None
+        pre[targets[failure_index]] = Account(code=collision_code)
+
+    sequence: list[dict] = []
+    factory_nonce = factory_pre_nonce
+    for i in range(chain_length):
+        block_idx = i + 1
+        if failure_mode == "oog" and i == failure_index:
+            sequence.append(
+                {"block_idx": block_idx, "target_idx": None, "deployed": False}
+            )
+        else:
+            target_idx = factory_nonce - factory_pre_nonce
+            factory_nonce += 1
+            deployed = not (failure_mode == "collision" and i == failure_index)
+            sequence.append(
+                {
+                    "block_idx": block_idx,
+                    "factory_post_nonce": factory_nonce,
+                    "target_idx": target_idx,
+                    "deployed": deployed,
+                }
+            )
+
+    senders = [pre.fund_eoa() for _ in range(chain_length)]
+    # OOG tx: intrinsic + 1 — valid to include but no gas to run CREATE.
+    intrinsic = fork.transaction_intrinsic_cost_calculator()(
+        calldata=bytes(initcode), contract_creation=False, access_list=[]
+    )
+    txs = [
+        Transaction(
+            sender=senders[i],
+            to=factory,
+            data=initcode,
+            gas_limit=(
+                intrinsic + 1
+                if failure_mode == "oog" and i == failure_index
+                else fork.transaction_gas_limit_cap()
+            ),
+        )
+        for i in range(chain_length)
+    ]
+
+    account_expectations: dict = {
+        senders[i]: BalAccountExpectation(
+            nonce_changes=[
+                BalNonceChange(block_access_index=i + 1, post_nonce=1)
+            ],
+        )
+        for i in range(chain_length)
+    }
+    # Factory: only txs that bumped its nonce contribute entries.
+    account_expectations[factory] = BalAccountExpectation(
+        nonce_changes=[
+            BalNonceChange(
+                block_access_index=s["block_idx"],
+                post_nonce=s["factory_post_nonce"],
+            )
+            for s in sequence
+            if s["target_idx"] is not None
+        ],
+    )
+    for s in sequence:
+        if s["target_idx"] is None:
+            continue
+        target = targets[s["target_idx"]]
+        if s["deployed"]:
+            account_expectations[target] = BalAccountExpectation(
+                nonce_changes=[
+                    BalNonceChange(
+                        block_access_index=s["block_idx"], post_nonce=1
+                    )
+                ],
+                code_changes=[
+                    BalCodeChange(
+                        block_access_index=s["block_idx"],
+                        new_code=deploy_code,
+                    )
+                ],
+            )
+        else:
+            # Collision: accessed during EIP-684 check, no state change.
+            account_expectations[target] = BalAccountExpectation.empty()
+
+    touched_target_idxs = {
+        s["target_idx"] for s in sequence if s["target_idx"] is not None
+    }
+    final_factory_nonce = factory_pre_nonce + len(touched_target_idxs)
+    post: dict = {
+        factory: Account(nonce=final_factory_nonce),
+        **{sender: Account(nonce=1) for sender in senders},
+    }
+    for s in sequence:
+        if s["target_idx"] is None:
+            continue
+        target = targets[s["target_idx"]]
+        post[target] = (
+            Account(nonce=1, code=deploy_code)
+            if s["deployed"]
+            else Account(code=collision_code)
+        )
+    for k, target in enumerate(targets):
+        if k not in touched_target_idxs:
+            post[target] = Account.NONEXISTENT
+
+    blockchain_test(
+        pre=pre,
+        blocks=[
+            Block(
+                txs=txs,
+                expected_block_access_list=BlockAccessListExpectation(
+                    account_expectations=account_expectations
+                ),
+            )
+        ],
+        post=post,
+    )
+
+
+@pytest.mark.parametrize(
+    "funding_method",
+    ["direct_call", "selfdestruct"],
+)
+def test_bal_cross_tx_balance_dependency(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    funding_method: str,
+) -> None:
+    """
+    Verify clients apply Tx1's balance change before executing Tx2 in
+    the same block. Tx1 routes value into a contract; Tx2 invokes the
+    contract which records its `SELFBALANCE` to storage. A client that
+    parallelizes Tx2 without applying Tx1's `balance_changes` would
+    record the pre-block balance, yielding a different state root. The
+    `selfdestruct` variant routes the funds via SELFDESTRUCT from a
+    pre-funded killer contract so the recipient's bytecode never runs
+    in Tx1 — catching any client optimization that ties balance
+    tracking to code execution.
+    """
+    transferred = 1
+    alice = pre.fund_eoa()
+    bob = pre.fund_eoa()
+
+    # Any non-empty calldata triggers the SELFBALANCE record path;
+    # empty calldata is the value-receiver path.
+    contract = pre.deploy_contract(
+        code=Conditional(
+            condition=Op.ISZERO(Op.CALLDATASIZE),
+            if_true=Op.STOP,
+            if_false=Op.SSTORE(0, Op.SELFBALANCE),
+        ),
+    )
+
+    if funding_method == "direct_call":
+        tx_send = Transaction(
+            sender=alice,
+            to=contract,
+            value=transferred,
+            gas_limit=100_000,
+        )
+        send_expectations: dict = {}
+    elif funding_method == "selfdestruct":
+        killer = pre.deploy_contract(
+            code=Op.SELFDESTRUCT(contract),
+            balance=transferred,
+        )
+        tx_send = Transaction(
+            sender=alice,
+            to=killer,
+            gas_limit=100_000,
+        )
+        send_expectations = {
+            killer: BalAccountExpectation(
+                balance_changes=[
+                    BalBalanceChange(block_access_index=1, post_balance=0),
+                ],
+            ),
+        }
+    else:
+        raise ValueError(f"unknown funding_method: {funding_method}")
+
+    tx_read = Transaction(
+        sender=bob,
+        to=contract,
+        data=b"\x01",
+        gas_limit=100_000,
+    )
+
+    account_expectations = {
+        contract: BalAccountExpectation(
+            balance_changes=[
+                BalBalanceChange(
+                    block_access_index=1, post_balance=transferred
+                ),
+            ],
+            storage_changes=[
+                BalStorageSlot(
+                    slot=0,
+                    slot_changes=[
+                        BalStorageChange(
+                            block_access_index=2, post_value=transferred
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        **send_expectations,
+    }
+
+    blockchain_test(
+        pre=pre,
+        blocks=[
+            Block(
+                txs=[tx_send, tx_read],
+                expected_block_access_list=BlockAccessListExpectation(
+                    account_expectations=account_expectations
+                ),
+            )
+        ],
+        post={
+            contract: Account(balance=transferred, storage={0: transferred}),
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "eunice_outcome",
+    [
+        pytest.param("success", id="success"),
+        pytest.param("oog_minus_1", id="oog_minus_1"),
+        pytest.param(
+            "insufficient_funds",
+            id="insufficient_funds",
+            marks=pytest.mark.exception_test,
+        ),
+    ],
+)
+def test_bal_cross_tx_funding_chain(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    fork: Fork,
+    eunice_outcome: str,
+) -> None:
+    """
+    Funding chain: alice → bob → charlie → dan → eunice → target. Each
+    intermediate starts empty and must receive the prior tx's forwarded
+    value to afford its own upfront gas + outgoing transfer. A client
+    that parallelizes any later tx against pre-block state would see a
+    zero balance on its sender and wrongly reject the block. The
+    `oog_minus_1` variant funds eunice with exactly `gas_limit - 1`
+    worth of gas so her SSTORE OOGs at the boundary (target's BAL flips
+    from `storage_changes` to `storage_reads`). The `insufficient_funds`
+    variant has dan forward one wei short of eunice's `gas_limit *
+    gas_price`, so eunice's tx is rejected pre-execution and the entire
+    block MUST be rejected with `INSUFFICIENT_ACCOUNT_FUNDS` — a sanity
+    check on the off-by-one boundary of the upfront balance check.
+    """
+    gas_price = 0xA
+
+    target_code = Op.SSTORE(
+        0, 0xC0FFEE, key_warm=False, original_value=0, new_value=0xC0FFEE
+    )
+    target = pre.deploy_contract(code=target_code)
+
+    intrinsic_calc = fork.transaction_intrinsic_cost_calculator()
+    intrinsic_gas = intrinsic_calc()
+    eunice_exact_gas = intrinsic_gas + target_code.gas_cost(fork)
+    eunice_gas_limit = (
+        eunice_exact_gas - 1
+        if eunice_outcome == "oog_minus_1"
+        else eunice_exact_gas
+    )
+    eunice_upfront = eunice_gas_limit * gas_price
+    transfer_cost = intrinsic_gas * gas_price
+
+    # Each sender (including alice) starts with or receives exactly what
+    # the next forward + its own gas demands; everyone ends at zero in
+    # the success/oog variants. `insufficient_funds` shorts eunice by
+    # one wei via dan, leaving her unable to cover upfront gas.
+    dan_value = (
+        eunice_upfront - 1
+        if eunice_outcome == "insufficient_funds"
+        else eunice_upfront
+    )
+    charlie_value = transfer_cost + dan_value
+    bob_value = transfer_cost + charlie_value
+    alice_value = transfer_cost + bob_value
+    alice_pre_balance = transfer_cost + alice_value
+
+    alice = pre.fund_eoa(amount=alice_pre_balance)
+    bob = pre.fund_eoa(amount=0)
+    charlie = pre.fund_eoa(amount=0)
+    dan = pre.fund_eoa(amount=0)
+    eunice = pre.fund_eoa(amount=0)
+
+    eunice_error = (
+        TransactionException.INSUFFICIENT_ACCOUNT_FUNDS
+        if eunice_outcome == "insufficient_funds"
+        else None
+    )
+
+    txs = [
+        Transaction(
+            sender=alice,
+            to=bob,
+            value=alice_value,
+            gas_limit=intrinsic_gas,
+            gas_price=gas_price,
+        ),
+        Transaction(
+            sender=bob,
+            to=charlie,
+            value=bob_value,
+            gas_limit=intrinsic_gas,
+            gas_price=gas_price,
+        ),
+        Transaction(
+            sender=charlie,
+            to=dan,
+            value=charlie_value,
+            gas_limit=intrinsic_gas,
+            gas_price=gas_price,
+        ),
+        Transaction(
+            sender=dan,
+            to=eunice,
+            value=dan_value,
+            gas_limit=intrinsic_gas,
+            gas_price=gas_price,
+        ),
+        Transaction(
+            sender=eunice,
+            to=target,
+            gas_limit=eunice_gas_limit,
+            gas_price=gas_price,
+            error=eunice_error,
+        ),
+    ]
+
+    if eunice_outcome == "insufficient_funds":
+        blockchain_test(
+            pre=pre,
+            blocks=[
+                Block(
+                    txs=txs,
+                    exception=(
+                        TransactionException.INSUFFICIENT_ACCOUNT_FUNDS
+                    ),
+                )
+            ],
+            post={},
+        )
+        return
+
+    if eunice_outcome == "oog_minus_1":
+        target_bal = BalAccountExpectation(
+            storage_reads=[0],
+            nonce_changes=[],
+            balance_changes=[],
+            code_changes=[],
+            storage_changes=[],
+        )
+        target_post = Account(storage={})
+    elif eunice_outcome == "success":
+        target_bal = BalAccountExpectation(
+            storage_changes=[
+                BalStorageSlot(
+                    slot=0,
+                    slot_changes=[
+                        BalStorageChange(
+                            block_access_index=5, post_value=0xC0FFEE
+                        ),
+                    ],
+                ),
+            ],
+            nonce_changes=[],
+            balance_changes=[],
+            code_changes=[],
+            storage_reads=[],
+        )
+        target_post = Account(storage={0: 0xC0FFEE})
+    else:
+        raise ValueError(f"unknown eunice_outcome: {eunice_outcome}")
+
+    account_expectations = {
+        alice: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=1, post_nonce=1)],
+            balance_changes=[
+                BalBalanceChange(block_access_index=1, post_balance=0),
+            ],
+        ),
+        bob: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=2, post_nonce=1)],
+            balance_changes=[
+                BalBalanceChange(
+                    block_access_index=1, post_balance=alice_value
+                ),
+                BalBalanceChange(block_access_index=2, post_balance=0),
+            ],
+        ),
+        charlie: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=3, post_nonce=1)],
+            balance_changes=[
+                BalBalanceChange(block_access_index=2, post_balance=bob_value),
+                BalBalanceChange(block_access_index=3, post_balance=0),
+            ],
+        ),
+        dan: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=4, post_nonce=1)],
+            balance_changes=[
+                BalBalanceChange(
+                    block_access_index=3, post_balance=charlie_value
+                ),
+                BalBalanceChange(block_access_index=4, post_balance=0),
+            ],
+        ),
+        eunice: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=5, post_nonce=1)],
+            balance_changes=[
+                BalBalanceChange(block_access_index=4, post_balance=dan_value),
+                BalBalanceChange(block_access_index=5, post_balance=0),
+            ],
+        ),
+        target: target_bal,
+    }
+
+    blockchain_test(
+        pre=pre,
+        blocks=[
+            Block(
+                txs=txs,
+                expected_block_access_list=BlockAccessListExpectation(
+                    account_expectations=account_expectations,
+                ),
+            )
+        ],
+        post={
+            alice: Account(nonce=1, balance=0),
+            bob: Account(nonce=1, balance=0),
+            charlie: Account(nonce=1, balance=0),
+            dan: Account(nonce=1, balance=0),
+            eunice: Account(nonce=1, balance=0),
+            target: target_post,
         },
     )
 
@@ -2290,6 +3270,7 @@ def test_bal_cross_block_ripemd160_state_leak(
     )
 
 
+@EIPChecklist.BlockLevelConstraint.Test.Content.TransactionTypes()
 def test_bal_all_transaction_types(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -2649,14 +3630,26 @@ def test_bal_lexicographic_address_ordering(
     )
 
 
+@EIPChecklist.BlockLevelConstraint.Test.Boundary.Under()
+@EIPChecklist.BlockLevelConstraint.Test.Boundary.Exact()
+@EIPChecklist.BlockLevelConstraint.Test.Boundary.Over()
+@pytest.mark.parametrize(
+    "with_cl_withdrawal",
+    [
+        pytest.param(False, id="no_cl_withdrawal"),
+        pytest.param(True, id="with_cl_withdrawal"),
+    ],
+)
+@pytest.mark.parametrize(
+    "with_tx",
+    [pytest.param(False, id="no_tx"), pytest.param(True, id="with_tx")],
+)
 @pytest.mark.parametrize(
     "boundary_offset",
     [
         pytest.param(0, id="at_boundary"),
         pytest.param(
-            -1,
-            marks=pytest.mark.exception_test,
-            id="below_boundary",
+            -1, marks=pytest.mark.exception_test, id="below_boundary"
         ),
     ],
 )
@@ -2665,28 +3658,94 @@ def test_bal_gas_limit_boundary(
     pre: Alloc,
     fork: Fork,
     boundary_offset: int,
+    with_tx: bool,
+    with_cl_withdrawal: bool,
 ) -> None:
     """
-    Test the BAL max items gas limit boundary for an empty block.
+    BAL max-items cap (``bal_items <= block_gas_limit //
+    BLOCK_ACCESS_LIST_ITEM``) must be enforced on the **final** BAL —
+    including pre-tx system work (beacon root, history), user txs, and
+    post-tx system work (CL withdrawals, queue processing).
 
-    The consensus rule requires
-    ``bal_items <= block_gas_limit // GAS_BLOCK_ACCESS_LIST_ITEM``.
-    The boundary gas limit is derived from the fork's system-contract
-    BAL footprint.  At the boundary the check passes; one below it fails.
+    Orthogonal axes:
+    - `with_tx`: alice → bob transfer adds 3 items (alice + bob +
+      coinbase warmed via EIP-3651).
+    - `with_cl_withdrawal`: EIP-4895 withdrawal to a recipient adds 1
+      item, processed between txs and the rest of the post-tx system
+      work. Together they catch clients that validate the cap before
+      `process_withdrawals` runs.
     """
-    # EIP-7928
-    # bal_items <= block_gas_limit // ITEM_COST
-    min_gas_limit = (
-        fork.empty_block_bal_item_count()
-        * fork.gas_costs().GAS_BLOCK_ACCESS_LIST_ITEM
-    )
-    gas_limit = min_gas_limit + boundary_offset
+    # Match framework's DEFAULT_BASE_FEE so gas_price == base_fee
+    # cancels the priority fee (no coinbase balance_change to absorb
+    # into the expected counts).
+    base_fee_per_gas = 7
 
+    extra_items = 0
+    txs: list = []
+    withdrawals: list = []
+    expected_accounts: dict = {}
+    post: dict = {}
+
+    if with_tx:
+        alice = pre.fund_eoa()
+        bob = pre.fund_eoa(amount=0)
+        # alice (sender) + bob (recipient) + coinbase (EIP-3651 warm).
+        extra_items += 3
+        txs.append(
+            Transaction(
+                sender=alice,
+                to=bob,
+                value=1,
+                gas_limit=21_000,
+                gas_price=base_fee_per_gas,
+            )
+        )
+        expected_accounts[alice] = BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=1, post_nonce=1)],
+        )
+        expected_accounts[bob] = BalAccountExpectation(
+            balance_changes=[
+                BalBalanceChange(block_access_index=1, post_balance=1)
+            ],
+        )
+        post[bob] = Account(balance=1)
+
+    if with_cl_withdrawal:
+        charlie = pre.fund_eoa(amount=0)
+        withdrawal_amount_wei = 10**9  # 1 gwei
+        # CL withdrawal recipient adds 1 item; processed at
+        # block_access_index = len(txs) + 1 (post-tx).
+        extra_items += 1
+        withdrawals.append(
+            Withdrawal(index=0, validator_index=0, address=charlie, amount=1)
+        )
+        expected_accounts[charlie] = BalAccountExpectation(
+            balance_changes=[
+                BalBalanceChange(
+                    block_access_index=len(txs) + 1,
+                    post_balance=withdrawal_amount_wei,
+                )
+            ],
+        )
+        post[charlie] = Account(balance=withdrawal_amount_wei)
+
+    total_items = fork.empty_block_bal_item_count() + extra_items
+    gas_limit = (
+        total_items * fork.gas_costs().BLOCK_ACCESS_LIST_ITEM + boundary_offset
+    )
+
+    at_boundary = boundary_offset == 0
     block = Block(
-        txs=[],
+        txs=txs,
+        withdrawals=withdrawals,
         exception=(
-            BlockException.BLOCK_ACCESS_LIST_GAS_LIMIT_EXCEEDED
-            if boundary_offset < 0
+            None
+            if at_boundary
+            else BlockException.BLOCK_ACCESS_LIST_GAS_LIMIT_EXCEEDED
+        ),
+        expected_block_access_list=(
+            BlockAccessListExpectation(account_expectations=expected_accounts)
+            if at_boundary and expected_accounts
             else None
         ),
     )
@@ -2694,6 +3753,163 @@ def test_bal_gas_limit_boundary(
     blockchain_test(
         pre=pre,
         blocks=[block],
-        post={},
-        genesis_environment=Environment(gas_limit=gas_limit),
+        post=post if at_boundary else {},
+        genesis_environment=Environment(
+            base_fee_per_gas=base_fee_per_gas, gas_limit=gas_limit
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "pre_value",
+    [
+        pytest.param(0x00, id="slot_starts_empty"),
+        pytest.param(0x11, id="slot_starts_nonzero"),
+        pytest.param(0xBB, id="intermediate_equals_pre"),
+    ],
+)
+def test_bal_intra_tx_multiple_sstores_same_slot(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    pre_value: int,
+) -> None:
+    """
+    Test that consecutive SSTOREs to the same slot within one tx produce a
+    single storage change with the final post-value; intermediate writes
+    (0xAA, 0xBB) must not appear in the BAL.
+    """
+    alice = pre.fund_eoa(amount=10**18)
+
+    code = (
+        Op.SSTORE(0x01, 0xAA) + Op.SSTORE(0x01, 0xBB) + Op.SSTORE(0x01, 0xCC)
+    )
+    contract = pre.deploy_contract(code=code, storage={0x01: pre_value})
+
+    tx = Transaction(
+        sender=alice,
+        to=contract,
+        gas_limit=200_000,
+    )
+
+    blockchain_test(
+        pre=pre,
+        blocks=[
+            Block(
+                txs=[tx],
+                expected_block_access_list=BlockAccessListExpectation(
+                    account_expectations={
+                        alice: BalAccountExpectation(
+                            nonce_changes=[
+                                BalNonceChange(
+                                    block_access_index=1, post_nonce=1
+                                ),
+                            ],
+                        ),
+                        contract: BalAccountExpectation(
+                            storage_changes=[
+                                BalStorageSlot(
+                                    slot=0x01,
+                                    slot_changes=[
+                                        BalStorageChange(
+                                            block_access_index=1,
+                                            post_value=0xCC,
+                                        ),
+                                    ],
+                                ),
+                            ],
+                            storage_reads=[],
+                            balance_changes=[],
+                            code_changes=[],
+                            absent_values=BalAccountAbsentValues(
+                                storage_changes=[
+                                    BalStorageSlot(
+                                        slot=0x01,
+                                        slot_changes=[
+                                            BalStorageChange(
+                                                block_access_index=1,
+                                                post_value=0xAA,
+                                            ),
+                                            BalStorageChange(
+                                                block_access_index=1,
+                                                post_value=0xBB,
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ),
+                    }
+                ),
+            )
+        ],
+        post={
+            alice: Account(nonce=1),
+            contract: Account(storage={0x01: 0xCC}),
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "pre_value,writes",
+    [
+        pytest.param(
+            0xCC, [0xAA, 0xBB, 0xCC], id="nonzero_pre_returns_to_pre"
+        ),
+        pytest.param(
+            0x00, [0xAA, 0xBB, 0x00], id="empty_pre_ephemeral_writes"
+        ),
+    ],
+)
+def test_bal_intra_tx_sstores_same_slot_net_zero(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    pre_value: int,
+    writes: list[int],
+) -> None:
+    """
+    Test that consecutive SSTOREs to the same slot within one tx with a
+    net-zero result are filtered: the slot must appear in storage_reads
+    (it was accessed) but must not appear in storage_changes.
+    """
+    alice = pre.fund_eoa(amount=10**18)
+
+    code = Op.SSTORE(0x01, writes[0])
+    for v in writes[1:]:
+        code += Op.SSTORE(0x01, v)
+    contract = pre.deploy_contract(code=code, storage={0x01: pre_value})
+
+    tx = Transaction(
+        sender=alice,
+        to=contract,
+        gas_limit=200_000,
+    )
+
+    blockchain_test(
+        pre=pre,
+        blocks=[
+            Block(
+                txs=[tx],
+                expected_block_access_list=BlockAccessListExpectation(
+                    account_expectations={
+                        alice: BalAccountExpectation(
+                            nonce_changes=[
+                                BalNonceChange(
+                                    block_access_index=1, post_nonce=1
+                                ),
+                            ],
+                        ),
+                        contract: BalAccountExpectation(
+                            storage_reads=[0x01],
+                            storage_changes=[],
+                            balance_changes=[],
+                            code_changes=[],
+                        ),
+                    }
+                ),
+            )
+        ],
+        post={
+            alice: Account(nonce=1),
+            contract: Account(storage={0x01: pre_value}),
+        },
     )

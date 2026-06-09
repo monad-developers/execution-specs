@@ -1,8 +1,12 @@
 """Tests for the effects of EIP-7702 transactions on EIP-7928."""
 
+from typing import Dict
+
 import pytest
 from execution_testing import (
+    EOA,
     Account,
+    Address,
     Alloc,
     AuthorizationTuple,
     BalAccountExpectation,
@@ -63,7 +67,6 @@ def test_bal_7702_delegation_create(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=oracle,
@@ -130,72 +133,97 @@ def test_bal_7702_delegation_create(
 
 
 @pytest.mark.parametrize(
-    "self_funded",
+    "sender_pattern",
     [
-        pytest.param(False, id="sponsored"),
-        pytest.param(True, id="self_funded"),
+        pytest.param("sponsored", id="sponsored"),
+        pytest.param("self_funded", id="self_funded"),
+        pytest.param("sponsored_cross_sender", id="sponsored_cross_sender"),
     ],
 )
 def test_bal_7702_delegation_update(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
-    self_funded: bool,
+    sender_pattern: str,
 ) -> None:
-    """Ensure BAL captures update of existing EOA delegation."""
+    """
+    Ensure BAL captures update of existing EOA delegation. The
+    `sponsored_cross_sender` variant uses a distinct relayer per tx so
+    the cross-tx auth-nonce dep can't be served by sender-nonce
+    serialization alone.
+    """
     alice = pre.fund_eoa()
     bob = pre.fund_eoa(amount=0)
-
-    if not self_funded:
-        relayer = pre.fund_eoa()
-        sender = relayer
-    else:
-        sender = alice
 
     oracle1 = pre.deploy_contract(code=Op.STOP)
     oracle2 = pre.deploy_contract(code=Op.STOP)
 
-    ## Perhaps create a pre-existing delegation,
-    ## see `test_bal_7702_delegated_storage_access` since
-    ## `test_bal_7702_delegation_create` already tests creation
+    if sender_pattern == "self_funded":
+        sender_create = alice
+        sender_update = alice
+        update_tx_nonce = 2
+        create_auth_nonce = 1
+        update_auth_nonce = 3
+        alice_post_create = 2
+        alice_post_update = 4
+    elif sender_pattern == "sponsored":
+        relayer = pre.fund_eoa()
+        sender_create = relayer
+        sender_update = relayer
+        update_tx_nonce = 1
+        create_auth_nonce = 0
+        update_auth_nonce = 1
+        alice_post_create = 1
+        alice_post_update = 2
+    elif sender_pattern == "sponsored_cross_sender":
+        relayer_create = pre.fund_eoa()
+        relayer_update = pre.fund_eoa()
+        sender_create = relayer_create
+        sender_update = relayer_update
+        update_tx_nonce = 0
+        create_auth_nonce = 0
+        update_auth_nonce = 1
+        alice_post_create = 1
+        alice_post_update = 2
+    else:
+        raise ValueError(f"unknown sender_pattern: {sender_pattern}")
+
     tx_create = Transaction(
-        sender=sender,
+        sender=sender_create,
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=oracle1,
-                nonce=1 if self_funded else 0,
+                nonce=create_auth_nonce,
                 signer=alice,
             )
         ],
     )
 
     tx_update = Transaction(
-        nonce=2 if self_funded else 1,
-        sender=sender,
+        nonce=update_tx_nonce,
+        sender=sender_update,
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=oracle2,
-                nonce=3 if self_funded else 1,
+                nonce=update_auth_nonce,
                 signer=alice,
             )
         ],
     )
 
-    account_expectations = {
+    account_expectations: dict = {
         alice: BalAccountExpectation(
             nonce_changes=[
                 BalNonceChange(
-                    block_access_index=1, post_nonce=2 if self_funded else 1
+                    block_access_index=1, post_nonce=alice_post_create
                 ),
                 BalNonceChange(
-                    block_access_index=2, post_nonce=4 if self_funded else 2
+                    block_access_index=2, post_nonce=alice_post_update
                 ),
             ],
             code_changes=[
@@ -221,12 +249,22 @@ def test_bal_7702_delegation_update(
         oracle2: None,
     }
 
-    # For sponsored variant, relayer must also be included in BAL
-    if not self_funded:
+    if sender_pattern == "sponsored":
         account_expectations[relayer] = BalAccountExpectation(
             nonce_changes=[
                 BalNonceChange(block_access_index=1, post_nonce=1),
                 BalNonceChange(block_access_index=2, post_nonce=2),
+            ],
+        )
+    elif sender_pattern == "sponsored_cross_sender":
+        account_expectations[relayer_create] = BalAccountExpectation(
+            nonce_changes=[
+                BalNonceChange(block_access_index=1, post_nonce=1),
+            ],
+        )
+        account_expectations[relayer_update] = BalAccountExpectation(
+            nonce_changes=[
+                BalNonceChange(block_access_index=2, post_nonce=1),
             ],
         )
 
@@ -237,19 +275,21 @@ def test_bal_7702_delegation_update(
         ),
     )
 
-    post = {
+    post: dict = {
         # Finally Alice's account should be delegated to oracle2
         alice: Account(
-            nonce=4 if self_funded else 2,
+            nonce=alice_post_update,
             code=Spec7702.delegation_designation(oracle2),
         ),
         # Bob receives 20 wei in total
         bob: Account(balance=20),
     }
 
-    # For sponsored variant, include relayer in post state
-    if not self_funded:
-        post.update({relayer: Account(nonce=2)})
+    if sender_pattern == "sponsored":
+        post[relayer] = Account(nonce=2)
+    elif sender_pattern == "sponsored_cross_sender":
+        post[relayer_create] = Account(nonce=1)
+        post[relayer_update] = Account(nonce=1)
 
     blockchain_test(
         pre=pre,
@@ -291,7 +331,6 @@ def test_bal_7702_delegation_clear(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=oracle,
@@ -307,7 +346,6 @@ def test_bal_7702_delegation_clear(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=abyss,
@@ -469,7 +507,6 @@ def test_bal_7702_invalid_nonce_authorization(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=oracle,
@@ -515,6 +552,71 @@ def test_bal_7702_invalid_nonce_authorization(
     )
 
 
+@pytest.mark.pre_alloc_mutable()
+def test_bal_7702_invalid_authority_has_code_authorization(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+) -> None:
+    """
+    Ensure BAL handles failed authorization where the authority already has
+    non-empty, non-delegation code (EIP-7702 step-5 rejection, post-load).
+    """
+    # Pre-existing non-delegation code on the authority blocks the 7702
+    # delegation at step 5, after the authority is already loaded.
+    alice = pre.fund_eoa(amount=0, code=Op.STOP, nonce=1)
+    bob = pre.fund_eoa(amount=0)
+    relayer = pre.fund_eoa()
+    oracle = pre.deploy_contract(code=Op.STOP)
+
+    tx = Transaction(
+        sender=relayer,  # Sponsored transaction
+        to=bob,
+        value=10,
+        gas_limit=1_000_000,
+        authorization_list=[
+            AuthorizationTuple(
+                address=oracle,
+                nonce=alice.nonce,
+                signer=alice,
+            )
+        ],
+    )
+
+    block = Block(
+        txs=[tx],
+        expected_block_access_list=BlockAccessListExpectation(
+            account_expectations={
+                bob: BalAccountExpectation(
+                    balance_changes=[
+                        BalBalanceChange(block_access_index=1, post_balance=10)
+                    ]
+                ),
+                relayer: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                ),
+                # Alice loaded at step 4 then step 5 rejects.
+                alice: BalAccountExpectation.empty(),
+                # Oracle never loaded as delegation target.
+                oracle: None,
+            }
+        ),
+    )
+
+    post = {
+        relayer: Account(nonce=1),
+        bob: Account(balance=10),
+        alice: Account(code=Op.STOP, nonce=1),
+    }
+
+    blockchain_test(
+        pre=pre,
+        blocks=[block],
+        post=post,
+    )
+
+
 def test_bal_7702_invalid_chain_id_authorization(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -530,7 +632,6 @@ def test_bal_7702_invalid_chain_id_authorization(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 chain_id=999,  # Wrong chain id
@@ -639,6 +740,220 @@ def test_bal_7702_delegated_via_call_opcode(
     )
 
 
+@pytest.mark.parametrize(
+    "destination_is_loop",
+    [False, True],
+    ids=["chain", "loop"],
+)
+def test_bal_7702_multi_hop_delegation_chain(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+    destination_is_loop: bool,
+) -> None:
+    """
+    Multi-hop EIP-7702 delegation: `chain` resolves A->B->C; `loop`
+    resolves A->B->A. In both cases the EVM follows the delegation once
+    and runs B's `0xef0100<dest>` bytecode as legacy code, which aborts
+    on the INVALID `0xef` opcode. For `chain`, C MUST NOT appear in the
+    BAL (second-hop target is never loaded as an execution target). For
+    `loop`, A is already in the BAL via the first delegation; the CALL
+    still fails.
+    """
+    alice = pre.fund_eoa()
+    auth_a = pre.fund_eoa(amount=0)
+    auth_b = pre.fund_eoa(amount=0)
+    target_c = pre.deploy_contract(code=Op.STOP)
+    second_destination = auth_a if destination_is_loop else target_c
+
+    entry_code = Op.SSTORE(0, Op.CALL(50_000, auth_a, 0, 0, 0, 0, 0)) + Op.STOP
+    entry_address = pre.deploy_contract(
+        code=entry_code,
+        storage={0: 0xDEAD},
+    )
+
+    tx = Transaction(
+        sender=alice,
+        to=entry_address,
+        gas_limit=1_000_000,
+        authorization_list=[
+            AuthorizationTuple(
+                address=auth_b,
+                nonce=0,
+                signer=auth_a,
+            ),
+            AuthorizationTuple(
+                address=second_destination,
+                nonce=0,
+                signer=auth_b,
+            ),
+        ],
+    )
+
+    account_expectations: Dict[EOA | Address, BalAccountExpectation | None] = {
+        alice: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=1, post_nonce=1)],
+        ),
+        auth_a: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=1, post_nonce=1)],
+            code_changes=[
+                BalCodeChange(
+                    block_access_index=1,
+                    new_code=Spec7702.delegation_designation(auth_b),
+                )
+            ],
+        ),
+        auth_b: BalAccountExpectation(
+            nonce_changes=[BalNonceChange(block_access_index=1, post_nonce=1)],
+            code_changes=[
+                BalCodeChange(
+                    block_access_index=1,
+                    new_code=Spec7702.delegation_designation(
+                        second_destination
+                    ),
+                )
+            ],
+        ),
+        # CALL returned 0; SSTORE(0, 0) overwrites the 0xDEAD witness.
+        entry_address: BalAccountExpectation(
+            storage_changes=[
+                BalStorageSlot(
+                    slot=0,
+                    slot_changes=[
+                        BalStorageChange(block_access_index=1, post_value=0)
+                    ],
+                )
+            ],
+            storage_reads=[],
+        ),
+    }
+    if not destination_is_loop:
+        account_expectations[target_c] = None
+
+    block = Block(
+        txs=[tx],
+        expected_block_access_list=BlockAccessListExpectation(
+            account_expectations=account_expectations
+        ),
+    )
+
+    post: Dict[EOA | Address, Account] = {
+        auth_a: Account(
+            nonce=1,
+            code=Spec7702.delegation_designation(auth_b),
+        ),
+        auth_b: Account(
+            nonce=1,
+            code=Spec7702.delegation_designation(second_destination),
+        ),
+        entry_address: Account(storage={0: 0}),
+    }
+    if not destination_is_loop:
+        post[target_c] = Account(code=bytes(Op.STOP), nonce=1)
+
+    blockchain_test(
+        pre=pre,
+        blocks=[block],
+        post=post,
+    )
+
+
+def test_bal_7702_cross_tx_delegation_then_call(
+    pre: Alloc,
+    blockchain_test: BlockchainTestFiller,
+) -> None:
+    """
+    Verify clients apply Tx1's EIP-7702 delegation before later txs CALL
+    the now-delegated EOA. Tx1 installs a delegation designator on `alice`
+    pointing to a contract that increments slot 0. Tx2 and Tx3 CALL alice,
+    so each later tx must observe both the installed code (Tx1) and the
+    prior increment (the immediately preceding tx) for the final slot 0
+    to read 2. A client that parallelizes any tx against pre-block state
+    would see no code or a stale counter, yielding a different state root.
+    """
+    alice = pre.fund_eoa()
+    bob = pre.fund_eoa()
+    charlie = pre.fund_eoa()
+    relayer = pre.fund_eoa()
+
+    # Delegation target: increments slot 0 each time it's invoked.
+    counter = pre.deploy_contract(
+        code=Op.SSTORE(0, Op.ADD(Op.SLOAD(0), 1)),
+    )
+
+    tx_delegate = Transaction(
+        sender=relayer,
+        to=bob,
+        value=0,
+        gas_limit=1_000_000,
+        authorization_list=[
+            AuthorizationTuple(
+                address=counter,
+                nonce=0,
+                signer=alice,
+            )
+        ],
+    )
+    tx_call_1 = Transaction(
+        sender=bob,
+        to=alice,
+        gas_limit=200_000,
+        gas_price=0xA,
+    )
+    tx_call_2 = Transaction(
+        sender=charlie,
+        to=alice,
+        gas_limit=200_000,
+        gas_price=0xA,
+    )
+
+    block = Block(
+        txs=[tx_delegate, tx_call_1, tx_call_2],
+        expected_block_access_list=BlockAccessListExpectation(
+            account_expectations={
+                alice: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1),
+                    ],
+                    code_changes=[
+                        BalCodeChange(
+                            block_access_index=1,
+                            new_code=Spec7702.delegation_designation(counter),
+                        )
+                    ],
+                    storage_changes=[
+                        BalStorageSlot(
+                            slot=0,
+                            slot_changes=[
+                                BalStorageChange(
+                                    block_access_index=2, post_value=1
+                                ),
+                                BalStorageChange(
+                                    block_access_index=3, post_value=2
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                # Delegation target: loaded as execution target on each
+                # CALL to alice, but mutations land in alice's storage.
+                counter: BalAccountExpectation.empty(),
+            },
+        ),
+    )
+
+    blockchain_test(
+        pre=pre,
+        blocks=[block],
+        post={
+            alice: Account(
+                nonce=1,
+                code=Spec7702.delegation_designation(counter),
+                storage={0: 2},
+            ),
+        },
+    )
+
+
 def test_bal_7702_null_address_delegation_no_code_change(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -736,7 +1051,6 @@ def test_bal_7702_double_auth_reset(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=contract_a,
@@ -825,7 +1139,6 @@ def test_bal_7702_double_auth_swap(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=contract_a,
@@ -927,7 +1240,6 @@ def test_bal_selfdestruct_to_7702_delegation(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=oracle,
@@ -1060,7 +1372,6 @@ def test_bal_withdrawal_to_7702_delegation(
         to=bob,
         value=10,
         gas_limit=1_000_000,
-        gas_price=0xA,
         authorization_list=[
             AuthorizationTuple(
                 address=oracle,

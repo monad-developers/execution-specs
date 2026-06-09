@@ -1,1 +1,1 @@
-"""Tests ported from stQuadraticComplexityTest."""
+"""Ported static tests: stQuadraticComplexityTest."""  # noqa: N999

@@ -15,18 +15,13 @@ from ethereum_types.numeric import U256, Uint, ulen
 
 from ethereum.utils.numeric import ceil32
 
-from ...state import get_account, get_code
+from ...state_tracker import get_account, get_code
 from ...utils.address import to_address_masked
 from ...vm.memory import buffer_read, memory_write
 from .. import Evm
 from ..exceptions import OutOfBoundsRead
 from ..gas import (
-    GAS_BALANCE,
-    GAS_BASE,
-    GAS_COPY,
-    GAS_EXTERNAL,
-    GAS_RETURN_DATA_COPY,
-    GAS_VERY_LOW,
+    GasCosts,
     calculate_gas_extend_memory,
     charge_gas,
 )
@@ -47,7 +42,7 @@ def address(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_ADDRESS)
 
     # OPERATION
     push(evm.stack, U256.from_be_bytes(evm.message.current_target))
@@ -70,11 +65,12 @@ def balance(evm: Evm) -> None:
     address = to_address_masked(pop(evm.stack))
 
     # GAS
-    charge_gas(evm, GAS_BALANCE)
+    charge_gas(evm, GasCosts.OPCODE_BALANCE)
 
     # OPERATION
     # Non-existent accounts default to EMPTY_ACCOUNT, which has balance 0.
-    balance = get_account(evm.message.block_env.state, address).balance
+    tx_state = evm.message.tx_env.state
+    balance = get_account(tx_state, address).balance
 
     push(evm.stack, balance)
 
@@ -97,7 +93,7 @@ def origin(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_ORIGIN)
 
     # OPERATION
     push(evm.stack, U256.from_be_bytes(evm.message.tx_env.origin))
@@ -120,7 +116,7 @@ def caller(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_CALLER)
 
     # OPERATION
     push(evm.stack, U256.from_be_bytes(evm.message.caller))
@@ -143,7 +139,7 @@ def callvalue(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_CALLVALUE)
 
     # OPERATION
     push(evm.stack, evm.message.value)
@@ -167,7 +163,7 @@ def calldataload(evm: Evm) -> None:
     start_index = pop(evm.stack)
 
     # GAS
-    charge_gas(evm, GAS_VERY_LOW)
+    charge_gas(evm, GasCosts.OPCODE_CALLDATALOAD)
 
     # OPERATION
     value = buffer_read(evm.message.data, start_index, U256(32))
@@ -192,7 +188,7 @@ def calldatasize(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_CALLDATASIZE)
 
     # OPERATION
     push(evm.stack, U256(len(evm.message.data)))
@@ -221,11 +217,14 @@ def calldatacopy(evm: Evm) -> None:
 
     # GAS
     words = ceil32(Uint(size)) // Uint(32)
-    copy_gas_cost = GAS_COPY * words
+    copy_gas_cost = GasCosts.OPCODE_COPY_PER_WORD * words
     extend_memory = calculate_gas_extend_memory(
         evm.memory, [(memory_start_index, size)]
     )
-    charge_gas(evm, GAS_VERY_LOW + copy_gas_cost + extend_memory.cost)
+    charge_gas(
+        evm,
+        GasCosts.OPCODE_CALLDATACOPY_BASE + copy_gas_cost + extend_memory.cost,
+    )
 
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
@@ -250,7 +249,7 @@ def codesize(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_CODESIZE)
 
     # OPERATION
     push(evm.stack, U256(len(evm.code)))
@@ -279,11 +278,14 @@ def codecopy(evm: Evm) -> None:
 
     # GAS
     words = ceil32(Uint(size)) // Uint(32)
-    copy_gas_cost = GAS_COPY * words
+    copy_gas_cost = GasCosts.OPCODE_COPY_PER_WORD * words
     extend_memory = calculate_gas_extend_memory(
         evm.memory, [(memory_start_index, size)]
     )
-    charge_gas(evm, GAS_VERY_LOW + copy_gas_cost + extend_memory.cost)
+    charge_gas(
+        evm,
+        GasCosts.OPCODE_CODECOPY_BASE + copy_gas_cost + extend_memory.cost,
+    )
 
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
@@ -308,7 +310,7 @@ def gasprice(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_GASPRICE)
 
     # OPERATION
     push(evm.stack, U256(evm.message.tx_env.gas_price))
@@ -331,11 +333,12 @@ def extcodesize(evm: Evm) -> None:
     address = to_address_masked(pop(evm.stack))
 
     # GAS
-    charge_gas(evm, GAS_EXTERNAL)
+    charge_gas(evm, GasCosts.OPCODE_EXTERNAL_BASE)
 
     # OPERATION
-    account = get_account(evm.message.block_env.state, address)
-    code = get_code(evm.message.block_env.state, account.code_hash)
+    tx_state = evm.message.tx_env.state
+    account = get_account(tx_state, address)
+    code = get_code(tx_state, account.code_hash)
 
     codesize = U256(len(code))
     push(evm.stack, codesize)
@@ -362,16 +365,20 @@ def extcodecopy(evm: Evm) -> None:
 
     # GAS
     words = ceil32(Uint(size)) // Uint(32)
-    copy_gas_cost = GAS_COPY * words
+    copy_gas_cost = GasCosts.OPCODE_COPY_PER_WORD * words
     extend_memory = calculate_gas_extend_memory(
         evm.memory, [(memory_start_index, size)]
     )
-    charge_gas(evm, GAS_EXTERNAL + copy_gas_cost + extend_memory.cost)
+    charge_gas(
+        evm,
+        GasCosts.OPCODE_EXTERNAL_BASE + copy_gas_cost + extend_memory.cost,
+    )
 
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
-    account = get_account(evm.message.block_env.state, address)
-    code = get_code(evm.message.block_env.state, account.code_hash)
+    tx_state = evm.message.tx_env.state
+    account = get_account(tx_state, address)
+    code = get_code(tx_state, account.code_hash)
 
     value = buffer_read(code, code_start_index, size)
     memory_write(evm.memory, memory_start_index, value)
@@ -394,7 +401,7 @@ def returndatasize(evm: Evm) -> None:
     pass
 
     # GAS
-    charge_gas(evm, GAS_BASE)
+    charge_gas(evm, GasCosts.OPCODE_RETURNDATASIZE)
 
     # OPERATION
     push(evm.stack, U256(len(evm.return_data)))
@@ -420,11 +427,16 @@ def returndatacopy(evm: Evm) -> None:
 
     # GAS
     words = ceil32(Uint(size)) // Uint(32)
-    copy_gas_cost = GAS_RETURN_DATA_COPY * words
+    copy_gas_cost = GasCosts.OPCODE_RETURNDATACOPY_PER_WORD * words
     extend_memory = calculate_gas_extend_memory(
         evm.memory, [(memory_start_index, size)]
     )
-    charge_gas(evm, GAS_VERY_LOW + copy_gas_cost + extend_memory.cost)
+    charge_gas(
+        evm,
+        GasCosts.OPCODE_RETURNDATACOPY_BASE
+        + copy_gas_cost
+        + extend_memory.cost,
+    )
     if Uint(return_data_start_position) + Uint(size) > ulen(evm.return_data):
         raise OutOfBoundsRead
 

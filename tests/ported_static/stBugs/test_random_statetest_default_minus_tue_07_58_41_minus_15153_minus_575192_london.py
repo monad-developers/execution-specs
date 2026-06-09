@@ -1,17 +1,16 @@
 """
-Is a canon example of a test found by fuzzing with EVMlab, demoing how a...
+Test: this is a canon example of a test found by fuzzing with EVMlab,...
 
 Ported from:
-tests/static/state_tests/stBugs
-randomStatetestDEFAULT-Tue_07_58_41-15153-575192_londonFiller.json
+state_tests/stBugs/randomStatetestDEFAULT-Tue_07_58_41-15153-575192_londonFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stBugs/randomStatetestDEFAULT-Tue_07_58_41-15153-575192_londonFiller.json",  # noqa: E501
+        "state_tests/stBugs/randomStatetestDEFAULT-Tue_07_58_41-15153-575192_londonFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,11 +32,9 @@ def test_random_statetest_default_minus_tue_07_58_41_minus_15153_minus_575192_lo
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Is a canon example of a test found by fuzzing with EVMlab,..."""
-    coinbase = Address("0xdf5277352f687058bec2d433f2e2d1b7f0c970ae")
-    sender = EOA(
-        key=0xEDDB5B1A0109F06919449A6279E9DE92A892086BDD851894EB8FFA6C8FF4E563
-    )
+    """Test: tis is a canon example of a test found by fuzzing with EVMlab,..."""  # noqa: E501
+    coinbase = Address(0xDF5277352F687058BEC2D433F2E2D1B7F0C970AE)
+    sender = pre.fund_eoa(amount=0x5D8FDD3FF54298B4, nonce=28)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -48,39 +45,47 @@ def test_random_statetest_default_minus_tue_07_58_41_minus_15153_minus_575192_lo
         gas_limit=20000000,
     )
 
-    # Source: raw bytecode
-    pre.deploy_contract(
+    # Source: raw
+    # 0x62abcdefff
+    addr = pre.deploy_contract(  # noqa: F841
         code=Op.SELFDESTRUCT(address=0xABCDEF),
         nonce=28,
-        address=Address("0x589d1b72331c25effee38732d79f48f729681853"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x5D8FDD3FF54298B4, nonce=28)
-    # Source: raw bytecode
-    pre.deploy_contract(
-        code=(
-            Op.PUSH2[0xDEAD]
-            + Op.CALL(
-                gas=Op.GAS,
-                address=0xDEAD,
-                value=0x0,
-                args_offset=0x0,
-                args_size=0x0,
-                ret_offset=0x0,
-                ret_size=0x0,
-            )
-            + Op.SSTORE(key=0x1, value=Op.EXTCODEHASH(address=0xABCDEF))
-        ),
+    # Source: raw
+    # 0x61dead6000600060006000600061dead5af162abcdef3f600155
+    coinbase = pre.deploy_contract(  # noqa: F841
+        code=Op.PUSH2[0xDEAD]
+        + Op.CALL(
+            gas=Op.GAS,
+            address=0xDEAD,
+            value=0x0,
+            args_offset=0x0,
+            args_size=0x0,
+            ret_offset=0x0,
+            ret_size=0x0,
+        )
+        + Op.SSTORE(key=0x1, value=Op.EXTCODEHASH(address=0xABCDEF)),
         nonce=28,
-        address=coinbase,  # noqa: E501
+        address=Address(0xDF5277352F687058BEC2D433F2E2D1B7F0C970AE),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
         to=coinbase,
+        data=Bytes(""),
         gas_limit=6282759,
         nonce=28,
     )
 
-    post: dict = {}
+    post = {
+        coinbase: Account(
+            storage={},
+            code=bytes.fromhex(
+                "61dead6000600060006000600061dead5af162abcdef3f600155"
+            ),
+            nonce=28,
+        ),
+        sender: Account(storage={}, code=b"", nonce=29),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)
