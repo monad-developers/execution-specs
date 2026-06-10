@@ -23,6 +23,8 @@ from execution_testing import (
 
 from .spec import Spec, ref_spec_7594
 
+pytestmark = pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
+
 REFERENCE_SPEC_GIT_PATH = ref_spec_7594.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7594.version
 

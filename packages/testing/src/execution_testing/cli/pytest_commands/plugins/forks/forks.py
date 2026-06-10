@@ -501,6 +501,14 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
+        (
+            "not_valid_for(*forks, subsequent_forks=False): subtracts "
+            "the given forks (optionally and all after them) from the "
+            "test case's valid fork set"
+        ),
+    )
+    config.addinivalue_line(
+        "markers",
         "valid_at(fork): specifies at which fork a test case is valid",
     )
     config.addinivalue_line(
@@ -983,6 +991,64 @@ class ValidUntil(ValidityMarker):
         resulting_set: Set[Fork | TransitionFork] = set()
         for fork in forks:
             resulting_set |= {f for f in ALL_FORKS if f <= fork}
+        return resulting_set
+
+
+class NotValidFor(ValidityMarker):
+    """
+    Marker to subtract one or more forks from the test's valid set.
+
+    Unlike ``valid_from`` / ``valid_until`` (which set bounds), this
+    marker carves a hole out of the otherwise-applicable fork range.
+    Use it when an upstream-targeted test happens to lie inside the
+    fork range of an incompatible downstream fork (e.g. tests valid on
+    Cancun+ that should not run on Monad forks).
+
+    ```python
+    import pytest
+
+    @pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
+    def test_blob_thing(...):
+        pass
+    ```
+
+    With ``subsequent_forks=True``, every fork at or after each named
+    fork (and their transitions) is excluded; otherwise only the named
+    forks themselves are excluded.
+    """
+
+    def _process_with_marker_args(
+        self,
+        *fork_args: str,
+        subsequent_forks: bool = False,
+    ) -> Set[Fork | TransitionFork]:
+        """Process the fork arguments."""
+        forks: Set[Fork | TransitionFork] = self.process_fork_arguments(
+            *fork_args
+        )
+        resulting_set: Set[Fork | TransitionFork] = set()
+        for fork in forks:
+            if subsequent_forks:
+                resulting_set |= {
+                    f for f in ALL_FORKS_WITH_TRANSITIONS if f >= fork
+                }
+            else:
+                resulting_set.add(fork)
+        return resulting_set
+
+    def process(
+        self, forks: Set[Fork | TransitionFork]
+    ) -> Set[Fork | TransitionFork]:
+        """Subtract the marker's fork set from the test's fork set."""
+        if self.mark is None:
+            fork_set = self._process_with_marker_args()
+        else:
+            fork_set = self._process_with_marker_args(
+                *self.mark.args, **self.mark.kwargs
+            )
+        resulting_set = forks - fork_set
+        if not resulting_set:
+            raise ValidityMarker.ValidityMarkerCombinationError()
         return resulting_set
 
 

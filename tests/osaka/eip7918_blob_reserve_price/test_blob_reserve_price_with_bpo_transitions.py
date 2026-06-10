@@ -24,6 +24,8 @@ from execution_testing.forks import BPO2ToBPO3AtTime15k
 
 from .spec import Spec, ref_spec_7918
 
+pytestmark = pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
+
 REFERENCE_SPEC_GIT_PATH = ref_spec_7918.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7918.version
 
