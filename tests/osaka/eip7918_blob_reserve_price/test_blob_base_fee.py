@@ -28,10 +28,7 @@ from .spec import Spec, ref_spec_7918
 REFERENCE_SPEC_GIT_PATH = ref_spec_7918.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7918.version
 
-pytestmark = [
-    pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True),
-    pytest.mark.valid_from("Osaka"),
-]
+pytestmark = pytest.mark.valid_from("Osaka")
 
 
 @pytest.fixture

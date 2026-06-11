@@ -25,8 +25,6 @@ from execution_testing import (
 from .common import INF_POINT, Z
 from .spec import Spec, ref_spec_4844
 
-pytestmark = pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
-
 REFERENCE_SPEC_GIT_PATH = ref_spec_4844.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4844.version
 
