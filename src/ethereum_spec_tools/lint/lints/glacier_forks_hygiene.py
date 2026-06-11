@@ -78,9 +78,21 @@ class GlacierForksHygiene(Lint):
             # Nothing to compare against or non-glacier fork!
             return []
 
+        # Skip over any Monad forks when picking the predecessor; Monad
+        # is a parallel branch off Prague/Osaka, so BPO/glacier forks
+        # must be compared against the last upstream fork, not the
+        # last Monad fork in the linear order.
+        previous_position = position - 1
+        while previous_position >= 0 and forks[
+            previous_position
+        ].short_name.startswith("monad_"):
+            previous_position -= 1
+        if previous_position < 0:
+            return []
+
         diagnostics: List[Diagnostic] = []
 
-        all_previous = dict(walk_sources(forks[position - 1]))
+        all_previous = dict(walk_sources(forks[previous_position]))
         all_current = dict(walk_sources(forks[position]))
 
         all_files = set(all_previous.keys()) | set(all_current.keys())
