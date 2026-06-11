@@ -56,7 +56,7 @@ from ..vm.eoa_delegation import (
 from ..vm.gas import GasCosts, charge_gas
 from ..vm.precompiled_contracts import MONAD_PRECOMPILE_ADDRESSES
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
-from . import Evm
+from . import Evm, EvmMemory
 from .exceptions import (
     AddressCollision,
     ExceptionalHalt,
@@ -69,7 +69,6 @@ from .exceptions import (
     StackDepthLimitError,
 )
 from .instructions import Ops, op_implementation
-from .memory import EvmMemory
 from .runtime import get_valid_jump_destinations
 
 STACK_DEPTH_LIMIT = Uint(1024)

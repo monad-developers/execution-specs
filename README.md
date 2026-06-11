@@ -25,18 +25,19 @@ It mainly serves as an alternative implementation of https://github.com/category
 1. Install `uv`: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 2. Clone and setup:
 
-```bash
-git clone --depth 1 https://github.com/monad-developers/execution-specs
-cd execution-specs
-uv python install 3.12
-uv python pin 3.12
-uv sync --all-extras
-```
+    ```bash
+    git clone --depth 1 https://github.com/monad-developers/execution-specs
+    cd execution-specs
+    uv python install 3.12
+    uv python pin 3.12
+    uv sync --all-extras
+    ```
+
 3. Fill all monadized spec tests as of writing this (see below for explanation of flags):
 
-```bash
-uv run fill --clean -m "blockchain_test or transaction_test" --from MONAD_EIGHT --until MONAD_NINE --chain-id 143 -n auto tests
-```
+    ```bash
+    uv run fill --clean -m "blockchain_test or transaction_test" --from MONAD_EIGHT --until MONAD_NINE --chain-id 143 -n auto tests
+    ```
 
 4. The test fixtures to be found in `fixtures/` directory under repo root.
 
@@ -49,14 +50,14 @@ Filling tests is the process of running Python generators of spec tests [like on
 #### `uv run fill` flags
 
 - **`-m blockchain_test or transaction_test`**: causes these two flavors of fixtures to be generated
-  - `blockchain_test` is the currently supported by `monad` flavor of a spec test checking correctness of the state transition. Note this includes `blockchain_test_from_state_test`, meaning that all `state_test(...)` fillers are included
-  - `transaction_test` is also supported, tests only correctness of static transaction checks
+    - `blockchain_test` is the currently supported by `monad` flavor of a spec test checking correctness of the state transition. Note this includes `blockchain_test_from_state_test`, meaning that all `state_test(...)` fillers are included
+    - `transaction_test` is also supported, tests only correctness of static transaction checks
 - **`--from MONAD_EIGHT --until MONAD_NINE`**: hardforks for which to generate fixtures. Must match with those defined in `monad`, inclusive
 - **`--chain-id 143`**: must be specified for signatures and EIP-7702 to work correctly
 - **`-n auto`**: from `pytest`, parallel execution of tests
 - **`tests`**: root directory to traverse to discover tests
-  - inside the tests are organized by EIP/MIP and the hardfork when they **became relevant**. For Monad these are `monad_eight` and `monad_nine` as of writing this. Here hardfork is informative only, doesn't need to match with `monad`.
-  - note that tests relevant for previous hardforks, e.g. `tests/prague/eip7702_set_code_tx`, are filled for hardforks requested with `--from`, `--until` flags, respecting any constraints the test itself might define. In other words, in the invocation above, EIP-7702 tests **will be filled**
+    - inside the tests are organized by EIP/MIP and the hardfork when they **became relevant**. For Monad these are `monad_eight` and `monad_nine` as of writing this. Here hardfork is informative only, doesn't need to match with `monad`.
+    - note that tests relevant for previous hardforks, e.g. `tests/prague/eip7702_set_code_tx`, are filled for hardforks requested with `--from`, `--until` flags, respecting any constraints the test itself might define. In other words, in the invocation above, EIP-7702 tests **will be filled**
 
 `pytest` flags are in general supported, while `--traces` will give you detailed EVM step traces. Refer to https://eest.ethereum.org/main/filling_tests/ for more details.
 

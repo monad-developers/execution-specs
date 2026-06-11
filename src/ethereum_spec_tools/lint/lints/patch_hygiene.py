@@ -26,7 +26,20 @@ class PatchHygiene(Lint):
             # Nothing to compare against!
             return []
 
-        all_previous = dict(walk_sources(forks[position - 1]))
+        # Skip Monad forks when picking the predecessor; Monad is a
+        # parallel branch off Prague/Osaka, so upstream forks must be
+        # compared against the previous upstream fork.
+        current_name = forks[position].short_name
+        previous_position = position - 1
+        if not current_name.startswith("monad_"):
+            while previous_position >= 0 and forks[
+                previous_position
+            ].short_name.startswith("monad_"):
+                previous_position -= 1
+        if previous_position < 0:
+            return []
+
+        all_previous = dict(walk_sources(forks[previous_position]))
         all_current = dict(walk_sources(forks[position]))
 
         items = (
