@@ -862,6 +862,10 @@ class BlockchainTest(BaseTest):
         if fork.supports_blobs():
             if (blob_gas_per_blob := fork.blob_gas_per_blob()) > 0:
                 blob_gas_used = blob_gas_per_blob * count_blobs(txs)
+        elif fork.header_blob_gas_used_required():
+            # Fork requires blob_gas_used header field but doesn't
+            # support blobs (e.g. Monad): fix value at zero.
+            blob_gas_used = 0
 
         # Prepare slot_number for header initialization
         slot_number_value: ZeroPaddedHexNumber | None = None

@@ -15,7 +15,7 @@ from ethereum_types.numeric import U256
 
 from ...vm import Evm
 from ...vm.exceptions import InvalidParameter, RevertInMonadPrecompile
-from ...vm.gas import GAS_WARM_ACCESS, charge_gas
+from ...vm.gas import GasCosts, charge_gas
 
 # Function selector for dippedIntoReserve()
 # keccak256("dippedIntoReserve()")[:4].hex() == "3a61584e"
@@ -67,7 +67,7 @@ def reserve_balance(evm: Evm) -> None:
         raise InvalidParameter
 
     # GAS
-    charge_gas(evm, GAS_WARM_ACCESS)
+    charge_gas(evm, GasCosts.WARM_ACCESS)
 
     if len(data) < 4:
         evm.output = b"method not supported"

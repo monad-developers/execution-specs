@@ -12,7 +12,7 @@ A straightforward interpreter that executes EVM code.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Set, Tuple
+from typing import Optional, Set, Tuple, final
 
 from ethereum_types.bytes import Bytes, Bytes0
 from ethereum_types.numeric import U256, Uint, ulen
@@ -31,19 +31,20 @@ from ethereum.trace import (
 )
 
 from ..blocks import Log
-from ..state import (
+from ..state_tracker import (
     account_has_code_or_nonce,
     account_has_storage,
-    begin_transaction,
-    commit_transaction,
+    copy_tx_state,
+    destroy_storage,
     get_account,
     get_balance_original,
     get_code,
     increment_nonce,
     is_sender_authority,
+    iter_all_addresses,
     mark_account_created,
     move_ether,
-    rollback_transaction,
+    restore_tx_state,
     set_code,
 )
 from ..vm import Message
@@ -52,7 +53,7 @@ from ..vm.eoa_delegation import (
     is_valid_delegation,
     set_delegation,
 )
-from ..vm.gas import GAS_CODE_DEPOSIT_PER_BYTE, charge_gas
+from ..vm.gas import GasCosts, charge_gas
 from ..vm.precompiled_contracts import MONAD_PRECOMPILE_ADDRESSES
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
 from . import Evm
@@ -83,10 +84,21 @@ def is_reserve_balance_violated(evm: Evm) -> bool:
     Check if any EOA has violated the reserve balance constraint.
 
     Returns True if a violation is detected, False otherwise.
+
+    Reads "balance at start of EVM execution" from
+    ``tx_env.tx_snapshot`` — captured at the top-level message begin
+    (after pre-execution gas/nonce deduction). Recreates pre-refactor
+    ``state._snapshots[0]`` semantics. Callable from anywhere inside
+    the tx (top-level end-of-tx check or the dippedIntoReserve
+    precompile).
     """
     message = evm.message
-    state = message.block_env.state
+    tx_state = message.tx_env.state
     tx_env = message.tx_env
+    snapshot = tx_env.tx_snapshot
+    assert snapshot is not None, (
+        "tx_snapshot must be set on tx_env before reserve balance check"
+    )
 
     # Collect accounts_to_delete from all ancestor frames. accounts_to_delete
     # only propagates upward on success (incorporate_child_on_success), so a
@@ -100,12 +112,12 @@ def is_reserve_balance_violated(evm: Evm) -> bool:
         else:
             break
 
-    for addr in set(state._main_trie._data.keys()):
+    for addr in iter_all_addresses(tx_state):
         # Account SELFDESTRUCTed - skip explicitly.
         if addr in all_accounts_to_delete:
             continue
 
-        acc = get_account(state, addr)
+        acc = get_account(tx_state, addr)
         # For creation txs, code hasn't been set yet on the new contract
         # (set_code runs after process_message returns). Use evm.output which
         # holds the code to be deployed.
@@ -115,13 +127,13 @@ def is_reserve_balance_violated(evm: Evm) -> bool:
         ):
             code = evm.output
         else:
-            code = get_code(state, acc.code_hash)
+            code = get_code(tx_state, acc.code_hash)
 
         # NOTE: this also matches initcode ending with empty code deployments
         # via `Op.STOP` or `Op.RETURN(0, 0)`, AND check made during initcode
         # execution, but this aligns with Monad EVM implementation.
         if code == b"" or is_valid_delegation(code):
-            original_balance = get_balance_original(state, addr)
+            original_balance = get_balance_original(snapshot, addr)
             if tx_env.origin == addr:
                 # gas_fees already deducted, need to re-add if sender
                 # to match with spec.
@@ -134,7 +146,7 @@ def is_reserve_balance_violated(evm: Evm) -> bool:
 
             is_exception = (
                 message.tx_env.origin == addr
-                and not is_sender_authority(state, addr)
+                and not is_sender_authority(tx_state.parent, addr)
                 and not is_valid_delegation(code)
             )
 
@@ -147,6 +159,7 @@ def is_reserve_balance_violated(evm: Evm) -> bool:
     return False
 
 
+@final
 @dataclass
 class MessageCallOutput:
     """
@@ -186,12 +199,12 @@ def process_message_call(message: Message) -> MessageCallOutput:
         Output of the message call
 
     """
-    block_env = message.block_env
+    tx_state = message.tx_env.state
     refund_counter = U256(0)
     if message.target == Bytes0(b""):
         is_collision = account_has_code_or_nonce(
-            block_env.state, message.current_target
-        ) or account_has_storage(block_env.state, message.current_target)
+            tx_state, message.current_target
+        ) or account_has_storage(tx_state, message.current_target)
         if is_collision:
             return MessageCallOutput(
                 gas_left=Uint(0),
@@ -212,8 +225,8 @@ def process_message_call(message: Message) -> MessageCallOutput:
             message.disable_precompiles = True
             message.accessed_addresses.add(delegated_address)
             message.code = get_code(
-                block_env.state,
-                get_account(block_env.state, delegated_address).code_hash,
+                tx_state,
+                get_account(tx_state, delegated_address).code_hash,
             )
             message.code_address = delegated_address
             message.disable_create_opcodes = True
@@ -258,22 +271,31 @@ def process_create_message(message: Message) -> Evm:
         Items containing execution specific objects.
 
     """
-    state = message.block_env.state
-    transient_storage = message.tx_env.transient_storage
+    tx_state = message.tx_env.state
     # take snapshot of state before processing the message
-    begin_transaction(state, transient_storage)
+    snapshot = copy_tx_state(tx_state)
 
-    # The list of created accounts is used by `get_storage_original`.
-    # Additionally, the list is needed to respect the constraints
+    # If the address where the account is being created has storage, it is
+    # destroyed. This can only happen in the following highly unlikely
+    # circumstances:
+    # * The address created by a `CREATE` call collides with a subsequent
+    #   `CREATE` or `CREATE2` call.
+    # * The first `CREATE` happened before Spurious Dragon and left empty
+    #   code.
+    destroy_storage(tx_state, message.current_target)
+
+    # In the previously mentioned edge case the preexisting storage is ignored
+    # for gas refund purposes. In order to do this we must track created
+    # accounts. This tracking is also needed to respect the constraints
     # added to SELFDESTRUCT by EIP-6780.
-    mark_account_created(state, message.current_target)
+    mark_account_created(tx_state, message.current_target)
 
-    increment_nonce(state, message.current_target)
+    increment_nonce(tx_state, message.current_target)
     evm = process_message(message)
     if not evm.error:
         contract_code = evm.output
         contract_code_gas = (
-            Uint(len(contract_code)) * GAS_CODE_DEPOSIT_PER_BYTE
+            ulen(contract_code) * GasCosts.CODE_DEPOSIT_PER_BYTE
         )
         try:
             if len(contract_code) > 0:
@@ -283,15 +305,14 @@ def process_create_message(message: Message) -> Evm:
             if len(contract_code) > MAX_CODE_SIZE:
                 raise OutOfGasError
         except ExceptionalHalt as error:
-            rollback_transaction(state, transient_storage)
+            restore_tx_state(tx_state, snapshot)
             evm.gas_left = Uint(0)
             evm.output = b""
             evm.error = error
         else:
-            set_code(state, message.current_target, contract_code)
-            commit_transaction(state, transient_storage)
+            set_code(tx_state, message.current_target, contract_code)
     else:
-        rollback_transaction(state, transient_storage)
+        restore_tx_state(tx_state, snapshot)
     return evm
 
 
@@ -310,11 +331,10 @@ def process_message(message: Message) -> Evm:
         Items containing execution specific objects
 
     """
-    state = message.block_env.state
+    tx_state = message.tx_env.state
     if message.depth > STACK_DEPTH_LIMIT:
         raise StackDepthLimitError("Stack depth limit reached")
 
-    transient_storage = message.tx_env.transient_storage
     code = message.code
     valid_jump_destinations = get_valid_jump_destinations(code)
 
@@ -346,11 +366,20 @@ def process_message(message: Message) -> Evm:
     )
 
     # take snapshot of state before processing the message
-    begin_transaction(state, transient_storage)
+    snapshot = copy_tx_state(tx_state)
+    # Monad: at top-level message begin, also stash the snapshot on
+    # tx_env so the reserve-balance check and dippedIntoReserve
+    # precompile can read "balance at start of EVM execution" from
+    # any frame.
+    if message.depth == 0:
+        message.tx_env.tx_snapshot = snapshot
 
     if message.should_transfer_value and message.value != 0:
         move_ether(
-            state, message.caller, message.current_target, message.value
+            tx_state,
+            message.caller,
+            message.current_target,
+            message.value,
         )
 
     try:
@@ -391,15 +420,12 @@ def process_message(message: Message) -> Evm:
         evm.error = error
 
     if evm.error:
-        # revert state to the last saved checkpoint
-        # since the message call resulted in an error
-        rollback_transaction(state, transient_storage)
+        restore_tx_state(tx_state, snapshot)
     else:
         # FIXME: index_in_block is a proxy for not being a system tx
         if message.depth == 0 and message.tx_env.index_in_block is not None:
             if is_reserve_balance_violated(evm):
-                rollback_transaction(state, transient_storage)
+                restore_tx_state(tx_state, snapshot)
                 evm.error = RevertOnReserveBalance()
                 return evm
-        commit_transaction(state, transient_storage)
     return evm

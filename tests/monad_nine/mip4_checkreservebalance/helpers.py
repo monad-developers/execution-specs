@@ -40,7 +40,9 @@ def call_dipped_into_reserve() -> Bytecode:
 def generous_gas(fork: Fork) -> int:
     """Return generous parametrized gas to always be enough."""
     constant = 100_000
-    gas_costs = fork.gas_costs()
+    # Transition forks don't expose gas_costs directly; resolve to the
+    # post-transition fork (no-op for regular forks).
+    gas_costs = fork.transitions_to().gas_costs()
     sstore_cost = gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
     deploy_cost = gas_costs.CODE_DEPOSIT_PER_BYTE * len(Op.STOP)
     access_cost = gas_costs.COLD_ACCOUNT_ACCESS

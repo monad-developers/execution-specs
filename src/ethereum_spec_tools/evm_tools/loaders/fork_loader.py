@@ -334,17 +334,40 @@ class ForkLoad:
     @property
     def forget_senders_authorities(self) -> Any:
         """forget_senders_authorities function of the fork."""
-        return self._module("state").forget_senders_authorities
+        # Look in `state_tracker` first (post-refactor location), then
+        # the legacy `state` module.
+        try:
+            return self._module("state_tracker").forget_senders_authorities
+        except (ModuleNotFoundError, AttributeError):
+            return self._module("state").forget_senders_authorities
 
     @property
     def has_senders_authorities(self) -> Any:
         """Fork has senders_authorities functions."""
-        return hasattr(self._module("state"), "forget_senders_authorities")
+        # `forget_senders_authorities` is a Monad extension that lived
+        # on the legacy `state` module pre-refactor, now lives on
+        # `state_tracker`. Upstream forks ship neither, so missing
+        # modules mean "fork has no senders_authorities".
+        for module_name in ("state_tracker", "state"):
+            try:
+                module = self._module(module_name)
+            except ModuleNotFoundError:
+                continue
+            if hasattr(module, "forget_senders_authorities"):
+                return True
+        return False
 
     @property
     def set_account(self) -> Any:
         """set_account function of the fork."""
-        return self._module("state").set_account
+        # Post-refactor upstream forks expose `set_account` from
+        # `state_tracker`; pre-refactor forks (and any Monad fork that
+        # still ships a legacy `state` module) expose it from `state`.
+        # Try the new location first, fall back to the old one.
+        try:
+            return self._module("state_tracker").set_account
+        except ModuleNotFoundError:
+            return self._module("state").set_account
 
     @property
     def incorporate_tx_into_block(self) -> Any:

@@ -367,6 +367,9 @@ class Result:
         if hasattr(block_env, "excess_blob_gas"):
             self.excess_blob_gas = block_env.excess_blob_gas
 
+        if hasattr(block_output, "blob_gas_used"):
+            self.blob_gas_used = block_output.blob_gas_used
+
         if hasattr(block_output, "requests"):
             self.requests = block_output.requests
             self.requests_hash = t8n.fork.compute_requests_hash(self.requests)
