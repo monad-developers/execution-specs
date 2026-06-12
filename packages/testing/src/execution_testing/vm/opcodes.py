@@ -307,6 +307,21 @@ class Opcode(Bytecode, OpcodeBase):
                 )
 
         # Create a new opcode instance with updated metadata
+        merged = {**self.metadata, **metadata}
+        # key_warm=True implies the page is at least load-warm. Auto-set
+        # page_load_warm when only key_warm was passed (so pre-MIP-8 tests
+        # using key_warm still price correctly under MIP-8). Reject
+        # explicit conflicts (key_warm=True alongside page_load_warm=False
+        # in the same call).
+        if merged.get("key_warm") and "page_load_warm" in merged:
+            if "page_load_warm" in metadata and not metadata["page_load_warm"]:
+                raise ValueError(
+                    "key_warm=True implies page_load_warm=True; got "
+                    f"page_load_warm={metadata['page_load_warm']} in the "
+                    "same call"
+                )
+            if "page_load_warm" not in metadata:
+                merged["page_load_warm"] = True
         new_opcode = Opcode(
             bytes(self),
             popped_stack_items=self.popped_stack_items,
@@ -319,8 +334,7 @@ class Opcode(Bytecode, OpcodeBase):
             terminating=self.terminating,
             kwargs=self.kwargs,
             kwargs_defaults=self.kwargs_defaults,
-            # Merge defaults, existing metadata, and new metadata
-            metadata={**self.metadata, **metadata},
+            metadata=merged,
             original_opcode=self,
         )
         new_opcode.opcode_list = [new_opcode]
@@ -2556,7 +2570,7 @@ class Opcodes(Opcode, Enum):
         popped_stack_items=1,
         pushed_stack_items=1,
         kwargs=["key"],
-        metadata={"key_warm": False},
+        metadata={"key_warm": False, "page_load_warm": False},
     )
     """
     SLOAD(key) = value
@@ -2581,12 +2595,25 @@ class Opcodes(Opcode, Enum):
 
     Gas
     ----
+    NOTE: MIP-8 (MONAD_NEXT) changes the gas cost, see spec.
     - static_gas = 0
     - dynamic_gas = 100 if warm_address, 2600 if cold_address
 
+    MIP-8 (MONAD_NEXT) replaces per-key warming with per-page
+    warming: `GAS_PAGE_BASE_COST` when the page is already in
+    `read_accessed_pages`, else `GAS_PAGE_LOAD_COST +
+    GAS_PAGE_BASE_COST`.
+
     Metadata
     ----
-    - key_warm: whether the storage key is already warm (default: False)
+    - key_warm: whether the storage key is already warm (default: False).
+        Used by pre-MIP-8 gas calculations. Under MIP-8 a True
+        value implies `page_load_warm=True` (any prior SLOAD/SSTORE
+        on the key necessarily loaded its page) so pre-MIP-8 tests
+        flagged only with `key_warm` still price correctly.
+    - page_load_warm: MIP-8 only. Whether the page hosting `key` is
+        already in `read_accessed_pages` at the time of the SLOAD
+        (default: False).
 
     Source: [evm.codes/#54](https://www.evm.codes/#54)
     """
@@ -2600,6 +2627,10 @@ class Opcodes(Opcode, Enum):
             "original_value": 0,
             "current_value": None,
             "new_value": 1,
+            "page_load_warm": False,
+            "page_write_warm": False,
+            "current_state_growth": 0,
+            "net_state_growth": 0,
         },
     )
     """
@@ -2625,6 +2656,7 @@ class Opcodes(Opcode, Enum):
 
     Gas
     ----
+    NOTE: MIP-8 (MONAD_NEXT) changes the gas cost, see spec.
     ```
     static_gas = 0
 
@@ -2648,12 +2680,26 @@ class Opcodes(Opcode, Enum):
     Metadata
     ----
     - key_warm: whether the key had already been accessed during the
-        transaction, either by SLOAD or SSTORE (default: False)
+        transaction, either by SLOAD or SSTORE (default: False).
+        Under MIP-8 a True value implies `page_load_warm=True`.
     - original_value: value the storage key had at the beginning of
         the transaction (default: 0)
     - current_value: value the storage key holds at the execution
         of the opcode (default: None, which means same as original_value)
     - new_value: value being set by the opcode (default: 1)
+    - page_load_warm: MIP-8 only. Whether the page hosting `key` is
+        already in `read_accessed_pages` at the time of the SSTORE
+        (default: False).
+    - page_write_warm: MIP-8 only. Whether the page hosting `key` is
+        already in `write_accessed_pages` at the time of the SSTORE
+        (default: False).
+    - current_state_growth: MIP-8 only. The page's current
+        state-growth counter (count of nonzero slots) prior to this
+        SSTORE (default: 0).
+    - net_state_growth: MIP-8 only. The page's peak state-growth
+        counter so far in the transaction prior to this SSTORE
+        (default: 0). A state-growth charge applies when this SSTORE
+        pushes `current_state_growth` strictly above `net_state_growth`.
 
     Source: [evm.codes/#55](https://www.evm.codes/#55)
     """

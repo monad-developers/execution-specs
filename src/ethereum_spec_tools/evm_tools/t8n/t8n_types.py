@@ -346,13 +346,26 @@ class Result:
         self.bloom = t8n.fork.logs_bloom(block_output.block_logs)
         self.logs_hash = keccak256(rlp.encode(block_output.block_logs))
         block_diff = t8n.fork.extract_block_diff(t8n._block_state)
-        state_root_value, _ = (
-            t8n.alloc.state.compute_state_root_and_trie_changes(
+        # Alternative: instead of dispatching here, give the fork its own
+        # `State` subclass whose `compute_state_root_and_trie_changes` is
+        # paged, built by `json_to_state`. That keeps the tool fork-blind
+        # but requires un-`@final`-ing the shared `State` and duplicating
+        # the paged logic. We dispatch here to keep one paged impl.
+        if t8n.fork.has_paged_state_root:
+            state_root_value = t8n.fork.compute_paged_state_root(
+                t8n.alloc.state,
                 block_diff.account_changes,
                 block_diff.storage_changes,
                 block_diff.storage_clears,
             )
-        )
+        else:
+            state_root_value, _ = (
+                t8n.alloc.state.compute_state_root_and_trie_changes(
+                    block_diff.account_changes,
+                    block_diff.storage_changes,
+                    block_diff.storage_clears,
+                )
+            )
         self.state_root = state_root_value
         # Apply diffs to pre-state for alloc output
         apply_changes_to_state(t8n.alloc.state, block_diff)

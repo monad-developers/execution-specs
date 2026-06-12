@@ -2,7 +2,10 @@
 
 from typing import Any, Callable, ClassVar, Dict, Type
 
+from execution_testing.vm import OpcodeGasCalculator
+
 from .base_fork import BaseFork
+from .gas_costs import GasCosts
 
 
 class TransitionBaseMetaClass(type):
@@ -105,6 +108,21 @@ class TransitionBaseClass(metaclass=TransitionBaseMetaClass):
         Return the ruleset used for fork configuration.
         """
         raise Exception("Not implemented")
+
+    @classmethod
+    def gas_costs(cls) -> GasCosts:
+        """Return the gas costs of the transitioned-to fork."""
+        return cls.transitions_to().gas_costs()
+
+    @classmethod
+    def opcode_gas_calculator(cls) -> OpcodeGasCalculator:
+        """
+        Return the opcode gas calculator of the transitioned-to fork.
+
+        Transition forks delegate opcode gas to the resulting fork so that
+        opcode-level gas helpers work when given a transition fork.
+        """
+        return cls.transitions_to().opcode_gas_calculator()
 
 
 def transition_fork(

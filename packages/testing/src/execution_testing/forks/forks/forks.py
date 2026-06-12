@@ -1666,6 +1666,94 @@ class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
         return fn
 
 
+class MONAD_NEXT(MONAD_NINE, solc_name="cancun"):  # noqa: N801
+    """MONAD_NEXT fork."""
+
+    @classmethod
+    def gas_costs(cls) -> GasCosts:
+        """Return gas costs with MIP-8 page-based storage constants."""
+        return replace(
+            MONAD_NINE.gas_costs(),
+            PAGE_BASE_COST=100,
+            PAGE_LOAD_COST=8_000,
+            PAGE_WRITE_COST=2_800,
+            PAGE_STATE_GROWTH_COST=17_000,
+        )
+
+    @classmethod
+    def opcode_gas_map(
+        cls,
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Override SLOAD/SSTORE gas with MIP-8 page-level rules."""
+        base_map = super().opcode_gas_map()
+        gas_costs = cls.gas_costs()
+        return {
+            **base_map,
+            Opcodes.SLOAD: lambda op: (
+                gas_costs.PAGE_BASE_COST
+                if op.metadata["page_load_warm"] or op.metadata["key_warm"]
+                else gas_costs.PAGE_LOAD_COST + gas_costs.PAGE_BASE_COST
+            ),
+            Opcodes.SSTORE: lambda op: cls._calculate_sstore_gas_mip8(
+                op, gas_costs
+            ),
+        }
+
+    @classmethod
+    def opcode_refund_map(
+        cls,
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """MIP-8 removes SSTORE refunds."""
+        return {}
+
+    @classmethod
+    def _calculate_sstore_gas_mip8(
+        cls, opcode: OpcodeBase, gas_costs: GasCosts
+    ) -> int:
+        """
+        Calculate SSTORE gas cost per MIP-8.
+
+        Metadata fields used:
+        - current_value: value right before this SSTORE (v_original
+          in spec terms — `None` falls back to original_value)
+        - new_value: value being written
+        - page_load_warm: page already in read_accessed_pages
+        - page_write_warm: page already in write_accessed_pages
+        - key_warm: any prior SLOAD/SSTORE on this key — implies
+          page_load_warm, but for prior SSTORE will still misprice
+        - current_state_growth: per-page counter before this op
+        - net_state_growth: per-page peak before this op
+        """
+        metadata = opcode.metadata
+
+        v_original = metadata["current_value"]
+        if v_original is None:
+            v_original = metadata["original_value"]
+        v_new = metadata["new_value"]
+
+        gas_cost = gas_costs.PAGE_BASE_COST
+
+        page_load_warm = metadata["page_load_warm"] or metadata["key_warm"]
+
+        if not page_load_warm:
+            gas_cost += gas_costs.PAGE_LOAD_COST
+
+        if v_original != v_new:
+            if not metadata["page_write_warm"]:
+                gas_cost += gas_costs.PAGE_WRITE_COST
+
+        current = metadata["current_state_growth"]
+        peak = metadata["net_state_growth"]
+        if v_original == 0 and v_new != 0:
+            current += 1
+        elif v_original != 0 and v_new == 0:
+            current -= 1
+        if current > peak:
+            gas_cost += gas_costs.PAGE_STATE_GROWTH_COST
+
+        return gas_cost
+
+
 class BPO1(
     Osaka,
     bpo_fork=True,
