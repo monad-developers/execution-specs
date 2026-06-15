@@ -17,7 +17,13 @@ from execution_testing import (
     Address,
     Alloc,
     AuthorizationTuple,
+    BalAccountExpectation,
+    BalCodeChange,
+    BalNonceChange,
+    BalStorageChange,
+    BalStorageSlot,
     Block,
+    BlockAccessListExpectation,
     BlockchainTestFiller,
     Bytecode,
     Bytes,
@@ -793,6 +799,12 @@ def test_set_code_to_contract_creator(
     [0, 1],
 )
 @pytest.mark.with_all_call_opcodes
+@pytest.mark.filter_combinations(
+    lambda call_opcode, value, **_: (
+        "value" in call_opcode.kwargs or value == 0
+    ),
+    reason="opcode does not support value argument",
+)
 def test_set_code_to_self_caller(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -800,9 +812,6 @@ def test_set_code_to_self_caller(
     value: int,
 ) -> None:
     """Test the executing a self-call in a set-code transaction."""
-    if "value" not in call_opcode.kwargs and value != 0:
-        pytest.skip(f"Call opcode {call_opcode} does not support value")
-
     storage = Storage()
     auth_signer = pre.fund_eoa(auth_account_start_balance)
 
@@ -857,7 +866,7 @@ def test_set_code_to_self_caller(
 
 
 @pytest.mark.execute(pytest.mark.skip(reason="excessive gas"))
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_set_code_max_depth_call_stack(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -929,7 +938,13 @@ def test_set_code_max_depth_call_stack(
     "value",
     [0, 1],
 )
-@pytest.mark.json_loader
+@pytest.mark.filter_combinations(
+    lambda call_opcode, value, **_: (
+        "value" in call_opcode.kwargs or value == 0
+    ),
+    reason="opcode does not support value argument",
+)
+@pytest.mark.eels_base_coverage
 def test_set_code_call_set_code(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -937,9 +952,6 @@ def test_set_code_call_set_code(
     value: int,
 ) -> None:
     """Test the calling a set-code account from another set-code account."""
-    if "value" not in call_opcode.kwargs and value != 0:
-        pytest.skip(f"Call opcode {call_opcode} does not support value")
-
     auth_signer_1 = pre.fund_eoa(auth_account_start_balance)
     storage_1 = Storage()
 
@@ -1148,22 +1160,17 @@ def test_call_into_self_delegating_set_code(
     state_test: StateTestFiller,
     pre: Alloc,
     call_opcode: Op,
+    fork: Fork,
 ) -> None:
     """Test call into a set-code account that delegates to itself."""
     auth_signer = pre.fund_eoa(auth_account_start_balance)
 
     storage = Storage()
+    return_slot = storage.store_next(
+        call_return_code(opcode=call_opcode, success=False)
+    )
     entry_code = (
-        Op.SSTORE(
-            storage.store_next(
-                call_return_code(
-                    opcode=call_opcode,
-                    success=False,
-                )
-            ),
-            call_opcode(address=auth_signer),
-        )
-        + Op.STOP
+        Op.SSTORE(return_slot, call_opcode(address=auth_signer)) + Op.STOP
     )
     entry_address = pre.deploy_contract(entry_code)
 
@@ -1181,6 +1188,36 @@ def test_call_into_self_delegating_set_code(
         sender=pre.fund_eoa(),
     )
 
+    expected_block_access_list = None
+    if fork.is_eip_enabled(7928):
+        # Degenerate one-hop: auth_signer's delegation target IS itself.
+        # CALL(auth_signer) resolves once, runs the 0xef0100... designator
+        # as bytecode -> INVALID -> returns 0. SSTORE(slot, 0) is no-op.
+        expected_block_access_list = BlockAccessListExpectation(
+            account_expectations={
+                tx.sender: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                ),
+                entry_address: BalAccountExpectation(
+                    storage_changes=[],
+                    storage_reads=[return_slot],
+                ),
+                auth_signer: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                    code_changes=[
+                        BalCodeChange(
+                            block_access_index=1,
+                            new_code=Spec.delegation_designation(auth_signer),
+                        )
+                    ],
+                ),
+            }
+        )
+
     state_test(
         env=Environment(),
         pre=pre,
@@ -1191,6 +1228,7 @@ def test_call_into_self_delegating_set_code(
                 nonce=1, code=Spec.delegation_designation(auth_signer)
             ),
         },
+        expected_block_access_list=expected_block_access_list,
     )
 
 
@@ -1199,6 +1237,7 @@ def test_call_into_chain_delegating_set_code(
     state_test: StateTestFiller,
     pre: Alloc,
     call_opcode: Op,
+    fork: Fork,
 ) -> None:
     """
     Test call into a set-code account that delegates to another set-code
@@ -1208,14 +1247,15 @@ def test_call_into_chain_delegating_set_code(
     auth_signer_2 = pre.fund_eoa(auth_account_start_balance)
 
     storage = Storage()
+    return_slot = storage.store_next(
+        call_return_code(
+            opcode=call_opcode,
+            success=False,
+        )
+    )
     entry_code = (
         Op.SSTORE(
-            storage.store_next(
-                call_return_code(
-                    opcode=call_opcode,
-                    success=False,
-                )
-            ),
+            return_slot,
             call_opcode(address=auth_signer_1),
         )
         + Op.STOP
@@ -1241,6 +1281,51 @@ def test_call_into_chain_delegating_set_code(
         sender=pre.fund_eoa(),
     )
 
+    expected_block_access_list = None
+    if fork.is_eip_enabled(7928):
+        # One-hop delegation resolution: CALL(A) resolves A->B once; B's
+        # 0xef0100... bytecode aborts as INVALID. CALL returns 0, so
+        # SSTORE(slot, 0) is a no-op write and is demoted to storage_reads.
+        expected_block_access_list = BlockAccessListExpectation(
+            account_expectations={
+                tx.sender: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                ),
+                entry_address: BalAccountExpectation(
+                    storage_changes=[],
+                    storage_reads=[return_slot],
+                ),
+                auth_signer_1: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                    code_changes=[
+                        BalCodeChange(
+                            block_access_index=1,
+                            new_code=Spec.delegation_designation(
+                                auth_signer_2
+                            ),
+                        )
+                    ],
+                ),
+                auth_signer_2: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                    code_changes=[
+                        BalCodeChange(
+                            block_access_index=1,
+                            new_code=Spec.delegation_designation(
+                                auth_signer_1
+                            ),
+                        )
+                    ],
+                ),
+            }
+        )
+
     state_test(
         env=Environment(),
         pre=pre,
@@ -1254,6 +1339,7 @@ def test_call_into_chain_delegating_set_code(
                 nonce=1, code=Spec.delegation_designation(auth_signer_1)
             ),
         },
+        expected_block_access_list=expected_block_access_list,
     )
 
 
@@ -1477,14 +1563,14 @@ def test_set_code_address_and_authority_warm_state(
     callee_storage = Storage()
     callee_storage[slot_call_success] = 1
     callee_storage[slot_set_code_to_warm_state] = (
-        gas_costs.GAS_COLD_ACCOUNT_ACCESS
+        gas_costs.COLD_ACCOUNT_ACCESS
         if set_code_address_first
-        else gas_costs.GAS_WARM_ACCOUNT_ACCESS
+        else gas_costs.WARM_ACCESS
     )
     callee_storage[slot_authority_warm_state] = 100 + (
-        gas_costs.GAS_WARM_ACCOUNT_ACCESS
+        gas_costs.WARM_ACCESS
         if set_code_address_first
-        else gas_costs.GAS_COLD_ACCOUNT_ACCESS
+        else gas_costs.COLD_ACCOUNT_ACCESS
     )
 
     tx = Transaction(
@@ -2471,7 +2557,7 @@ def test_set_code_using_valid_synthetic_signatures(
         ),
     ],
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_valid_tx_invalid_auth_signature(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2523,6 +2609,7 @@ def test_signature_s_out_of_range(
     state_test: StateTestFiller,
     pre: Alloc,
     chain_config: ChainConfig,
+    fork: Fork,
 ) -> None:
     """
     Test sending a transaction with an authorization tuple where the signature
@@ -2558,6 +2645,33 @@ def test_signature_s_out_of_range(
         sender=pre.fund_eoa(),
     )
 
+    expected_block_access_list = None
+    if fork.is_eip_enabled(7928):
+        # High-s rejected pre-load -> authority not in BAL (EIP-7928).
+        expected_block_access_list = BlockAccessListExpectation(
+            account_expectations={
+                tx.sender: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                ),
+                entry_address: BalAccountExpectation(
+                    storage_changes=[
+                        BalStorageSlot(
+                            slot=success_slot,
+                            slot_changes=[
+                                BalStorageChange(
+                                    block_access_index=1, post_value=1
+                                )
+                            ],
+                        )
+                    ],
+                ),
+                auth_signer: None,
+                set_code_to_address: None,
+            }
+        )
+
     state_test(
         env=Environment(),
         pre=pre,
@@ -2568,6 +2682,7 @@ def test_signature_s_out_of_range(
                 storage={success_slot: 1},
             ),
         },
+        expected_block_access_list=expected_block_access_list,
     )
 
 
@@ -2694,6 +2809,7 @@ def test_nonce_validity(
     pre: Alloc,
     account_nonce: int,
     authorization_nonce: int,
+    fork: Fork,
 ) -> None:
     """
     Test sending a transaction where the nonce field of an authorization almost
@@ -2735,6 +2851,83 @@ def test_nonce_validity(
         sender=pre.fund_eoa(),
     )
 
+    expected_block_access_list = None
+    if fork.is_eip_enabled(7928):
+        # Invalid auth -> CALL(auth_signer) returns 0; SSTORE(return_slot, 0)
+        # is a no-op write and is demoted to storage_reads per EIP-7928.
+        if valid_authorization:
+            entry_expectation = BalAccountExpectation(
+                storage_changes=[
+                    BalStorageSlot(
+                        slot=success_slot,
+                        slot_changes=[
+                            BalStorageChange(
+                                block_access_index=1, post_value=1
+                            )
+                        ],
+                    ),
+                    BalStorageSlot(
+                        slot=return_slot,
+                        slot_changes=[
+                            BalStorageChange(
+                                block_access_index=1, post_value=1
+                            )
+                        ],
+                    ),
+                ],
+            )
+            auth_signer_expectation: BalAccountExpectation | None = (
+                BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(
+                            block_access_index=1,
+                            post_nonce=account_nonce + 1,
+                        )
+                    ],
+                    code_changes=[
+                        BalCodeChange(
+                            block_access_index=1,
+                            new_code=Spec.delegation_designation(
+                                set_code_to_address
+                            ),
+                        )
+                    ],
+                )
+            )
+            set_code_target_expectation: BalAccountExpectation | None = (
+                BalAccountExpectation.empty()
+            )
+        else:
+            entry_expectation = BalAccountExpectation(
+                storage_changes=[
+                    BalStorageSlot(
+                        slot=success_slot,
+                        slot_changes=[
+                            BalStorageChange(
+                                block_access_index=1, post_value=1
+                            )
+                        ],
+                    ),
+                ],
+                storage_reads=[return_slot],
+            )
+            # Auth failed; subsequent CALL still touches the signer.
+            auth_signer_expectation = BalAccountExpectation.empty()
+            set_code_target_expectation = None
+
+        expected_block_access_list = BlockAccessListExpectation(
+            account_expectations={
+                tx.sender: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                ),
+                entry_address: entry_expectation,
+                auth_signer: auth_signer_expectation,
+                set_code_to_address: set_code_target_expectation,
+            }
+        )
+
     state_test(
         env=Environment(),
         pre=pre,
@@ -2757,11 +2950,12 @@ def test_nonce_validity(
                 },
             ),
         },
+        expected_block_access_list=expected_block_access_list,
     )
 
 
 @pytest.mark.pre_alloc_mutable()
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_nonce_overflow_after_first_authorization(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2901,6 +3095,7 @@ def test_set_code_to_precompile(
     pre: Alloc,
     precompile: Address,
     call_opcode: Op,
+    fork: Fork,
 ) -> None:
     """
     Test setting the code of an account to a pre-compile address and executing
@@ -2945,6 +3140,31 @@ def test_set_code_to_precompile(
         ],
     )
 
+    expected_block_access_list = None
+    if fork.is_eip_enabled(7928):
+        # Precompile is loaded as execution target via delegation dispatch
+        # for all 4 call opcodes. For DELEGATECALL/CALLCODE the precompile
+        # provides the code but is not the call target, so its access has
+        # to be recorded explicitly.
+        expected_block_access_list = BlockAccessListExpectation(
+            account_expectations={
+                auth_signer: BalAccountExpectation(
+                    nonce_changes=[
+                        BalNonceChange(block_access_index=1, post_nonce=1)
+                    ],
+                    code_changes=[
+                        BalCodeChange(
+                            block_access_index=1,
+                            new_code=Spec.delegation_designation(
+                                Address(precompile)
+                            ),
+                        )
+                    ],
+                ),
+                Address(precompile): BalAccountExpectation.empty(),
+            }
+        )
+
     state_test(
         env=Environment(),
         pre=pre,
@@ -2958,6 +3178,7 @@ def test_set_code_to_precompile(
                 storage=caller_code_storage,
             ),
         },
+        expected_block_access_list=expected_block_access_list,
     )
 
 
@@ -2981,8 +3202,7 @@ def test_set_code_to_precompile_not_enough_gas_for_precompile_execution(
         authorization_list_or_count=[auth],
     )
     # discount = min(
-    #     Spec.GAS_AUTH_PER_EMPTY_ACCOUNT
-    #     - Spec.REFUND_AUTH_PER_EXISTING_ACCOUNT,
+    #     Spec.AUTH_PER_EMPTY_ACCOUNT - Spec.REFUND_AUTH_PER_EXISTING_ACCOUNT,
     #     intrinsic_gas // 5,  # max discount EIP-3529
     # )
 
@@ -3423,7 +3643,7 @@ def test_reset_code(
 
 
 @pytest.mark.exception_test
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_contract_create(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -3452,7 +3672,7 @@ def test_contract_create(
 
 
 @pytest.mark.exception_test
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_empty_authorization_list(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -3913,7 +4133,7 @@ def test_many_delegations(
         max_gas = env.gas_limit
     gas_for_delegations = max_gas - 21_000 - 20_000 - (3 * 2)
 
-    delegation_count = gas_for_delegations // Spec.GAS_AUTH_PER_EMPTY_ACCOUNT
+    delegation_count = gas_for_delegations // Spec.AUTH_PER_EMPTY_ACCOUNT
 
     success_slot = 1
     entry_code = Op.SSTORE(success_slot, 1) + Op.STOP
@@ -4061,7 +4281,7 @@ def test_authorization_reusing_nonce(
 )
 @pytest.mark.exception_test
 @pytest.mark.pre_alloc_mutable
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_set_code_from_account_with_non_delegating_code(
     state_test: StateTestFiller,
     pre: Alloc,

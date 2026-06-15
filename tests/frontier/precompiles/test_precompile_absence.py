@@ -72,11 +72,11 @@ def test_precompile_absence(
     sstore_cost = (
         2
         * (UPPER_BOUND - len(active_precompiles))
-        * (gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD)
+        * (gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS)
     )
     access_cost = (
         UPPER_BOUND - len(active_precompiles)
-    ) * gas_costs.GAS_COLD_ACCOUNT_ACCESS
+    ) * gas_costs.COLD_ACCOUNT_ACCESS
 
     tx = Transaction(
         to=entry_point_address,

@@ -29,8 +29,10 @@ from execution_testing.forks import (
     ALL_FORKS,
     ALL_FORKS_WITH_TRANSITIONS,
     Fork,
+    ForkEIPSetAdapter,
     ForkSetAdapter,
     InvalidForkError,
+    TransitionFork,
     get_deployed_forks,
     get_selected_fork_set,
     get_transition_forks,
@@ -89,14 +91,14 @@ class ForkCovariantParameter:
 class ForkParametrizer:
     """A parametrizer for a test case that is parametrized by the fork."""
 
-    fork: Fork
+    fork: Fork | TransitionFork
     fork_covariant_parameters: List[ForkCovariantParameter] = field(
         default_factory=list
     )
 
     def __init__(
         self,
-        fork: Fork,
+        fork: Fork | TransitionFork,
         marks: List[pytest.MarkDecorator | pytest.Mark] | None = None,
         fork_covariant_parameters: List[ForkCovariantParameter] | None = None,
     ):
@@ -175,7 +177,9 @@ class CovariantDescriptor:
     """
 
     argnames: List[str] = []
-    fn: Callable[[Fork], List[Any] | Iterable[Any]] | None = None
+    fn: Callable[[Fork | TransitionFork], List[Any] | Iterable[Any]] | None = (
+        None
+    )
 
     selector: Callable[..., bool] | None = None
     marks: (
@@ -188,7 +192,8 @@ class CovariantDescriptor:
     def __init__(
         self,
         argnames: List[str] | str,
-        fn: Callable[[Fork], List[Any] | Iterable[Any]] | None = None,
+        fn: Callable[[Fork | TransitionFork], List[Any] | Iterable[Any]]
+        | None = None,
         *,
         selector: Callable[..., bool] | None = None,
         marks: None
@@ -346,10 +351,10 @@ class CovariantDecorator(CovariantDescriptor):
                 f"Unknown arguments to {self.marker_name}: {kwargs}"
             )
 
-        def fn(fork: Fork) -> List[Any]:
-            return getattr(fork, self.fork_attribute_name)(
-                block_number=0, timestamp=0
-            )
+        def fn(fork: Fork | TransitionFork) -> List[Any]:
+            if fork.is_transition_fork:
+                raise ValueError(f"Transition forks are not supported: {fork}")
+            return getattr(fork, self.fork_attribute_name)()
 
         super().__init__(
             argnames=self.marker_parameter_names,
@@ -448,6 +453,15 @@ fork_covariant_decorators: List[Type[CovariantDecorator]] = [
         fork_attribute_name="system_contracts",
         argnames=["system_contract"],
     ),
+    covariant_decorator(
+        marker_name="with_all_refund_types",
+        description=(
+            "marks a test to be parametrized for all refund types at "
+            "parameter named refund_type"
+        ),
+        fork_attribute_name="refund_types",
+        argnames=["refund_type"],
+    ),
 ]
 
 
@@ -473,7 +487,25 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
-        "valid_until(fork): specifies until which fork a test case is valid",
+        (
+            "valid_until(fork): specifies until which fork a test "
+            "case is valid (inclusive)"
+        ),
+    )
+    config.addinivalue_line(
+        "markers",
+        (
+            "valid_before(fork_or_eip): specifies the fork or EIP "
+            "before which a test case is valid (exclusive)"
+        ),
+    )
+    config.addinivalue_line(
+        "markers",
+        (
+            "not_valid_for(*forks, subsequent_forks=False): subtracts "
+            "the given forks (optionally and all after them) from the "
+            "test case's valid fork set"
+        ),
     )
     config.addinivalue_line(
         "markers",
@@ -485,6 +517,17 @@ def pytest_configure(config: pytest.Config) -> None:
             "parametrize_by_fork(names, values_fn): parametrize a test case "
             "by fork using the specified names and values returned by the "
             "function values_fn(fork)"
+        ),
+    )
+    config.addinivalue_line(
+        "markers",
+        (
+            "filter_combinations(predicate, *, reason): deselect "
+            "parametrized test cases whose parameter combination does not "
+            "satisfy predicate. The predicate receives parameter values as "
+            "keyword arguments and must return True to keep the "
+            "combination. *reason* is a short human-readable explanation "
+            "shown in verbose collection output."
         ),
     )
     for d in fork_covariant_decorators:
@@ -586,13 +629,14 @@ def pytest_configure(config: pytest.Config) -> None:
             returncode=pytest.ExitCode.USAGE_ERROR,
         )
 
-    config.unsupported_forks: Set[Fork] = set()  # type: ignore
+    config.unsupported_forks: Set[Fork | TransitionFork] = set()  # type: ignore
     t8n: TransitionTool | None = getattr(config, "t8n", None)
     if t8n:
         config.unsupported_forks = frozenset(  # type: ignore
             fork
             for fork in selected_fork_set
-            if not t8n.is_fork_supported(fork)
+            if not t8n.is_fork_supported(fork.transitions_from())
+            or not t8n.is_fork_supported(fork.transitions_to())
         )
         logger.debug(
             f"List of unsupported forks: {list(config.unsupported_forks)}"  # type: ignore
@@ -607,15 +651,30 @@ def pytest_report_header(config: pytest.Config, start_path: Any) -> List[str]:
     bold = "\033[1m"
     warning = "\033[93m"
     reset = "\033[39;49m"
+    selected_fork_set: Set[Fork | TransitionFork] = config.selected_fork_set  # type: ignore[attr-defined]
     header = [
         (
             bold
             + "Generating fixtures for: "
-            + ", ".join([f.name() for f in sorted(config.selected_fork_set)])  # type: ignore[attr-defined]
+            + ", ".join([f.name() for f in sorted(selected_fork_set)])
             + reset
         ),
     ]
-    if all(fork.is_deployed() for fork in config.selected_fork_set):  # type: ignore[attr-defined]
+    unsupported_forks: Set[Fork | TransitionFork] = config.unsupported_forks  # type: ignore[attr-defined]
+    if unsupported_forks:
+        t8n_name = config.t8n.__class__.__name__  # type: ignore[attr-defined]
+        excluded = ", ".join(f.name() for f in sorted(unsupported_forks))
+        header += [
+            (
+                bold
+                + warning
+                + f"Unsupported forks excluded from {t8n_name}: "
+                + excluded
+                + "."
+                + reset
+            )
+        ]
+    if all(fork.is_deployed() for fork in selected_fork_set):
         header += [
             (
                 bold
@@ -635,7 +694,9 @@ def fork(request: pytest.FixtureRequest) -> None:
 
 
 @pytest.fixture(scope="session")
-def session_fork(request: pytest.FixtureRequest) -> Fork | None:
+def session_fork(
+    request: pytest.FixtureRequest,
+) -> Fork | TransitionFork | None:
     """
     Session-wide fork object used if the plugin is configured in single-fork
     mode.
@@ -679,6 +740,13 @@ class ValidityMarker(ABC):
 
     mark: Mark | None
 
+    class ValidityMarkerCombinationError(Exception):
+        """
+        Combination of two validity markers generates an empty fork range.
+        """
+
+        pass
+
     def __init_subclass__(
         cls,
         marker_name: str | None = None,
@@ -712,14 +780,25 @@ class ValidityMarker(ABC):
                 f"Missing fork argument with '{self.marker_name}' marker"
             )
 
-    def process_fork_arguments(self, *fork_args: str) -> Set[Fork]:
+    def process_fork_arguments(
+        self, *fork_args: str
+    ) -> Set[Fork | TransitionFork]:
         """Process the fork arguments."""
-        fork_set = ForkSetAdapter.validate_python(fork_args)
-        if len(fork_set) != len(fork_args):
+        fork_eips_set = ForkEIPSetAdapter.validate_python(fork_args)
+        if len(fork_eips_set) != len(fork_args):
             raise Exception(
                 f"Duplicate argument specified in '{self.marker_name}'"
             )
-        return fork_set
+        forks_set: Set[Fork | TransitionFork] = set()
+        for fork_eip in fork_eips_set:
+            if fork_eip.is_transition_fork:
+                forks_set.add(fork_eip)
+            else:
+                if not fork_eip.is_eip():
+                    forks_set.add(fork_eip)
+                else:
+                    forks_set |= fork_eip.enabling_forks()
+        return forks_set
 
     @staticmethod
     def get_all_validity_markers(
@@ -753,11 +832,12 @@ class ValidityMarker(ABC):
     @staticmethod
     def get_test_fork_set(
         validity_markers: List["ValidityMarker"],
-    ) -> Set[Fork]:
+    ) -> Set[Fork | TransitionFork]:
         """
         Get the set of forks where a test is valid from the validity markers
         and filters.
         """
+        test_fork_set: Set[Fork | TransitionFork] = set()
         if not len(
             [
                 validity_marker
@@ -766,11 +846,11 @@ class ValidityMarker(ABC):
             ]
         ):
             # Limit to non-transition forks if no validity markers were applied
-            test_fork_set = set(ALL_FORKS)
+            test_fork_set |= set(ALL_FORKS)
         else:
             # Start with all forks and transitions if any validity markers were
             # applied
-            test_fork_set = set(ALL_FORKS_WITH_TRANSITIONS)
+            test_fork_set |= set(ALL_FORKS_WITH_TRANSITIONS)
 
         for v in validity_markers:
             # Apply the validity markers to the test function if applicable
@@ -781,7 +861,7 @@ class ValidityMarker(ABC):
     @staticmethod
     def get_test_fork_set_from_markers(
         markers: Iterator[pytest.Mark],
-    ) -> Set[Fork]:
+    ) -> Set[Fork | TransitionFork]:
         """
         Get the set of forks where a test is valid using the markers applied to
         the test.
@@ -793,7 +873,7 @@ class ValidityMarker(ABC):
     @staticmethod
     def get_test_fork_set_from_metafunc(
         metafunc: Metafunc,
-    ) -> Set[Fork]:
+    ) -> Set[Fork | TransitionFork]:
         """
         Get the set of forks where a test is valid using its pytest
         meta-function.
@@ -807,7 +887,9 @@ class ValidityMarker(ABC):
         """Check if a marker is a validity or filter marker."""
         return name in ALL_VALIDITY_MARKERS
 
-    def process(self, forks: Set[Fork]) -> Set[Fork]:
+    def process(
+        self, forks: Set[Fork | TransitionFork]
+    ) -> Set[Fork | TransitionFork]:
         """Process the fork arguments."""
         if self.mark is None:
             fork_set = self._process_with_marker_args()
@@ -817,12 +899,19 @@ class ValidityMarker(ABC):
             )
         if self.flag:
             return forks - fork_set
-        return forks & fork_set
+        if not fork_set:
+            # Test is marked for an EIP that is not yet enabled in any
+            # fork.
+            return fork_set
+        resulting_set = forks & fork_set
+        if not resulting_set:
+            raise ValidityMarker.ValidityMarkerCombinationError()
+        return resulting_set
 
     @abstractmethod
     def _process_with_marker_args(
         self, *args: Any, **kwargs: Any
-    ) -> Set[Fork]:
+    ) -> Set[Fork | TransitionFork]:
         """
         Process the fork arguments as specified for the marker.
 
@@ -857,10 +946,14 @@ class ValidFrom(ValidityMarker):
     after, e.g. London, Paris, Shanghai, Cancun, etc.
     """
 
-    def _process_with_marker_args(self, *fork_args: str) -> Set[Fork]:
+    def _process_with_marker_args(
+        self, *fork_args: str
+    ) -> Set[Fork | TransitionFork]:
         """Process the fork arguments."""
-        forks: Set[Fork] = self.process_fork_arguments(*fork_args)
-        resulting_set: Set[Fork] = set()
+        forks: Set[Fork | TransitionFork] = self.process_fork_arguments(
+            *fork_args
+        )
+        resulting_set: Set[Fork | TransitionFork] = set()
         for fork in forks:
             resulting_set |= {f for f in ALL_FORKS if f >= fork}
         return resulting_set
@@ -888,12 +981,117 @@ class ValidUntil(ValidityMarker):
     before, e.g. London, Berlin, Istanbul, etc.
     """
 
-    def _process_with_marker_args(self, *fork_args: str) -> Set[Fork]:
+    def _process_with_marker_args(
+        self, *fork_args: str
+    ) -> Set[Fork | TransitionFork]:
         """Process the fork arguments."""
-        forks: Set[Fork] = self.process_fork_arguments(*fork_args)
-        resulting_set: Set[Fork] = set()
+        forks: Set[Fork | TransitionFork] = self.process_fork_arguments(
+            *fork_args
+        )
+        resulting_set: Set[Fork | TransitionFork] = set()
         for fork in forks:
             resulting_set |= {f for f in ALL_FORKS if f <= fork}
+        return resulting_set
+
+
+class NotValidFor(ValidityMarker):
+    """
+    Marker to subtract one or more forks from the test's valid set.
+
+    Unlike ``valid_from`` / ``valid_until`` (which set bounds), this
+    marker carves a hole out of the otherwise-applicable fork range.
+    Use it when an upstream-targeted test happens to lie inside the
+    fork range of an incompatible downstream fork (e.g. tests valid on
+    Cancun+ that should not run on Monad forks).
+
+    ```python
+    import pytest
+
+    @pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
+    def test_blob_thing(...):
+        pass
+    ```
+
+    With ``subsequent_forks=True``, every fork at or after each named
+    fork (and their transitions) is excluded; otherwise only the named
+    forks themselves are excluded.
+    """
+
+    def _process_with_marker_args(
+        self,
+        *fork_args: str,
+        subsequent_forks: bool = False,
+    ) -> Set[Fork | TransitionFork]:
+        """Process the fork arguments."""
+        forks: Set[Fork | TransitionFork] = self.process_fork_arguments(
+            *fork_args
+        )
+        resulting_set: Set[Fork | TransitionFork] = set()
+        for fork in forks:
+            if subsequent_forks:
+                resulting_set |= {
+                    f for f in ALL_FORKS_WITH_TRANSITIONS if f >= fork
+                }
+            else:
+                resulting_set.add(fork)
+        return resulting_set
+
+    def process(
+        self, forks: Set[Fork | TransitionFork]
+    ) -> Set[Fork | TransitionFork]:
+        """Subtract the marker's fork set from the test's fork set."""
+        if self.mark is None:
+            fork_set = self._process_with_marker_args()
+        else:
+            fork_set = self._process_with_marker_args(
+                *self.mark.args, **self.mark.kwargs
+            )
+        resulting_set = forks - fork_set
+        if not resulting_set:
+            raise ValidityMarker.ValidityMarkerCombinationError()
+        return resulting_set
+
+
+class ValidBefore(ValidityMarker, mutually_exclusive=[ValidUntil]):
+    """
+    Marker to specify the fork or EIP before which the test is valid.
+
+    The test will be filled for all forks strictly before the specified
+    fork — the fork itself is **excluded**.
+
+    ``valid_before`` vs ``valid_until``:
+
+    - ``valid_until("Prague")`` — inclusive: runs *through* Prague.
+    - ``valid_before("EIP7825")`` — exclusive: runs up to but *not at*
+      the point where EIP-7825 activates.
+
+    ```python
+    import pytest
+
+    from execution_testing import  Alloc, StateTestFiller
+
+    @pytest.mark.valid_before("EIP7825")
+    def test_something_only_valid_before_eip7825(
+        state_test: StateTestFiller,
+        pre: Alloc
+    ):
+        pass
+    ```
+
+    In this example, the test will only be filled for forks where
+    EIP-7825 is not yet active.
+    """
+
+    def _process_with_marker_args(
+        self, *fork_args: str
+    ) -> Set[Fork | TransitionFork]:
+        """Process the fork arguments."""
+        forks: Set[Fork | TransitionFork] = self.process_fork_arguments(
+            *fork_args
+        )
+        resulting_set: Set[Fork | TransitionFork] = set()
+        for fork in forks:
+            resulting_set |= {f for f in ALL_FORKS if f < fork}
         return resulting_set
 
 
@@ -918,13 +1116,16 @@ class ValidAt(ValidityMarker):
     forks.
     """
 
-    def _process_with_marker_args(self, *fork_args: str) -> Set[Fork]:
+    def _process_with_marker_args(
+        self, *fork_args: str
+    ) -> Set[Fork | TransitionFork]:
         """Process the fork arguments."""
         return self.process_fork_arguments(*fork_args)
 
 
 class ValidAtTransitionTo(
-    ValidityMarker, mutually_exclusive=[ValidAt, ValidFrom, ValidUntil]
+    ValidityMarker,
+    mutually_exclusive=[ValidAt, ValidFrom, ValidUntil, ValidBefore],
 ):
     """
     Marker to specify that a test is only meant to be filled at the transition
@@ -988,10 +1189,12 @@ class ValidAtTransitionTo(
         *fork_args: str,
         subsequent_forks: bool = False,
         until: str | None = None,
-    ) -> Set[Fork]:
+    ) -> Set[Fork | TransitionFork]:
         """Process the fork arguments."""
-        forks: Set[Fork] = self.process_fork_arguments(*fork_args)
-        until_forks: Set[Fork] | None = (
+        forks: Set[Fork | TransitionFork] = self.process_fork_arguments(
+            *fork_args
+        )
+        until_forks: Set[Fork | TransitionFork] | None = (
             None if until is None else self.process_fork_arguments(until)
         )
         if len(forks) == 0:
@@ -1004,7 +1207,7 @@ class ValidAtTransitionTo(
                 "Too many forks specified to 'valid_at_transition_to' marker."
             )
 
-        resulting_set: Set[Fork] = set()
+        resulting_set: Set[Fork | TransitionFork] = set()
         for fork in forks:
             resulting_set |= transition_fork_to(fork)
             if subsequent_forks:
@@ -1043,12 +1246,12 @@ class ValidForBPOForks(
     ```
     """
 
-    def _process_with_marker_args(self) -> Set[Fork]:
+    def _process_with_marker_args(self) -> Set[Fork | TransitionFork]:
         """Process the fork arguments."""
         include_bpo_forks = self.mark is not None
         if include_bpo_forks:
             return set()
-        resulting_set: Set[Fork] = set()
+        resulting_set: Set[Fork | TransitionFork] = set()
         for fork in ALL_FORKS:
             if fork.bpo_fork():
                 resulting_set.add(fork)
@@ -1056,7 +1259,9 @@ class ValidForBPOForks(
         return resulting_set
 
 
-def fork_markers(*, fork: Fork) -> List[pytest.MarkDecorator | pytest.Mark]:
+def fork_markers(
+    *, fork: Fork | TransitionFork
+) -> List[pytest.MarkDecorator | pytest.Mark]:
     """Return the marks that have to be added to a test given the fork."""
     return [
         pytest.mark.fixture_subfolder(
@@ -1073,26 +1278,54 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         test_fork_set = ValidityMarker.get_test_fork_set_from_metafunc(
             metafunc
         )
-    except Exception as e:
-        pytest.fail(f"Error generating tests for {test_name}: {e}")
-
-    if not test_fork_set:
+    except ValidityMarker.ValidityMarkerCombinationError:
+        markers = ValidityMarker.get_all_validity_markers(
+            metafunc.definition.iter_markers()
+        )
+        marker_names = [
+            f"@pytest.mark.{marker.marker_name}" for marker in markers
+        ]
         pytest.fail(
             "The test function's "
             f"'{test_name}' fork validity markers generate "
             "an empty fork range. Please check the arguments to its "
-            f"markers:  @pytest.mark.valid_from and "
-            f"@pytest.mark.valid_until."
+            f"markers: {', '.join(marker_names)}."
         )
+    except Exception as e:
+        pytest.fail(f"Error generating tests for {test_name}: {e}")
+
+    pytest_params: List[Any]
+    if not test_fork_set:
+        if metafunc.config.getoption("verbose") >= 2:
+            pytest_params = [
+                pytest.param(
+                    None,
+                    marks=[
+                        pytest.mark.skip(
+                            reason=(
+                                f"{test_name} is not enabled for any fork."
+                            )
+                        )
+                    ],
+                )
+            ]
+            metafunc.parametrize("fork", pytest_params, scope="function")
+        return
 
     # Get the intersection between the test's validity marker and the current
     # filling parameters.
-    intersection_set = test_fork_set & metafunc.config.selected_fork_set  # type: ignore
+    intersection_set: Set[Fork | TransitionFork] = (
+        test_fork_set & metafunc.config.selected_fork_set  # type: ignore
+    )
 
     if "fork" not in metafunc.fixturenames:
         return
 
-    pytest_params: List[Any]
+    unsupported_forks: Set[Fork | TransitionFork] = (
+        metafunc.config.unsupported_forks  # type: ignore
+    )
+    intersection_set -= unsupported_forks
+
     if not intersection_set:
         if metafunc.config.getoption("verbose") >= 2:
             pytest_params = [
@@ -1110,21 +1343,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             ]
             metafunc.parametrize("fork", pytest_params, scope="function")
     else:
-        unsupported_forks: Set[Fork] = metafunc.config.unsupported_forks  # type: ignore
         pytest_params = []
         for fork in sorted(intersection_set):
             marks: List[pytest.MarkDecorator | pytest.Mark] = fork_markers(
                 fork=fork,
             )
-            if fork in unsupported_forks:
-                marks.append(
-                    pytest.mark.skip(
-                        reason=(
-                            f"Fork '{fork}' unsupported by "
-                            f"{metafunc.config.t8n.__class__.__name__}."  # type: ignore
-                        )
-                    )
-                )
             pytest_params.append(ForkParametrizer(fork=fork, marks=marks))
         add_fork_covariant_parameters(metafunc, pytest_params)
         parametrize_fork(metafunc, pytest_params)
@@ -1297,7 +1520,7 @@ def parametrize_fork(
     )
 
 
-def blob_params_changed_at_transition(fork: Fork) -> bool:
+def blob_params_changed_at_transition(fork: Fork | TransitionFork) -> bool:
     """
     Check if BPO-relevant blob parameters change at a fork transition.
 
@@ -1313,9 +1536,7 @@ def blob_params_changed_at_transition(fork: Fork) -> bool:
     For non-transition forks, returns True (no filtering needed).
     """
     # Check if this is a transition fork
-    if not hasattr(fork, "transitions_from") or not hasattr(
-        fork, "transitions_to"
-    ):
+    if not fork.is_transition_fork:
         return True
 
     from_fork = fork.transitions_from()
@@ -1339,39 +1560,97 @@ def blob_params_changed_at_transition(fork: Fork) -> bool:
     return False
 
 
+def _get_item_params(
+    item: pytest.Item,
+) -> Dict[str, Any] | None:
+    """Return the callspec params for a collected test item, if any."""
+    if hasattr(item, "callspec"):
+        return item.callspec.params
+    if hasattr(item, "params"):
+        return item.params
+    return None
+
+
+def _combination_filter_reason(
+    item: pytest.Item,
+    params: Dict[str, Any],
+) -> str | None:
+    """
+    Return the rejection reason if any ``filter_combinations`` marker
+    rejects *params*, otherwise ``None``.
+    """
+    for marker in item.iter_markers("filter_combinations"):
+        if not marker.args:
+            continue
+        predicate = marker.args[0]
+        if not callable(predicate):
+            pytest.exit(
+                f"filter_combinations predicate for "
+                f"'{item.nodeid}' is not callable: "
+                f"{predicate!r}",
+                returncode=pytest.ExitCode.USAGE_ERROR,
+            )
+        if not predicate(**params):
+            return marker.kwargs.get(
+                "reason", "rejected by filter_combinations"
+            )
+    return None
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: List[pytest.Item]
 ) -> None:
     """
-    Filter tests based on param-level validity markers.
+    Filter tests after parametrization.
 
-    The pytest_generate_tests hook only considers function-level validity
-    markers. This hook runs after parametrization and can access all markers
-    including param-level ones, allowing us to properly filter tests based on
-    param-level valid_from/valid_until markers.
+    Two kinds of filtering are applied:
+
+    1. **Validity markers** — param-level ``valid_from`` / ``valid_until`` /
+       ``valid_before`` markers that the ``pytest_generate_tests`` hook
+       cannot see.
+    2. **Combination filters** — the ``filter_combinations`` marker lets
+       test authors reject specific cross-parameter tuples at collection
+       time instead of calling ``pytest.skip()`` at runtime.
     """
-    del config
     items_to_remove = []
+    deselected: List[pytest.Item] = []
+    # function name -> (reason, total, deselected_count)
+    filter_stats: Dict[str, Tuple[str, int, int]] = {}
 
     for i, item in enumerate(items):
-        # Get fork from params if available
-        params = None
-        if hasattr(item, "callspec"):
-            params = item.callspec.params
-        elif hasattr(item, "params"):
-            params = item.params
-
-        if not params or "fork" not in params or params["fork"] is None:
+        params = _get_item_params(item)
+        if not params:
             continue
 
-        fork: Fork = params["fork"]
+        # --- combination filter ---
+        marker = next(item.iter_markers("filter_combinations"), None)
+        if marker is not None:
+            fn_name = item.nodeid.split("[")[0]
+            if fn_name not in filter_stats:
+                reason = marker.kwargs.get(
+                    "reason", "rejected by filter_combinations"
+                )
+                filter_stats[fn_name] = (reason, 0, 0)
+            r, total, dc = filter_stats[fn_name]
+            total += 1
 
-        # Get all markers including param-level ones
+            filter_reason = _combination_filter_reason(item, params)
+            if filter_reason is not None:
+                items_to_remove.append(i)
+                deselected.append(item)
+                dc += 1
+
+            filter_stats[fn_name] = (r, total, dc)
+            if filter_reason is not None:
+                continue
+
+        # --- validity markers ---
+        fork = params.get("fork")
+        if fork is None:
+            continue
+
         markers = item.iter_markers()
 
-        # Calculate valid fork set from all markers
-        # If this raises (e.g., duplicate markers from combining function-level
-        # and param-level), exit immediately with error
         try:
             valid_fork_set = ValidityMarker.get_test_fork_set_from_markers(
                 markers
@@ -1382,10 +1661,37 @@ def pytest_collection_modifyitems(
                 returncode=pytest.ExitCode.USAGE_ERROR,
             )
 
-        # If the fork is not in the valid set, mark for removal
         if fork not in valid_fork_set:
             items_to_remove.append(i)
+
+    # Fail if a filter_combinations predicate eliminated every case
+    # for a test function — the predicate is almost certainly wrong.
+    for fn_name, (reason, total, dc) in filter_stats.items():
+        if total > 0 and dc == total:
+            pytest.exit(
+                f"filter_combinations deselected all {total} "
+                f"parametrizations of {fn_name} "
+                f"(reason: {reason}). "
+                f"Check the predicate logic.",
+                returncode=pytest.ExitCode.USAGE_ERROR,
+            )
 
     # Remove items in reverse order to maintain indices
     for i in reversed(items_to_remove):
         del items[i]
+
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        if config.option.verbose >= 0:
+            writer = config.get_terminal_writer()
+            writer.line("")
+            writer.sep(
+                "-",
+                f"{len(deselected)} deselected by filter_combinations",
+            )
+            for fn_name, (reason, _, dc) in sorted(filter_stats.items()):
+                if dc:
+                    writer.line(f"  {fn_name}: {dc} deselected ({reason})")
+            if config.option.verbose >= 2:
+                for item in deselected:
+                    writer.line(f"    {item.nodeid}")

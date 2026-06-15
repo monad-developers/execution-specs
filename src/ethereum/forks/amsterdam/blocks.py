@@ -10,7 +10,7 @@ chain.
 """
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, final
 
 from ethereum_rlp import rlp
 from ethereum_types.bytes import Bytes, Bytes8, Bytes32
@@ -31,6 +31,7 @@ from .transactions import (
 )
 
 
+@final
 @slotted_freezable
 @dataclass
 class Withdrawal:
@@ -64,6 +65,7 @@ class Withdrawal:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class Header:
@@ -112,9 +114,9 @@ class Header:
     Ethereum world state after applying the block's state changes.
 
     [`keccak256`]: ref:ethereum.crypto.hash.keccak256
-    [changes]: ref:ethereum.forks.amsterdam.state.State.compute_state_root_and_trie_changes
-    [Trie]: ref:ethereum.forks.amsterdam.trie.Trie
-    """  # noqa: E501
+    [changes]: ref:ethereum.state.State.compute_state_root_and_trie_changes
+    [Trie]: ref:ethereum.merkle_patricia_trie.Trie
+    """
 
     transactions_root: Root
     """
@@ -124,8 +126,8 @@ class Header:
     transactions as the parameter.
 
     [`keccak256`]: ref:ethereum.crypto.hash.keccak256
-    [`root()`]: ref:ethereum.forks.amsterdam.trie.root
-    [Trie]: ref:ethereum.forks.amsterdam.trie.Trie
+    [`root()`]: ref:ethereum.merkle_patricia_trie.root
+    [Trie]: ref:ethereum.merkle_patricia_trie.Trie
     """
 
     receipt_root: Root
@@ -135,8 +137,8 @@ class Header:
     function over the Merkle-Patricia [trie] constructed from the receipts.
 
     [`keccak256`]: ref:ethereum.crypto.hash.keccak256
-    [`root()`]: ref:ethereum.forks.amsterdam.trie.root
-    [Trie]: ref:ethereum.forks.amsterdam.trie.Trie
+    [`root()`]: ref:ethereum.merkle_patricia_trie.root
+    [Trie]: ref:ethereum.merkle_patricia_trie.Trie
     """
 
     bloom: Bloom
@@ -258,7 +260,16 @@ class Header:
     [cbalh]: ref:ethereum.forks.amsterdam.block_access_lists.hash_block_access_list
     """  # noqa: E501
 
+    slot_number: U64
+    """
+    The slot number of this block as provided by the consensus layer.
+    Introduced in [EIP-7843].
 
+    [EIP-7843]: https://eips.ethereum.org/EIPS/eip-7843
+    """
+
+
+@final
 @slotted_freezable
 @dataclass
 class Block:
@@ -312,6 +323,7 @@ class Block:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class Log:
@@ -344,6 +356,7 @@ class Log:
     """
 
 
+@final
 @slotted_freezable
 @dataclass
 class Receipt:
@@ -360,6 +373,7 @@ class Receipt:
     cumulative_gas_used: Uint
     """
     Total gas used in the block up to and including this transaction.
+    This is the gas used after refunds, paid by the user.
     """
 
     bloom: Bloom

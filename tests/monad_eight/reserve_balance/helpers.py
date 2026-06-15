@@ -17,10 +17,10 @@ def generous_gas(fork: Fork) -> int:
     """
     constant = 100_000
     gas_costs = fork.gas_costs()
-    sstore_cost = gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
-    deploy_cost = gas_costs.GAS_CODE_DEPOSIT_PER_BYTE * len(Op.STOP)
-    access_cost = gas_costs.GAS_COLD_ACCOUNT_ACCESS
-    selfdestruct_cost = gas_costs.GAS_SELF_DESTRUCT
+    sstore_cost = gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
+    deploy_cost = gas_costs.CODE_DEPOSIT_PER_BYTE * len(Op.STOP)
+    access_cost = gas_costs.COLD_ACCOUNT_ACCESS
+    selfdestruct_cost = gas_costs.OPCODE_SELFDESTRUCT_BASE
     return (
         constant
         + sstore_cost

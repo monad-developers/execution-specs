@@ -1,21 +1,21 @@
 """
-Test ported from static filler.
+Test_returndatasize_initial_zero_read.
 
 Ported from:
-tests/static/state_tests/stReturnDataTest
-returndatasize_initial_zero_readFiller.json
+state_tests/stReturnDataTest/returndatasize_initial_zero_readFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -24,30 +24,39 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stReturnDataTest/returndatasize_initial_zero_readFiller.json",  # noqa: E501
+        "state_tests/stReturnDataTest/returndatasize_initial_zero_readFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_data_hex, expected_post",
+    "d, g, v",
     [
-        ("", {}),
-        ("992919aa", {}),
+        pytest.param(
+            0,
+            0,
+            0,
+            id="d0",
+        ),
+        pytest.param(
+            1,
+            0,
+            0,
+            id="d1",
+        ),
     ],
-    ids=["case0", "case1"],
 )
 @pytest.mark.pre_alloc_mutable
 def test_returndatasize_initial_zero_read(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x834185262E53584684BF2B72C64E510013C235D0F45E462DB65900455DF45A35
-    )
+    """Test_returndatasize_initial_zero_read."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x6400000000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -58,30 +67,30 @@ def test_returndatasize_initial_zero_read(
         gas_limit=111669149696,
     )
 
-    # Source: LLL
+    # Source: lll
     # { (RETURNDATACOPY 0 0 0) (SSTORE 0 (MLOAD 0)) }
-    contract = pre.deploy_contract(
-        code=(
-            Op.RETURNDATACOPY(dest_offset=0x0, offset=0x0, size=0x0)
-            + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
-            + Op.STOP
-        ),
-        storage={0x0: 0x1},
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.RETURNDATACOPY(dest_offset=0x0, offset=0x0, size=0x0)
+        + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
+        + Op.STOP,
+        storage={0: 1},
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x537cd1744af41c3a74d5aa5ae93958d1160ca98f"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x6400000000)
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    tx_data = [
+        Bytes(""),
+        Bytes("992919aa"),
+    ]
+    tx_gas = [100000]
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=tx_data,
-        gas_limit=100000,
+        to=target,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
     )
 
-    post = expected_post
+    post = {target: Account(storage={0: 0})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

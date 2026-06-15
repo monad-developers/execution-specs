@@ -1,1 +1,1 @@
-"""Tests ported from stEIP150singleCodeGasPrices."""
+"""Ported static tests: stEIP150singleCodeGasPrices."""  # noqa: N999

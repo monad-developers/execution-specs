@@ -43,7 +43,10 @@ from .spec import Spec, ref_spec_4844
 REFERENCE_SPEC_GIT_PATH = ref_spec_4844.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4844.version
 
-pytestmark = pytest.mark.valid_from("Cancun")
+pytestmark = [
+    pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True),
+    pytest.mark.valid_from("Cancun"),
+]
 
 
 # Blobhash index values for test_blobhash_gas_cost
@@ -306,7 +309,7 @@ def test_blobhash_scenarios(
         "invalid_calls",
     ],
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_blobhash_invalid_blob_index(
     pre: Alloc,
     fork: Fork,

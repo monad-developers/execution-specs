@@ -105,7 +105,7 @@ def bal_expectation_for_contract_with_markers(
     "stStaticFlagEnabled/StaticcallForPrecompilesIssue683Filler.yml"
 )
 @pytest.mark.valid_from("Byzantium")
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_staticcall_reentrant_call_to_precompile(
     pre: Alloc,
     state_test: StateTestFiller,
@@ -152,7 +152,7 @@ def test_staticcall_reentrant_call_to_precompile(
     )
 
     bal_expectation = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         # Target contract always receives tx value
         target_balance_changes = [
             BalBalanceChange(
@@ -255,7 +255,7 @@ def test_staticcall_call_to_precompile(
     staticcall_result = 1 if call_value == 0 else 0
 
     bal_expectation = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         contract_a_balance_changes = [
             BalBalanceChange(
                 block_access_index=1,
@@ -393,7 +393,7 @@ def test_staticcall_nested_call_to_precompile(
     staticcall_result = 1 if call_value == 0 else 0
 
     bal_expectation = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         # slot 1 read when call_value > 0
         account_expectations: dict[Address, BalAccountExpectation | None] = {
             contract_a: (
@@ -554,7 +554,7 @@ def test_staticcall_call_to_precompile_from_contract_init(
     staticcall_result = 1 if call_value == 0 else 0
 
     bal_expectation = None
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         # stores created_contract in slot 1, receives tx value
         account_expectations: dict[Address, BalAccountExpectation | None] = {
             contract_a: BalAccountExpectation(

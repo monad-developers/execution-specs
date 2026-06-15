@@ -2,7 +2,7 @@
 Example of PoS merge state test.
 
 Ported from:
-tests/static/state_tests/stExample/mergeTestFiller.yml
+state_tests/stExample/mergeTestFiller.yml
 """
 
 import pytest
@@ -12,6 +12,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     Hash,
     StateTestFiller,
@@ -24,7 +25,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stExample/mergeTestFiller.yml"],
+    ["state_tests/stExample/mergeTestFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -33,7 +34,7 @@ def test_merge_test(
     pre: Alloc,
 ) -> None:
     """Example of PoS merge state test."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xDE0C95357363DA5C1C5A73BD7C2781CA5C9FECC1014103B5E1D1E990AE8208EC
     )
@@ -47,35 +48,34 @@ def test_merge_test(
         gas_limit=16777216,
     )
 
-    # Source: LLL
+    pre[sender] = Account(balance=0xDE0B6B3A7640000, nonce=1)
+    # Source: lll
     # {
     #    (sstore 0 (gasprice))
     #    (sstore 1 (basefee))
     #    (sstore 2 (difficulty))
     # }
-    contract = pre.deploy_contract(
-        code=(
-            Op.SSTORE(key=0x0, value=Op.GASPRICE)
-            + Op.SSTORE(key=0x1, value=Op.BASEFEE)
-            + Op.SSTORE(key=0x2, value=Op.PREVRANDAO)
-            + Op.STOP
-        ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.SSTORE(key=0x0, value=Op.GASPRICE)
+        + Op.SSTORE(key=0x1, value=Op.BASEFEE)
+        + Op.SSTORE(key=0x2, value=Op.PREVRANDAO)
+        + Op.STOP,
         balance=0xDE0B6B3A7640000,
-        address=Address("0x49a0fe79e28d1d65e16cdf53acafeae7baccac0e"),  # noqa: E501
+        nonce=1,
+        address=Address(0x49A0FE79E28D1D65E16CDF53ACAFEAE7BACCAC0E),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000, nonce=1)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=bytes.fromhex("00"),
+        to=target,
+        data=Bytes("00"),
         gas_limit=4000000,
         max_fee_per_gas=2000,
         max_priority_fee_per_gas=10,
         nonce=1,
         access_list=[
             AccessList(
-                address=Address("0x49a0fe79e28d1d65e16cdf53acafeae7baccac0e"),
+                address=target,
                 storage_keys=[
                     Hash(
                         "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
@@ -89,12 +89,13 @@ def test_merge_test(
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 0: 1010,
                 1: 1000,
                 2: 0x1500000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
             },
+            nonce=1,
         ),
     }
 

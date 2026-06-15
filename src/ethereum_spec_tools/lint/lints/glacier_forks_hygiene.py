@@ -55,6 +55,14 @@ class GlacierForksHygiene(Lint):
             "gray_glacier": 11400000,
         }
 
+    @staticmethod
+    def _needs_lint(fork_name: str) -> bool:
+        return (
+            fork_name == "dao_fork"
+            or fork_name.endswith("_glacier")
+            or fork_name.startswith("bpo")
+        )
+
     def lint(
         self, forks: List[Hardfork], position: int
     ) -> Sequence[Diagnostic]:
@@ -66,13 +74,25 @@ class GlacierForksHygiene(Lint):
             # Nothing to compare against!
             return []
 
-        if fork_name != "dao_fork" and not fork_name.endswith("_glacier"):
+        if not self._needs_lint(fork_name):
             # Nothing to compare against or non-glacier fork!
+            return []
+
+        # Skip over any Monad forks when picking the predecessor; Monad
+        # is a parallel branch off Prague/Osaka, so BPO/glacier forks
+        # must be compared against the last upstream fork, not the
+        # last Monad fork in the linear order.
+        previous_position = position - 1
+        while previous_position >= 0 and forks[
+            previous_position
+        ].short_name.startswith("monad_"):
+            previous_position -= 1
+        if previous_position < 0:
             return []
 
         diagnostics: List[Diagnostic] = []
 
-        all_previous = dict(walk_sources(forks[position - 1]))
+        all_previous = dict(walk_sources(forks[previous_position]))
         all_current = dict(walk_sources(forks[position]))
 
         all_files = set(all_previous.keys()) | set(all_current.keys())
@@ -139,8 +159,12 @@ class GlacierForksHygiene(Lint):
                 )
                 continue
 
-            if item == "BOMB_DELAY_BLOCKS":
+            if fork_name.endswith("_glacier") and item == "BOMB_DELAY_BLOCKS":
                 previous_item.value.value = self.delay_blocks[fork_name]
+
+            if fork_name.startswith("bpo"):
+                if item.startswith("GasCosts.BLOB_"):
+                    continue
 
             if not compare_ast(previous_item, current_item):
                 add_diagnostic(
@@ -237,7 +261,46 @@ class _Visitor(ast.NodeVisitor):
         """
         Visit a class.
         """
-        self._insert(klass.name, klass)
+        self.path.append(klass.name)
+        super().generic_visit(klass)
+        popped = self.path.pop()
+        assert popped == klass.name
+
+    def visit_Name(self, node: ast.Name) -> None:
+        """
+        Visit a name.
+        """
+        self._insert(node.id, node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        """
+        Visit an attribute.
+        """
+        self._insert(node.attr, node)
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        """
+        Visit a subscript.
+        """
+        self.visit(node.value)
+        self.visit(node.slice)
+
+    def visit_Pass(self, node: ast.Pass) -> None:
+        """
+        Visit a pass.
+        """
+        pass
+
+    def visit_Tuple(self, node: ast.Tuple) -> None:
+        """
+        Visit a tuple.
+        """
+        for idx, child in enumerate(node.elts):
+            name = f"[{idx}]"
+            self.path.append(name)
+            self.visit(child)
+            popped = self.path.pop()
+            assert name == popped
 
     def visit_Assign(self, assign: ast.Assign) -> None:
         """

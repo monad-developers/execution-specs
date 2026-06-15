@@ -1,9 +1,8 @@
 """
-create fails because init code has OOG.
+Create fails because init code has OOG.
 
 Ported from:
-tests/static/state_tests/stCallCreateCallCodeTest
-createInitFail_OOGduringInitFiller.json
+state_tests/stCallCreateCallCodeTest/createInitFail_OOGduringInitFiller.json
 """
 
 import pytest
@@ -12,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +24,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stCallCreateCallCodeTest/createInitFail_OOGduringInitFiller.json",  # noqa: E501
+        "state_tests/stCallCreateCallCodeTest/createInitFail_OOGduringInitFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -34,7 +34,8 @@ def test_create_init_fail_oo_gduring_init(
     pre: Alloc,
 ) -> None:
     """Create fails because init code has OOG."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    contract_0 = Address(0x095E7BAEA6A6C7C4C2DFEB977EFAC326AF552D87)
     sender = EOA(
         key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
     )
@@ -48,29 +49,30 @@ def test_create_init_fail_oo_gduring_init(
         gas_limit=100000000,
     )
 
-    # Source: LLL
+    pre[sender] = Account(balance=0xDE0B6B3A7640000)
+    # Source: lll
     # {(MSTORE8 0 0x5a ) (SELFDESTRUCT (CREATE 1 0 1)) }
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE8(offset=0x0, value=0x5A)
-            + Op.SELFDESTRUCT(
-                address=Op.CREATE(value=0x1, offset=0x0, size=0x1)
-            )
-            + Op.STOP
-        ),
+    contract_0 = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE8(offset=0x0, value=0x5A)
+        + Op.SELFDESTRUCT(address=Op.CREATE(value=0x1, offset=0x0, size=0x1))
+        + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x095e7baea6a6c7c4c2dfeb977efac326af552d87"),  # noqa: E501
+        address=Address(0x095E7BAEA6A6C7C4C2DFEB977EFAC326AF552D87),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=contract_0,
+        data=Bytes(""),
         gas_limit=53021,
-        value=100000,
+        value=0x186A0,
     )
 
-    post: dict = {}
+    post = {
+        Address(
+            0x0000000000000000000000000000000000000000
+        ): Account.NONEXISTENT,
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

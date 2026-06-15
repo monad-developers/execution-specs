@@ -1,16 +1,16 @@
 """
-Test ported from static filler.
+Test_self_balance_gas_cost.
 
 Ported from:
-tests/static/state_tests/stSelfBalance/selfBalanceGasCostFiller.json
+state_tests/stSelfBalance/selfBalanceGasCostFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stSelfBalance/selfBalanceGasCostFiller.json"],
+    ["state_tests/stSelfBalance/selfBalanceGasCostFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -30,11 +30,9 @@ def test_self_balance_gas_cost(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x897B12D02D588D8A4FE16FF831CBD4459C6F62F8C845B0CCDD31CAF068C84A26
-    )
+    """Test_self_balance_gas_cost."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x3635C9ADC5DEA00000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -45,35 +43,30 @@ def test_self_balance_gas_cost(
         gas_limit=10000000000,
     )
 
-    # Source: asm
+    # Source: lll
     # (asm GAS SELFBALANCE GAS SWAP1 POP SWAP1 SUB 2 SWAP1 SUB 0x01 SSTORE)
-    contract = pre.deploy_contract(
-        code=(
-            Op.GAS
-            + Op.SELFBALANCE
-            + Op.GAS
-            + Op.SWAP1
-            + Op.POP
-            + Op.SWAP1
-            + Op.SUB
-            + Op.PUSH1[0x2]
-            + Op.SWAP1
-            + Op.SSTORE(key=0x1, value=Op.SUB)
-            + Op.STOP
-        ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.GAS
+        + Op.SELFBALANCE
+        + Op.GAS
+        + Op.SWAP1
+        + Op.POP
+        + Op.SWAP1
+        + Op.SUB
+        + Op.PUSH1[0x2]
+        + Op.SWAP1
+        + Op.SSTORE(key=0x1, value=Op.SUB)
+        + Op.STOP,
         nonce=0,
-        address=Address("0x20005b9a765d12c8f6ac08c2673b00fa6be00486"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x3635C9ADC5DEA00000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=100000,
     )
 
-    post = {
-        contract: Account(storage={1: 5}),
-    }
+    post = {target: Account(storage={1: 5})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

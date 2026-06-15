@@ -1,8 +1,8 @@
 """
-testing different byte opcodes inside create2 init code.
+Testing different byte opcodes inside create2 init code.
 
 Ported from:
-tests/static/state_tests/stCreate2/create2InitCodesFiller.json
+state_tests/stCreate2/create2InitCodesFiller.json
 """
 
 import pytest
@@ -14,95 +14,92 @@ from execution_testing import (
     Environment,
     StateTestFiller,
     Transaction,
+    compute_create_address,
 )
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
+)
+from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
 REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stCreate2/create2InitCodesFiller.json"],
+    ["state_tests/stCreate2/create2InitCodesFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_data_hex, expected_post",
+    "d, g, v",
     [
-        (
-            "60006000536000600160006000f560005500",
-            {
-                Address("0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"): Account(
-                    storage={0: 0x9CCB06046C674D1A423C968D7998235BC33D40C1}
-                )
-            },
+        pytest.param(
+            0,
+            0,
+            0,
+            id="d0",
         ),
-        ("60566000536000600160006000f560005500", {}),
-        ("60016000536000600160006000f560005500", {}),
-        ("60f46000536000600160006000f560005500", {}),
-        (
-            "6a60016001556001546002556000526000600b60156000f560005500",
-            {
-                Address("0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"): Account(
-                    storage={0: 0xD46F8D2A93844FB23D8A2803A615F3D00849B8AB}
-                ),
-                Address("0xd46f8d2a93844fb23d8a2803a615f3d00849b8ab"): Account(
-                    storage={1: 1, 2: 1}
-                ),
-            },
+        pytest.param(
+            1,
+            0,
+            0,
+            id="d1",
         ),
-        (
-            "626001ff60005260006003601d6000f560005500",
-            {
-                Address("0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"): Account(
-                    storage={0: 0xADF52AAFB61364F699F9B15EE605EF82DCA7F53D}
-                )
-            },
+        pytest.param(
+            2,
+            0,
+            0,
+            id="d2",
         ),
-        (
-            "626001ff60005260006003601d6001f560005500",
-            {
-                Address("0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"): Account(
-                    storage={0: 0xADF52AAFB61364F699F9B15EE605EF82DCA7F53D}
-                )
-            },
+        pytest.param(
+            3,
+            0,
+            0,
+            id="d3",
         ),
-        (
-            "60006003601d6000f560005500",
-            {
-                Address("0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"): Account(
-                    storage={0: 0x52B620D9A3FD03486496061138825A08B4DA501F}
-                )
-            },
+        pytest.param(
+            4,
+            0,
+            0,
+            id="d4",
         ),
-        (
-            "6160a960005260006002601e6001f560005500",
-            {
-                Address("0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"): Account(
-                    storage={0: 0x5210981AE8161A02A1B7E37452AE142AEDC66EA3}
-                )
-            },
+        pytest.param(
+            5,
+            0,
+            0,
+            id="d5",
         ),
-    ],
-    ids=[
-        "case0",
-        "case1",
-        "case2",
-        "case3",
-        "case4",
-        "case5",
-        "case6",
-        "case7",
-        "case8",
+        pytest.param(
+            6,
+            0,
+            0,
+            id="d6",
+        ),
+        pytest.param(
+            7,
+            0,
+            0,
+            id="d7",
+        ),
+        pytest.param(
+            8,
+            0,
+            0,
+            id="d8",
+        ),
     ],
 )
 @pytest.mark.pre_alloc_mutable
 def test_create2_init_codes(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
     """Testing different byte opcodes inside create2 init code."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
     )
@@ -118,16 +115,164 @@ def test_create2_init_codes(
 
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": 0, "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(0x9CCB06046C674D1A423C968D7998235BC33D40C1): Account(
+                    nonce=1
+                ),
+                sender: Account(nonce=1),
+                compute_create_address(address=sender, nonce=0): Account(
+                    storage={0: 0x9CCB06046C674D1A423C968D7998235BC33D40C1},
+                ),
+            },
+        },
+        {
+            "indexes": {"data": [1, 2, 3], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                compute_create_address(address=sender, nonce=0): Account(
+                    balance=1, nonce=2
+                ),
+                sender: Account(nonce=1),
+            },
+        },
+        {
+            "indexes": {"data": [4], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(0xD46F8D2A93844FB23D8A2803A615F3D00849B8AB): Account(
+                    storage={1: 1, 2: 1}
+                ),
+                sender: Account(nonce=1),
+            },
+        },
+        {
+            "indexes": {"data": [5], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(
+                    0xADF52AAFB61364F699F9B15EE605EF82DCA7F53D
+                ): Account.NONEXISTENT,
+                sender: Account(nonce=1),
+                compute_create_address(address=sender, nonce=0): Account(
+                    storage={0: 0xADF52AAFB61364F699F9B15EE605EF82DCA7F53D},
+                ),
+            },
+        },
+        {
+            "indexes": {"data": [6], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(
+                    0xADF52AAFB61364F699F9B15EE605EF82DCA7F53D
+                ): Account.NONEXISTENT,
+                Address(0x0000000000000000000000000000000000000001): Account(
+                    balance=1
+                ),
+                sender: Account(nonce=1),
+                compute_create_address(address=sender, nonce=0): Account(
+                    storage={0: 0xADF52AAFB61364F699F9B15EE605EF82DCA7F53D},
+                ),
+            },
+        },
+        {
+            "indexes": {"data": [7], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(0x52B620D9A3FD03486496061138825A08B4DA501F): Account(
+                    nonce=1
+                ),
+                sender: Account(nonce=1),
+                compute_create_address(address=sender, nonce=0): Account(
+                    storage={0: 0x52B620D9A3FD03486496061138825A08B4DA501F},
+                ),
+            },
+        },
+        {
+            "indexes": {"data": [8], "gas": -1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                Address(0x5210981AE8161A02A1B7E37452AE142AEDC66EA3): Account(
+                    balance=1, nonce=1
+                ),
+                sender: Account(nonce=1),
+                compute_create_address(address=sender, nonce=0): Account(
+                    storage={0: 0x5210981AE8161A02A1B7E37452AE142AEDC66EA3},
+                ),
+            },
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Op.MSTORE8(offset=0x0, value=0x0)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x0, offset=0x0, size=0x1, salt=0x0),
+        )
+        + Op.STOP,
+        Op.MSTORE8(offset=0x0, value=0x56)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x0, offset=0x0, size=0x1, salt=0x0),
+        )
+        + Op.STOP,
+        Op.MSTORE8(offset=0x0, value=0x1)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x0, offset=0x0, size=0x1, salt=0x0),
+        )
+        + Op.STOP,
+        Op.MSTORE8(offset=0x0, value=0xF4)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x0, offset=0x0, size=0x1, salt=0x0),
+        )
+        + Op.STOP,
+        Op.MSTORE(offset=0x0, value=0x6001600155600154600255)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x0, offset=0x15, size=0xB, salt=0x0),
+        )
+        + Op.STOP,
+        Op.MSTORE(offset=0x0, value=0x6001FF)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x0, offset=0x1D, size=0x3, salt=0x0),
+        )
+        + Op.STOP,
+        Op.MSTORE(offset=0x0, value=0x6001FF)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x1, offset=0x1D, size=0x3, salt=0x0),
+        )
+        + Op.STOP,
+        Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x0, offset=0x1D, size=0x3, salt=0x0),
+        )
+        + Op.STOP,
+        Op.MSTORE(offset=0x0, value=0x60A9)
+        + Op.SSTORE(
+            key=0x0,
+            value=Op.CREATE2(value=0x1, offset=0x1E, size=0x2, salt=0x0),
+        )
+        + Op.STOP,
+    ]
+    tx_gas = [800000]
+    tx_value = [1]
 
     tx = Transaction(
         sender=sender,
         to=None,
-        data=tx_data,
-        gas_limit=800000,
-        value=1,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
+        error=_exc,
     )
-
-    post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

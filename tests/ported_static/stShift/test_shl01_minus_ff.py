@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_shl01_minus_ff.
 
 Ported from:
-tests/static/state_tests/stShift/shl01-ffFiller.json
+state_tests/stShift/shl01-ffFiller.json
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stShift/shl01-ffFiller.json"],
+    ["state_tests/stShift/shl01-ffFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -30,8 +31,8 @@ def test_shl01_minus_ff(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_shl01_minus_ff."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xB1F4CBC3A50042184425A6F9E996D0910F7BA879457CE5DAC5C71E498AD3C005
     )
@@ -46,28 +47,33 @@ def test_shl01_minus_ff(
     )
 
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
-    # Source: raw bytecode
-    contract = pre.deploy_contract(
+    # Source: raw
+    # 0x600160ff1b600055
+    target = pre.deploy_contract(  # noqa: F841
         code=Op.SSTORE(key=0x0, value=Op.SHL(0xFF, 0x1)),
-        storage={0x0: 0x3},
+        storage={0: 3},
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x6750ccb18bd2d092093f25bf1eaebe77f4ecb9a2"),  # noqa: E501
+        address=Address(0x6750CCB18BD2D092093F25BF1EAEBE77F4ECB9A2),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=400000,
-        value=100000,
+        value=0x186A0,
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 0: 0x8000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
             },
+            code=bytes.fromhex("600160ff1b600055"),
+            balance=0xDE0B6B3A76586A0,
         ),
+        sender: Account(storage={}, code=b"", nonce=1),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

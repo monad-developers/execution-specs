@@ -5,14 +5,19 @@ from typing import Any
 
 import pytest
 from execution_testing import Fork
+from execution_testing.cli.pytest_commands.plugins.shared.address_stubs import (  # noqa: E501
+    AddressStubs,
+)
 
 DEFAULT_BENCHMARK_FORK = "Prague"
 
 
 def pytest_generate_tests(metafunc: Any) -> None:
     """
-    Modify test generation to enforce default benchmark fork for benchmark
-    tests.
+    Modify test generation for benchmark tests.
+
+    Enforce default benchmark fork and inject stub parametrization
+    for tests marked with ``@pytest.mark.stub_parametrize``.
     """
     benchmark_dir = Path(__file__).parent
     test_file_path = Path(metafunc.definition.fspath)
@@ -31,60 +36,46 @@ def pytest_generate_tests(metafunc: Any) -> None:
             benchmark_marker = pytest.mark.valid_from(DEFAULT_BENCHMARK_FORK)
             metafunc.definition.add_marker(benchmark_marker)
 
+    # Inject parametrization from AddressStubs for stub_parametrize markers
+    address_stubs = metafunc.config.getoption("address_stubs", default=None)
+    require_stub_match = getattr(metafunc.config, "require_stub_match", False)
+    for marker in metafunc.definition.iter_markers("stub_parametrize"):
+        param_name, prefix = marker.args
+        kwargs = dict(marker.kwargs)
+        stubs = address_stubs or AddressStubs(root={})
+        values, ids = stubs.parametrize_args(
+            prefix, caller=metafunc.function.__name__
+        )
+        if not values and require_stub_match:
+            # Sentinel + marker: plugin's pytest_runtest_call fails this
+            # FAILED (not session-aborting ERROR) so the run continues.
+            msg = (
+                f"stub_parametrize: no stubs matched prefix {prefix!r} "
+                f"for {metafunc.definition.nodeid}. Pass --address-stubs "
+                "pointing at a snapshot (bloatnet, perfnet, ...) that has "
+                "these addresses pre-populated, or deselect the test."
+            )
+            values = [pytest.param(None, marks=pytest.mark.missing_stubs(msg))]
+            ids = ["MISSING_STUBS"]
+        kwargs.setdefault("ids", ids)
+        metafunc.parametrize(param_name, values, **kwargs)
 
-def pytest_collection_modifyitems(config: Any, items: Any) -> None:
-    """Add the `benchmark` marker to all tests under `./tests/benchmark`."""
+
+def pytest_ignore_collect(collection_path: Path, config: Any) -> bool | None:
+    """Skip benchmark directory unless explicitly targeted."""
+    if config.getoption("include_benchmark", default=False):
+        return False
+
     benchmark_dir = Path(__file__).parent
-    benchmark_marker = pytest.mark.benchmark
-    gen_docs = config.getoption("--gen-docs", default=False)
+    args = config.invocation_params.args or ()
+    if any(
+        benchmark_dir in Path(a).resolve().parents
+        or Path(a).resolve() == benchmark_dir
+        for a in args
+    ):
+        return False
 
-    if gen_docs:
-        for item in items:
-            if (
-                benchmark_dir in Path(item.fspath).parents
-                and not item.get_closest_marker("benchmark")
-                and not item.get_closest_marker("stateful")
-            ):
-                item.add_marker(benchmark_marker)
-        return
-
-    marker_expr = config.getoption("-m", default="")
-
-    run_benchmarks = (
-        "benchmark" in marker_expr and "not benchmark" not in marker_expr
-    ) or ("repricing" in marker_expr and "not repricing" not in marker_expr)
-    run_stateful_tests = (
-        marker_expr
-        and "stateful" in marker_expr
-        and "not stateful" not in marker_expr
-    )
-
-    items_for_removal = []
-    for i, item in enumerate(items):
-        is_in_benchmark_dir = benchmark_dir in Path(item.fspath).parents
-        has_stateful_marker = item.get_closest_marker("stateful")
-        is_benchmark_test = (
-            is_in_benchmark_dir and not has_stateful_marker
-        ) or item.get_closest_marker("benchmark")
-
-        if is_benchmark_test:
-            if is_in_benchmark_dir and not item.get_closest_marker(
-                "benchmark"
-            ):
-                item.add_marker(benchmark_marker)
-            if not run_benchmarks:
-                items_for_removal.append(i)
-        elif run_benchmarks:
-            items_for_removal.append(i)
-        elif (
-            is_in_benchmark_dir
-            and has_stateful_marker
-            and not run_stateful_tests
-        ):
-            items_for_removal.append(i)
-
-    for i in reversed(items_for_removal):
-        items.pop(i)
+    return True
 
 
 @pytest.fixture

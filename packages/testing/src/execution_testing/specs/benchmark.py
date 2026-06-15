@@ -32,17 +32,36 @@ from execution_testing.execution import (
 )
 from execution_testing.fixtures import (
     BlockchainEngineFixture,
+    BlockchainEngineStatefulFixture,
     BlockchainEngineXFixture,
     BlockchainFixture,
     FixtureFormat,
     LabeledFixtureFormat,
 )
-from execution_testing.forks import Fork
+from execution_testing.forks import Fork, TransitionFork
 from execution_testing.test_types import Alloc, Environment, Transaction
 from execution_testing.vm import Bytecode, Op
 
 from .base import BaseTest, FillResult
 from .blockchain import Block, BlockchainTest
+
+
+@dataclass(frozen=True)
+class OpcodeTarget:
+    """
+    Map a display name to an underlying opcode for count validation.
+
+    Use when the fixture metadata should show a descriptive label (e.g. a
+    precompile name) while opcode-count validation targets the real EVM
+    opcode that gets executed (e.g. STATICCALL).
+    """
+
+    name: str
+    opcode: Op
+
+    def __str__(self) -> str:
+        """Return the display name."""
+        return self.name
 
 
 @dataclass(kw_only=True)
@@ -287,7 +306,8 @@ class BenchmarkTest(BaseTest):
         default_factory=lambda: int(Environment().gas_limit)
     )
     fixed_opcode_count: float | None = None
-    target_opcode: Op | None = None
+    expected_opcode_count: int | None = None
+    target_opcode: Op | OpcodeTarget | None = None
     code_generator: BenchmarkCodeGenerator | None = None
     # By default, benchmark tests require neither of these
     include_full_post_state_in_output: bool = False
@@ -299,6 +319,7 @@ class BenchmarkTest(BaseTest):
         BlockchainFixture,
         BlockchainEngineFixture,
         BlockchainEngineXFixture,
+        BlockchainEngineStatefulFixture,
     ]
 
     supported_execute_formats: ClassVar[Sequence[LabeledExecuteFormat]] = [
@@ -345,14 +366,9 @@ class BenchmarkTest(BaseTest):
 
         blocks: List[Block] = self.setup_blocks
 
-        if (
-            self.fixed_opcode_count is not None
-            and self.code_generator is None
-            and self.target_opcode is None
-        ):
+        if self.fixed_opcode_count is not None and self.code_generator is None:
             pytest.skip(
-                "Cannot run fixed opcode count tests without a "
-                "code generator or a target opcode set"
+                "Cannot run fixed opcode count tests without a code generator"
             )
 
         if self.code_generator is not None:
@@ -375,7 +391,9 @@ class BenchmarkTest(BaseTest):
 
         elif self.tx is not None:
             gas_limit = (
-                self.fork.transaction_gas_limit_cap()
+                self.fork.fork_at(
+                    block_number=0, timestamp=0
+                ).transaction_gas_limit_cap()
                 or self.gas_benchmark_value
             )
 
@@ -403,7 +421,7 @@ class BenchmarkTest(BaseTest):
     def discard_fixture_format_by_marks(
         cls,
         fixture_format: FixtureFormat,
-        fork: Fork,
+        fork: Fork | TransitionFork,
         markers: List[pytest.Mark],
     ) -> bool:
         """
@@ -456,9 +474,14 @@ class BenchmarkTest(BaseTest):
         """Generate blocks using the code generator."""
         if self.code_generator is None:
             raise Exception("Code generator is not set")
-        self.code_generator.deploy_contracts(pre=self.pre, fork=self.fork)
+        self.code_generator.deploy_contracts(
+            pre=self.pre, fork=self.fork.fork_at(block_number=0, timestamp=0)
+        )
         gas_limit = (
-            self.fork.transaction_gas_limit_cap() or self.gas_benchmark_value
+            self.fork.fork_at(
+                block_number=0, timestamp=0
+            ).transaction_gas_limit_cap()
+            or self.gas_benchmark_value
         )
         benchmark_tx = self.code_generator.generate_transaction(
             pre=self.pre, gas_benchmark_value=gas_limit
@@ -474,10 +497,13 @@ class BenchmarkTest(BaseTest):
         if self.code_generator is None:
             raise Exception("Code generator is not set")
         self.code_generator.deploy_fix_count_contracts(
-            pre=self.pre, fork=self.fork
+            pre=self.pre, fork=self.fork.fork_at(block_number=0, timestamp=0)
         )
         gas_limit = (
-            self.fork.transaction_gas_limit_cap() or self.gas_benchmark_value
+            self.fork.fork_at(
+                block_number=0, timestamp=0
+            ).transaction_gas_limit_cap()
+            or self.gas_benchmark_value
         )
         benchmark_tx = self.code_generator.generate_transaction(
             pre=self.pre, gas_benchmark_value=gas_limit
@@ -497,29 +523,28 @@ class BenchmarkTest(BaseTest):
             include_tx_receipts_in_output=self.include_tx_receipts_in_output,
         )
 
+    @staticmethod
     def _verify_target_opcode_count(
-        self, opcode_count: OpcodeCount | None
+        *,
+        target_opcode: Op | OpcodeTarget,
+        opcode_count: OpcodeCount,
+        expected_opcode_count: int,
+        tolerance: float = 0.05,
     ) -> None:
         """Verify target opcode was executed the expected number of times."""
-        # Skip validation if opcode count is not available
-        if opcode_count is None:
-            return
-
-        assert self.target_opcode is not None, "target_opcode is not set"
-        assert self.fixed_opcode_count is not None, (
-            "fixed_opcode_count is not set"
+        count_opcode = (
+            target_opcode.opcode
+            if isinstance(target_opcode, OpcodeTarget)
+            else target_opcode
         )
+        actual = opcode_count.root.get(count_opcode, 0)
+        max_difference = expected_opcode_count * tolerance  # 5% tolerance
 
-        # fixed_opcode_count is in thousands units
-        expected = self.fixed_opcode_count * 1000
-
-        actual = opcode_count.root.get(self.target_opcode, 0)
-        tolerance = expected * 0.05  # 5% tolerance
-
-        if abs(actual - expected) > tolerance:
+        if abs(actual - expected_opcode_count) > max_difference:
             raise ValueError(
-                f"Target opcode {self.target_opcode} count mismatch: "
-                f"expected ~{expected} (±5%), got {actual}"
+                f"Target opcode {target_opcode} count mismatch: "
+                f"expected ~{expected_opcode_count} "
+                f"(±{tolerance * 100}%), got {actual}"
             )
 
     def generate(
@@ -538,12 +563,38 @@ class BenchmarkTest(BaseTest):
 
             # Verify target opcode count if specified
             if (
-                self.target_opcode is not None
-                and self.fixed_opcode_count is not None
+                self.fixed_opcode_count is not None
+                or self.expected_opcode_count is not None
             ):
-                self._verify_target_opcode_count(
-                    fill_result.benchmark_opcode_count
-                )
+                target_opcode = self.target_opcode
+                assert target_opcode is not None, "target_opcode is not set"
+                opcode_count = fill_result.benchmark_opcode_count
+                if opcode_count is not None:
+                    if self.fixed_opcode_count is not None:
+                        self._verify_target_opcode_count(
+                            target_opcode=target_opcode,
+                            opcode_count=opcode_count,
+                            expected_opcode_count=int(
+                                # fixed_opcode_count is in thousands units
+                                self.fixed_opcode_count * 1000
+                            ),
+                        )
+                    elif self.expected_opcode_count is not None:
+                        self._verify_target_opcode_count(
+                            target_opcode=target_opcode,
+                            opcode_count=opcode_count,
+                            expected_opcode_count=self.expected_opcode_count,
+                        )
+                    else:
+                        raise Exception(
+                            "Opcode verification needs either "
+                            "`fixed_opcode_count` or `expected_opcode_count` "
+                            "to be set."
+                        )
+
+            if self.target_opcode is not None:
+                fill_result.metadata["target_opcode"] = str(self.target_opcode)
+
             return fill_result
         else:
             raise Exception(f"Unsupported fixture format: {fixture_format}")

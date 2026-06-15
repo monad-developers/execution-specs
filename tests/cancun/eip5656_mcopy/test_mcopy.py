@@ -130,7 +130,7 @@ def tx(  # noqa: D103
     sstore_gas = (
         max(len(initial_memory), len(final_memory))
         // 0x20
-        * (gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD)
+        * (gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS)
     )
     data = Hash(dest) + Hash(src) + Hash(length)
     intrinsic_gas = fork.transaction_intrinsic_cost_calculator()(calldata=data)

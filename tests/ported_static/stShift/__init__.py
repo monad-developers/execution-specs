@@ -1,1 +1,1 @@
-"""Tests ported from stShift."""
+"""Ported static tests: stShift."""  # noqa: N999

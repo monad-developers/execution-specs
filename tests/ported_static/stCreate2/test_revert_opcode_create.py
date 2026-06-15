@@ -2,18 +2,22 @@
 RevertOpcodeCreate for CREATE2.
 
 Ported from:
-tests/static/state_tests/stCreate2/RevertOpcodeCreateFiller.json
+state_tests/stCreate2/RevertOpcodeCreateFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
+)
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
 )
 from execution_testing.vm import Op
 
@@ -22,36 +26,39 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stCreate2/RevertOpcodeCreateFiller.json"],
+    ["state_tests/stCreate2/RevertOpcodeCreateFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_gas_limit, expected_post",
+    "d, g, v",
     [
-        (
-            460000,
-            {
-                Address("0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b"): Account(
-                    storage={0: 12}
-                )
-            },
+        pytest.param(
+            0,
+            0,
+            0,
+            id="-g0",
         ),
-        (70000, {}),
+        pytest.param(
+            0,
+            1,
+            0,
+            id="-g1",
+        ),
     ],
-    ids=["case0", "case1"],
 )
 @pytest.mark.pre_alloc_mutable
 def test_revert_opcode_create(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_gas_limit: int,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
     """RevertOpcodeCreate for CREATE2."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
-    )
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    contract_0 = Address(0xB94F5374FCE5EDBC8E2A8697C15331677E6EBF0B)
+    sender = pre.fund_eoa(amount=0xE8D4A51000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -62,31 +69,46 @@ def test_revert_opcode_create(
         gas_limit=10000000,
     )
 
-    pre[sender] = Account(balance=0xE8D4A51000)
-    # Source: LLL
+    # Source: lll
     # { (MSTORE 0 0x600160005560016000fd6011600155 ) [[1]](CREATE2 1 17 15 0) [[0]] 12 }  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE(offset=0x0, value=0x600160005560016000FD6011600155)
-            + Op.SSTORE(
-                key=0x1,
-                value=Op.CREATE2(value=0x1, offset=0x11, size=0xF, salt=0x0),
-            )
-            + Op.SSTORE(key=0x0, value=0xC)
-            + Op.STOP
-        ),
+    contract_0 = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(offset=0x0, value=0x600160005560016000FD6011600155)
+        + Op.SSTORE(
+            key=0x1,
+            value=Op.CREATE2(value=0x1, offset=0x11, size=0xF, salt=0x0),
+        )
+        + Op.SSTORE(key=0x0, value=0xC)
+        + Op.STOP,
         balance=1,
         nonce=0,
-        address=Address("0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b"),  # noqa: E501
     )
+
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": -1, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {contract_0: Account(storage={0: 12, 1: 0}, nonce=1)},
+        },
+        {
+            "indexes": {"data": -1, "gas": 1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {contract_0: Account(nonce=0)},
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Bytes("600160005560016000fe6011600155"),
+    ]
+    tx_gas = [460000, 70000]
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=bytes.fromhex("600160005560016000fe6011600155"),
-        gas_limit=tx_gas_limit,
+        to=contract_0,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        error=_exc,
     )
-
-    post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

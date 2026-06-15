@@ -347,10 +347,10 @@ class NethermindExceptionMapper(ExceptionMapper):
             "blob transaction of type create"
         ),
         TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST: (
-            "MissingAuthorizationList: Must be set"
+            "EIP-7702 transaction with empty auth list"
         ),
         TransactionException.TYPE_4_TX_CONTRACT_CREATION: (
-            "NotAllowedCreateTransaction: To must be set"
+            "EIP-7702 transaction cannot be used to create contract"
         ),
         TransactionException.TYPE_4_TX_PRE_FORK: (
             "InvalidTxType: Transaction type in Custom is not supported"
@@ -397,12 +397,22 @@ class NethermindExceptionMapper(ExceptionMapper):
             "InvalidStateRoot: State root in header does not match"
         ),
         BlockException.GAS_USED_OVERFLOW: ("Block gas limit exceeded"),
+        BlockException.BLOCK_ACCESS_LIST_GAS_LIMIT_EXCEEDED: (
+            "BlockAccessListGasLimitExceeded:"
+        ),
     }
     mapping_regex = {
         TransactionException.INSUFFICIENT_ACCOUNT_FUNDS: (
             r"insufficient sender balance|"
             r"insufficient MaxFeePerGas for sender balance"
+            r"|insufficient funds for gas \* price \+ value"
+            r"|insufficient funds for transfer|insufficient funds for gas"
         ),
+        TransactionException.INSUFFICIENT_MAX_FEE_PER_GAS: (
+            r"max fee per gas less than block base fee"
+        ),
+        TransactionException.NONCE_MISMATCH_TOO_LOW: (r"nonce too low"),
+        TransactionException.NONCE_MISMATCH_TOO_HIGH: (r"nonce too high"),
         TransactionException.TYPE_3_TX_WITH_FULL_BLOBS: (
             r"Transaction \d+ is not valid"
         ),
@@ -415,7 +425,7 @@ class NethermindExceptionMapper(ExceptionMapper):
             r"exceeded MaxBlobGas per transaction=\d+"
         ),
         TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM: (
-            r"TxGasLimitCapExceeded: Gas limit \d+ \w+ cap of \d+\.?"
+            r"TxGasLimitCapExceeded:"
         ),
         BlockException.INCORRECT_EXCESS_BLOB_GAS: (
             r"HeaderExcessBlobGasMismatch: Excess blob gas in header "
@@ -431,21 +441,26 @@ class NethermindExceptionMapper(ExceptionMapper):
         BlockException.SYSTEM_CONTRACT_CALL_FAILED: (
             r"(Withdrawals|Consolidations)Failed: Contract execution failed\."
         ),
-        # BAL Exceptions: TODO - review once all clients completed.
-        BlockException.INVALID_BAL_EXTRA_ACCOUNT: (
-            r"could not be parsed as a block: "
-            r"Could not decode block access list."
-        ),
-        BlockException.INVALID_BAL_HASH: (r"InvalidBlockLevelAccessListRoot:"),
-        BlockException.INVALID_BAL_MISSING_ACCOUNT: (
-            r"InvalidBlockLevelAccessListRoot:"
-        ),
+        # BAL Exceptions — specific exceptions have unique patterns, but
+        # INVALID_BLOCK_ACCESS_LIST and INCORRECT_BLOCK_FORMAT intentionally
+        # overlap because the test framework requires `want in got` matching.
+        # BAL Exceptions
+        BlockException.INVALID_BAL_HASH: (r"InvalidBlockLevelAccessListHash:"),
         BlockException.INVALID_BLOCK_ACCESS_LIST: (
-            r"InvalidBlockLevelAccessListRoot:|could not be parsed as a "
-            r"block: Could not decode block access list."
+            r"InvalidBlockLevelAccessListHash:"
+            r"|InvalidBlockLevelAccessList:"
+            r"|BlockLevelAccessListIndexOutOfRange:"
+            r"|could not be parsed as a block: "
+            r"Error decoding block access list:"
+            r"|Error decoding block access list:"
         ),
         BlockException.INCORRECT_BLOCK_FORMAT: (
             r"could not be parsed as a block: "
-            r"Could not decode block access list."
+            r"Error decoding block access list:"
+            r"|Error decoding block access list:"
+        ),
+        TransactionException.GAS_ALLOWANCE_EXCEEDED: (
+            r"TxGasLimitCapExceeded:"
+            r"|BlockAccessListGasLimitExceeded:"
         ),
     }

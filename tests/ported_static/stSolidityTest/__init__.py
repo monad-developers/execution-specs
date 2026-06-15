@@ -1,1 +1,1 @@
-"""Tests ported from stSolidityTest."""
+"""Ported static tests: stSolidityTest."""  # noqa: N999

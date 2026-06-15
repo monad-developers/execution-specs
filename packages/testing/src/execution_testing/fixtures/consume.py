@@ -8,7 +8,7 @@ from typing import Iterator, List, Optional, TextIO
 from pydantic import BaseModel, RootModel
 
 from execution_testing.base_types import HexNumber
-from execution_testing.forks import Fork
+from execution_testing.forks import Fork, TransitionFork
 
 from .base import BaseFixture, FixtureFormat
 from .file import Fixtures
@@ -48,7 +48,7 @@ class TestCaseBase(BaseModel):
 
     id: str
     fixture_hash: HexNumber | None = None
-    fork: Fork | None = None
+    fork: Fork | TransitionFork | None = None
     format: FixtureFormat
     pre_hash: str | None = None
     __test__ = False  # stop pytest from collecting this class as a test
@@ -90,6 +90,36 @@ class IndexFile(BaseModel):
     forks: Optional[List[Fork]] = []
     fixture_formats: Optional[List[str]] = []
     test_cases: List[TestCaseIndexFile]
+
+    @classmethod
+    def merge(cls, indexes: List["IndexFile"]) -> "IndexFile":
+        """
+        Merge multiple index files into one.
+
+        Concatenate test cases, union forks and fixture formats, and
+        recompute the root hash from the merged entries.
+        """
+        from execution_testing.cli.hasher import HashableItem
+
+        all_cases: List[TestCaseIndexFile] = []
+        all_forks: set[Fork] = set()
+        all_formats: set[str] = set()
+
+        for idx in indexes:
+            all_cases.extend(idx.test_cases)
+            all_forks.update(idx.forks or [])
+            all_formats.update(idx.fixture_formats or [])
+
+        root_hash = HashableItem.from_index_entries(all_cases).hash()
+
+        return cls(
+            root_hash=HexNumber(root_hash),
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+            test_count=len(all_cases),
+            forks=sorted(all_forks, key=lambda f: f.name()),
+            fixture_formats=sorted(all_formats),
+            test_cases=all_cases,
+        )
 
 
 class TestCases(RootModel):

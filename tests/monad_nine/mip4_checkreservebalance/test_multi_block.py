@@ -80,8 +80,7 @@ def test_exception_rule(
     refill_call = refill_factory()
     # gas spend by transactions send in setup blocks
     prepare_tx_gas = (
-        fork.gas_costs().GAS_TX_BASE
-        + fork.gas_costs().GAS_AUTH_PER_EMPTY_ACCOUNT * 2
+        fork.gas_costs().TX_BASE + fork.gas_costs().AUTH_PER_EMPTY_ACCOUNT * 2
     )
     # if any of the transactions in setup blocks are sent by main sender we
     # need to credit them extra

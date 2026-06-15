@@ -16,7 +16,7 @@ from ethereum_types.numeric import U256, Uint
 
 from ethereum.state import Address
 
-from ...state import (
+from ...state_tracker import (
     account_exists,
     account_has_code_or_nonce,
     account_has_storage,
@@ -33,14 +33,7 @@ from .. import (
     incorporate_child_on_success,
 )
 from ..gas import (
-    GAS_CALL,
-    GAS_CALL_VALUE,
-    GAS_CREATE,
-    GAS_NEW_ACCOUNT,
-    GAS_SELF_DESTRUCT,
-    GAS_SELF_DESTRUCT_NEW_ACCOUNT,
-    GAS_ZERO,
-    REFUND_SELF_DESTRUCT,
+    GasCosts,
     calculate_gas_extend_memory,
     calculate_message_call_gas,
     charge_gas,
@@ -74,7 +67,7 @@ def create(evm: Evm) -> None:
         evm.memory, [(memory_start_position, memory_size)]
     )
 
-    charge_gas(evm, GAS_CREATE + extend_memory.cost)
+    charge_gas(evm, GasCosts.OPCODE_CREATE_BASE + extend_memory.cost)
 
     create_message_gas = max_message_call_gas(Uint(evm.gas_left))
     evm.gas_left -= create_message_gas
@@ -82,12 +75,12 @@ def create(evm: Evm) -> None:
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
     sender_address = evm.message.current_target
-    sender = get_account(evm.message.block_env.state, sender_address)
+    sender = get_account(evm.message.tx_env.state, sender_address)
 
     contract_address = compute_contract_address(
         evm.message.current_target,
         get_account(
-            evm.message.block_env.state, evm.message.current_target
+            evm.message.tx_env.state, evm.message.current_target
         ).nonce,
     )
 
@@ -99,20 +92,16 @@ def create(evm: Evm) -> None:
         push(evm.stack, U256(0))
         evm.gas_left += create_message_gas
     elif account_has_code_or_nonce(
-        evm.message.block_env.state, contract_address
-    ) or account_has_storage(evm.message.block_env.state, contract_address):
-        increment_nonce(
-            evm.message.block_env.state, evm.message.current_target
-        )
+        evm.message.tx_env.state, contract_address
+    ) or account_has_storage(evm.message.tx_env.state, contract_address):
+        increment_nonce(evm.message.tx_env.state, evm.message.current_target)
         push(evm.stack, U256(0))
     else:
         call_data = memory_read_bytes(
             evm.memory, memory_start_position, memory_size
         )
 
-        increment_nonce(
-            evm.message.block_env.state, evm.message.current_target
-        )
+        increment_nonce(evm.message.tx_env.state, evm.message.current_target)
 
         child_message = Message(
             block_env=evm.message.block_env,
@@ -163,7 +152,7 @@ def return_(evm: Evm) -> None:
         evm.memory, [(memory_start_position, memory_size)]
     )
 
-    charge_gas(evm, GAS_ZERO + extend_memory.cost)
+    charge_gas(evm, GasCosts.ZERO + extend_memory.cost)
 
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
@@ -203,8 +192,8 @@ def generic_call(
     call_data = memory_read_bytes(
         evm.memory, memory_input_start_position, memory_input_size
     )
-    account = get_account(evm.message.block_env.state, code_address)
-    code = get_code(evm.message.block_env.state, account.code_hash)
+    account = get_account(evm.message.tx_env.state, code_address)
+    code = get_code(evm.message.tx_env.state, account.code_hash)
     child_message = Message(
         block_env=evm.message.block_env,
         tx_env=evm.message.tx_env,
@@ -267,22 +256,22 @@ def call(evm: Evm) -> None:
 
     code_address = to
 
-    _account_exists = account_exists(evm.message.block_env.state, to)
-    create_gas_cost = Uint(0) if _account_exists else GAS_NEW_ACCOUNT
-    transfer_gas_cost = Uint(0) if value == 0 else GAS_CALL_VALUE
+    _account_exists = account_exists(evm.message.tx_env.state, to)
+    create_gas_cost = Uint(0) if _account_exists else GasCosts.NEW_ACCOUNT
+    transfer_gas_cost = Uint(0) if value == 0 else GasCosts.CALL_VALUE
     message_call_gas = calculate_message_call_gas(
         value,
         gas,
         Uint(evm.gas_left),
         extend_memory.cost,
-        GAS_CALL + create_gas_cost + transfer_gas_cost,
+        GasCosts.OPCODE_CALL_BASE + create_gas_cost + transfer_gas_cost,
     )
     charge_gas(evm, message_call_gas.cost + extend_memory.cost)
 
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
     sender_balance = get_account(
-        evm.message.block_env.state, evm.message.current_target
+        evm.message.tx_env.state, evm.message.current_target
     ).balance
     if sender_balance < value:
         push(evm.stack, U256(0))
@@ -335,20 +324,20 @@ def callcode(evm: Evm) -> None:
             (memory_output_start_position, memory_output_size),
         ],
     )
-    transfer_gas_cost = Uint(0) if value == 0 else GAS_CALL_VALUE
+    transfer_gas_cost = Uint(0) if value == 0 else GasCosts.CALL_VALUE
     message_call_gas = calculate_message_call_gas(
         value,
         gas,
         Uint(evm.gas_left),
         extend_memory.cost,
-        GAS_CALL + transfer_gas_cost,
+        GasCosts.OPCODE_CALL_BASE + transfer_gas_cost,
     )
     charge_gas(evm, message_call_gas.cost + extend_memory.cost)
 
     # OPERATION
     evm.memory += b"\x00" * extend_memory.expand_by
     sender_balance = get_account(
-        evm.message.block_env.state, evm.message.current_target
+        evm.message.tx_env.state, evm.message.current_target
     ).balance
     if sender_balance < value:
         push(evm.stack, U256(0))
@@ -386,9 +375,9 @@ def selfdestruct(evm: Evm) -> None:
     beneficiary = to_address_masked(pop(evm.stack))
 
     # GAS
-    gas_cost = GAS_SELF_DESTRUCT
-    if not account_exists(evm.message.block_env.state, beneficiary):
-        gas_cost += GAS_SELF_DESTRUCT_NEW_ACCOUNT
+    gas_cost = GasCosts.OPCODE_SELFDESTRUCT_BASE
+    if not account_exists(evm.message.tx_env.state, beneficiary):
+        gas_cost += GasCosts.OPCODE_SELFDESTRUCT_NEW_ACCOUNT
 
     originator = evm.message.current_target
 
@@ -399,28 +388,28 @@ def selfdestruct(evm: Evm) -> None:
         parent_evm = parent_evm.message.parent_evm
 
     if originator not in refunded_accounts:
-        evm.refund_counter += REFUND_SELF_DESTRUCT
+        evm.refund_counter += GasCosts.REFUND_SELF_DESTRUCT
 
     charge_gas(evm, gas_cost)
 
     # OPERATION
     beneficiary_balance = get_account(
-        evm.message.block_env.state, beneficiary
+        evm.message.tx_env.state, beneficiary
     ).balance
     originator_balance = get_account(
-        evm.message.block_env.state, originator
+        evm.message.tx_env.state, originator
     ).balance
 
     # First Transfer to beneficiary
     set_account_balance(
-        evm.message.block_env.state,
+        evm.message.tx_env.state,
         beneficiary,
         beneficiary_balance + originator_balance,
     )
     # Next, Zero the balance of the address being deleted (must come after
     # sending to beneficiary in case the contract named itself as the
     # beneficiary).
-    set_account_balance(evm.message.block_env.state, originator, U256(0))
+    set_account_balance(evm.message.tx_env.state, originator, U256(0))
 
     # register account for deletion
     evm.accounts_to_delete.add(originator)
@@ -459,7 +448,11 @@ def delegatecall(evm: Evm) -> None:
         ],
     )
     message_call_gas = calculate_message_call_gas(
-        U256(0), gas, Uint(evm.gas_left), extend_memory.cost, GAS_CALL
+        U256(0),
+        gas,
+        Uint(evm.gas_left),
+        extend_memory.cost,
+        GasCosts.OPCODE_CALL_BASE,
     )
     charge_gas(evm, message_call_gas.cost + extend_memory.cost)
 

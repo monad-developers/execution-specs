@@ -1,16 +1,16 @@
 """
-Test ported from static filler.
+Test_create_message_reverted.
 
 Ported from:
-tests/static/state_tests/stTransactionTest/CreateMessageRevertedFiller.json
+state_tests/stTransactionTest/CreateMessageRevertedFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,9 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stTransactionTest/CreateMessageRevertedFiller.json",  # noqa: E501
-    ],
+    ["state_tests/stTransactionTest/CreateMessageRevertedFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -32,11 +30,9 @@ def test_create_message_reverted(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x2B75D0C814EB07C075FCCBDD9A036FAF651D9C46D7477D6C4F30772CFCA90D38
-    )
+    """Test_create_message_reverted."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x1C9C380)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -47,26 +43,26 @@ def test_create_message_reverted(
         gas_limit=1000000000000,
     )
 
-    # Source: LLL
+    # Source: lll
     # {(MSTORE 0 0x600c600055) (CREATE 0 27 5)}
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE(offset=0x0, value=0x600C600055)
-            + Op.CREATE(value=0x0, offset=0x1B, size=0x5)
-            + Op.STOP
-        ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(offset=0x0, value=0x600C600055)
+        + Op.CREATE(value=0x0, offset=0x1B, size=0x5)
+        + Op.STOP,
         nonce=0,
-        address=Address("0xc9b0ca064c8b73a1d845547cd28d4e97fe4ec8a0"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x1C9C380)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=21882,
         value=100,
     )
 
-    post: dict = {}
+    post = {
+        sender: Account(nonce=1),
+        target: Account(balance=0, nonce=0),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

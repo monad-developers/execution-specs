@@ -1,16 +1,16 @@
 """
-Test ported from static filler.
+Test_call_recursive_bomb0.
 
 Ported from:
-tests/static/state_tests/stSystemOperationsTest/CallRecursiveBomb0Filler.json
+state_tests/stSystemOperationsTest/CallRecursiveBomb0Filler.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,9 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stSystemOperationsTest/CallRecursiveBomb0Filler.json",  # noqa: E501
-    ],
+    ["state_tests/stSystemOperationsTest/CallRecursiveBomb0Filler.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.valid_until("Prague")
@@ -33,11 +31,9 @@ def test_call_recursive_bomb0(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0xE04D1AC7DDDA0C98397D56A0B501E960D4CD325A39286919AC23C1A07009A869
-    )
+    """Test_call_recursive_bomb0."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0xDE0B6B3A7640000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -48,57 +44,54 @@ def test_call_recursive_bomb0(
         gas_limit=11000000000,
     )
 
-    # Source: LLL
-    # {  (CALL 100000000 <contract:0x945304eb96065b2a98b57a48a06ae28d285a71b5> 23 0 0 0 0)  }  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.CALL(
-                gas=0x5F5E100,
-                address=0x783516813E6366B978F7101A6A12B4C8498B0283,
-                value=0x17,
+    # Source: lll
+    # { [[ 0 ]] (+ (SLOAD 0) 1) [[ 1 ]] (CALL (- (GAS) 11000) (ADDRESS) 0 0 0 0 0) }  # noqa: E501
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.SSTORE(key=0x0, value=Op.ADD(Op.SLOAD(key=0x0), 0x1))
+        + Op.SSTORE(
+            key=0x1,
+            value=Op.CALL(
+                gas=Op.SUB(Op.GAS, 0x2AF8),
+                address=Op.ADDRESS,
+                value=0x0,
                 args_offset=0x0,
                 args_size=0x0,
                 ret_offset=0x0,
                 ret_size=0x0,
-            )
-            + Op.STOP
-        ),
-        balance=0x77359400,
-        nonce=0,
-        address=Address("0x6904e15f2a58e4c22dbb37ffeb39ab1f64002eb4"),  # noqa: E501
-    )
-    callee = pre.deploy_contract(
-        code=(
-            Op.SSTORE(key=0x0, value=Op.ADD(Op.SLOAD(key=0x0), 0x1))
-            + Op.SSTORE(
-                key=0x1,
-                value=Op.CALL(
-                    gas=Op.SUB(Op.GAS, 0x2AF8),
-                    address=Op.ADDRESS,
-                    value=0x0,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
-            )
-            + Op.STOP
-        ),
+            ),
+        )
+        + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x783516813e6366b978f7101a6a12b4c8498b0283"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
+    # Source: lll
+    # {  (CALL 100000000 <contract:0x945304eb96065b2a98b57a48a06ae28d285a71b5> 23 0 0 0 0)  }  # noqa: E501
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.CALL(
+            gas=0x5F5E100,
+            address=addr,
+            value=0x17,
+            args_offset=0x0,
+            args_size=0x0,
+            ret_offset=0x0,
+            ret_size=0x0,
+        )
+        + Op.STOP,
+        balance=0x77359400,
+        nonce=0,
+    )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=10000000000,
-        value=100000,
+        value=0x186A0,
     )
 
     post = {
-        callee: Account(storage={0: 313, 1: 1}),
+        addr: Account(storage={0: 313, 1: 1}),
+        sender: Account(nonce=1),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

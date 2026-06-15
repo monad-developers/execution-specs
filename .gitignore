@@ -8,6 +8,9 @@
 
 # AI
 .claude/settings.local.json
+CLAUDE.local.md
+.mb/
+mb/
 .devcontainer
 
 # Benchmark fixed opcode counts
@@ -19,6 +22,7 @@
 # Cache
 cached_downloads/
 .cache
+.mypy_cache
 .mypy_cache/
 .ruff_cache/
 __pycache__/
@@ -47,6 +51,8 @@ MANIFEST
 # Python virtual environment
 .venv/
 venv/
+# User config; not imposed
+.python-version
 
 # pycharm
 .idea/
@@ -65,6 +71,8 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 .tox/
+.just/
+tests/json_loader/bench_gas_fixtures
 
 /doc/_autosummary
 
@@ -89,3 +97,6 @@ logs/
 env.yaml
 
 site/
+
+# Temporary data; used for generated checklists
+tmp/

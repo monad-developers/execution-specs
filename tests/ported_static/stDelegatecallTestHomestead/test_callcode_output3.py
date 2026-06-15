@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_callcode_output3.
 
 Ported from:
-tests/static/state_tests/stDelegatecallTestHomestead/callcodeOutput3Filler.json
+state_tests/stDelegatecallTestHomestead/callcodeOutput3Filler.json
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,9 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stDelegatecallTestHomestead/callcodeOutput3Filler.json",  # noqa: E501
-    ],
+    ["state_tests/stDelegatecallTestHomestead/callcodeOutput3Filler.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -32,8 +31,8 @@ def test_callcode_output3(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_callcode_output3."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xB1F4CBC3A50042184425A6F9E996D0910F7BA879457CE5DAC5C71E498AD3C005
     )
@@ -48,48 +47,48 @@ def test_callcode_output3(
     )
 
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
-    # Source: LLL
-    # { (MSTORE 0 0x5e20a0453cecd065ea59c37ac63e079ee08998b6045136a8ce6635c7912ec0b6) (DELEGATECALL 50000 <contract:0xaaae7baea6a6c7c4c2dfeb977efac326af552d87> 0 0 0 32) [[ 0 ]] (MLOAD 0)}  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE(
-                offset=0x0,
-                value=0x5E20A0453CECD065EA59C37AC63E079EE08998B6045136A8CE6635C7912EC0B6,  # noqa: E501
-            )
-            + Op.POP(
-                Op.DELEGATECALL(
-                    gas=0xC350,
-                    address=0xBCC1197CCD23A97607F2F96D031F3432E0D16A02,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x20,
-                ),
-            )
-            + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
-            + Op.STOP
-        ),
-        balance=0xDE0B6B3A7640000,
-        nonce=0,
-        address=Address("0x4e40004dedfdad4927c60de1289ab14535f5121a"),  # noqa: E501
-    )
-    # Source: raw bytecode
-    pre.deploy_contract(
+    # Source: raw
+    # 0x6001600101600055
+    addr = pre.deploy_contract(  # noqa: F841
         code=Op.SSTORE(key=0x0, value=Op.ADD(0x1, 0x1)),
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0xbcc1197ccd23a97607f2f96d031f3432e0d16a02"),  # noqa: E501
+        address=Address(0xBCC1197CCD23A97607F2F96D031F3432E0D16A02),  # noqa: E501
+    )
+    # Source: lll
+    # { (MSTORE 0 0x5e20a0453cecd065ea59c37ac63e079ee08998b6045136a8ce6635c7912ec0b6) (DELEGATECALL 50000 <contract:0xaaae7baea6a6c7c4c2dfeb977efac326af552d87> 0 0 0 32) [[ 0 ]] (MLOAD 0)}  # noqa: E501
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(
+            offset=0x0,
+            value=0x5E20A0453CECD065EA59C37AC63E079EE08998B6045136A8CE6635C7912EC0B6,  # noqa: E501
+        )
+        + Op.POP(
+            Op.DELEGATECALL(
+                gas=0xC350,
+                address=addr,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x20,
+            )
+        )
+        + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
+        + Op.STOP,
+        balance=0xDE0B6B3A7640000,
+        nonce=0,
+        address=Address(0x4E40004DEDFDAD4927C60DE1289AB14535F5121A),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=900000,
-        value=100000,
+        value=0x186A0,
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 0: 0x5E20A0453CECD065EA59C37AC63E079EE08998B6045136A8CE6635C7912EC0B6,  # noqa: E501
             },

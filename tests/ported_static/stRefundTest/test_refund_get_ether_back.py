@@ -1,16 +1,16 @@
 """
-Test ported from static filler.
+Test_refund_get_ether_back.
 
 Ported from:
-tests/static/state_tests/stRefundTest/refund_getEtherBackFiller.json
+state_tests/stRefundTest/refund_getEtherBackFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stRefundTest/refund_getEtherBackFiller.json"],
+    ["state_tests/stRefundTest/refund_getEtherBackFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -30,11 +30,9 @@ def test_refund_get_ether_back(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0xeb201d2887816e041f6e807e804f64f3a7a226fe")
-    sender = EOA(
-        key=0x29268B0C3308094249E9A06C02739F688D492D6325CA24B36EF949E5FC20AF27
-    )
+    """Test_refund_get_ether_back."""
+    coinbase = Address(0xEB201D2887816E041F6E807E804F64F3A7A226FE)
+    sender = pre.fund_eoa(amount=0x3CF773D0)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -45,25 +43,28 @@ def test_refund_get_ether_back(
         gas_limit=228500,
     )
 
-    pre[sender] = Account(balance=0x3CF773D0)
     pre[coinbase] = Account(balance=0, nonce=1)
-    # Source: LLL
+    # Source: lll
     # { [[ 1 ]] 0 }
-    contract = pre.deploy_contract(
+    target = pre.deploy_contract(  # noqa: F841
         code=Op.SSTORE(key=0x1, value=0x0) + Op.STOP,
-        storage={0x1: 0x1},
+        storage={1: 1},
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0xf4c9fc42faeda49049e3b8e2b97a17cc2fe95718"),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=228500,
         value=10,
     )
 
-    post: dict = {}
+    post = {
+        target: Account(storage={}, balance=0xDE0B6B3A764000A),
+        coinbase: Account(balance=0),
+        sender: Account(balance=0x3CF4376A, nonce=1),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -1,20 +1,21 @@
 """
-Test ported from static filler.
+Test_jump_bounds2.
 
 Ported from:
-tests/static/state_tests/stMemoryStressTest/JUMP_Bounds2Filler.json
+state_tests/stMemoryStressTest/JUMP_Bounds2Filler.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
 )
+from execution_testing.forks import Fork
 from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
@@ -22,29 +23,38 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stMemoryStressTest/JUMP_Bounds2Filler.json"],
+    ["state_tests/stMemoryStressTest/JUMP_Bounds2Filler.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_gas_limit, expected_post",
+    "d, g, v",
     [
-        (150000, {}),
-        (16777216, {}),
+        pytest.param(
+            0,
+            0,
+            0,
+            id="-g0",
+        ),
+        pytest.param(
+            0,
+            1,
+            0,
+            id="-g1",
+        ),
     ],
-    ids=["case0", "case1"],
 )
 @pytest.mark.pre_alloc_mutable
 def test_jump_bounds2(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_gas_limit: int,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x31B5AF02B012484AE954B3A43943242EDE546A2E76FC0A6ACC17435107C385EB
-    )
+    """Test_jump_bounds2."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x7FFFFFFFFFFFFFFF)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -55,28 +65,39 @@ def test_jump_bounds2(
         gas_limit=9223372036854775807,
     )
 
-    # Source: raw bytecode
-    contract = pre.deploy_contract(
-        code=(
-            Op.JUMP(pc=0xFFFFFFFF)
-            + Op.JUMP(pc=0xFFFFFFFFFFFFFFFF)
-            + Op.JUMP(pc=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
-            + Op.JUMP(
-                pc=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
-            )
+    # Source: raw
+    # 0x63ffffffff5667ffffffffffffffff566fffffffffffffffffffffffffffffffff567fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff56  # noqa: E501
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.JUMP(pc=0xFFFFFFFF)
+        + Op.JUMP(pc=0xFFFFFFFFFFFFFFFF)
+        + Op.JUMP(pc=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+        + Op.JUMP(
+            pc=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF  # noqa: E501
         ),
         nonce=0,
-        address=Address("0xde573d26b8c4a55fd9daa17e8f93347c269ee4f6"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x7FFFFFFFFFFFFFFF)
+
+    tx_data = [
+        Bytes(""),
+    ]
+    tx_gas = [150000, 16777216]
+    tx_value = [1]
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        gas_limit=tx_gas_limit,
-        value=1,
+        to=target,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
     )
 
-    post = expected_post
+    post = {
+        target: Account(
+            code=bytes.fromhex(
+                "63ffffffff5667ffffffffffffffff566fffffffffffffffffffffffffffffffff567fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff56"  # noqa: E501
+            ),
+            balance=0,
+        ),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

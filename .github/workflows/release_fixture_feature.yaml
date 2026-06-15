@@ -1,4 +1,4 @@
-name: Create Fixture Feature Release
+name: Create Fixture Release
 
 on:
   push:
@@ -7,32 +7,35 @@ on:
   workflow_dispatch:
 
 jobs:
-  feature-names:
+  setup:
     runs-on: ubuntu-24.04
     outputs:
-      names: ${{ steps.feature-name.outputs.names }}
+      build_matrix: ${{ steps.matrix.outputs.build_matrix }}
+      feature_name: ${{ steps.matrix.outputs.feature_name }}
+      combine_labels: ${{ steps.matrix.outputs.combine_labels }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: false
+      - uses: ./.github/actions/setup-uv
 
-      - name: Get feature names
-        id: feature-name
+      - name: Generate build matrix
+        id: matrix
         shell: bash
         run: |
           FEATURE_PREFIX="${GITHUB_REF_NAME//@*/}"
           FEATURE_NAME="${FEATURE_PREFIX#tests-}"
-          names=$(grep -Po "^${FEATURE_NAME}(?=:)" .github/configs/feature.yaml | jq  --raw-input .  | jq -c --slurp .)
-          echo "names=${names}"
-          echo "names=${names}" >> "$GITHUB_OUTPUT"
+          uv run -q .github/scripts/generate_build_matrix.py "$FEATURE_NAME" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: feature-names
+    name: fill (${{ matrix.label || matrix.feature }})
+    needs: setup
     runs-on: ubuntu-24.04
     timeout-minutes: 1440
     strategy:
+      fail-fast: true
       matrix:
-        feature: ${{ fromJSON(needs.feature-names.outputs.names) }}
+        include: ${{ fromJson(needs.setup.outputs.build_matrix) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -41,19 +44,80 @@ jobs:
       - uses: ./.github/actions/build-fixtures
         with:
           release_name: ${{ matrix.feature }}
+          from_fork: ${{ matrix.from_fork }}
+          until_fork: ${{ matrix.until_fork }}
+          split_label: ${{ matrix.label }}
 
-  release:
+  combine:
+    name: combine (${{ needs.setup.outputs.feature_name }})
+    needs: [setup, build]
+    if: needs.setup.outputs.combine_labels != ''
     runs-on: ubuntu-24.04
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/tests-')
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: false
-
-      - name: Download all artifacts
+      - uses: ./.github/actions/setup-uv
+      - name: Install pigz
+        run: sudo apt-get install -y pigz
+      - name: Download and merge split artifacts
+        shell: bash
         run: |
-          gh run download ${{ github.run_id }} --dir ./artifacts
+          mkdir -p combined
+          for label in ${{ needs.setup.outputs.combine_labels }}; do
+            echo "Downloading: fixtures__${label}"
+            if gh run download ${{ github.run_id }} -n "fixtures__${label}" --dir "split_artifacts/fixtures__${label}"; then
+              cp -r "split_artifacts/fixtures__${label}"/* combined/
+            else
+              echo "No artifact for ${label} (no tests collected, skipping)"
+            fi
+          done
+          echo "Combined directory contents:"
+          find combined -maxdepth 3 -type d | head -30 || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Merge split index files
+        shell: bash
+        run: |
+          SPLIT_DIRS=()
+          for label in ${{ needs.setup.outputs.combine_labels }}; do
+            dir="split_artifacts/fixtures__${label}"
+            if [ -d "$dir" ]; then
+              SPLIT_DIRS+=("$dir")
+            fi
+          done
+          if [ ${#SPLIT_DIRS[@]} -gt 0 ]; then
+            uv run python .github/scripts/merge_index_files.py combined/.meta/index.json "${SPLIT_DIRS[@]}"
+          fi
+      - name: Free disk space
+        run: rm -rf split_artifacts/
+      - name: Create release tarball
+        shell: bash
+        run: |
+          uv run -q .github/scripts/create_release_tarball.py combined fixtures_${{ needs.setup.outputs.feature_name }}.tar.gz
+      - name: Upload combined fixture tarball
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: fixtures_${{ needs.setup.outputs.feature_name }}
+          path: fixtures_${{ needs.setup.outputs.feature_name }}.tar.gz
+
+  release:
+    runs-on: ubuntu-24.04
+    needs: [setup, build, combine]
+    if: always() && needs.build.result == 'success' && (needs.combine.result == 'success' || needs.combine.result == 'skipped') && startsWith(github.ref, 'refs/tags/tests-')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        shell: bash
+        run: |
+          gh run download ${{ github.run_id }} -p "fixtures_*" --dir ./artifacts
+          rm -rf ./artifacts/fixtures__*/
         env:
           GH_TOKEN: ${{ github.token }}
 

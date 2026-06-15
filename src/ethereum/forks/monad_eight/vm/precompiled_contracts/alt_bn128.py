@@ -12,7 +12,7 @@ Implementation of the ALT_BN128 precompiled contracts.
 """
 
 from ethereum_types.bytes import Bytes
-from ethereum_types.numeric import U256, Uint
+from ethereum_types.numeric import U256, Uint, ulen
 from py_ecc.optimized_bn128.optimized_curve import (
     FQ,
     FQ2,
@@ -31,13 +31,7 @@ from py_ecc.optimized_bn128.optimized_pairing import pairing
 from py_ecc.typing import Optimized_Point3D as Point3D
 
 from ...vm import Evm
-from ...vm.gas import (
-    GAS_ALT_BN128_ADD,
-    GAS_ALT_BN128_MUL,
-    GAS_ALT_BN128_PAIRING_BASE,
-    GAS_ALT_BN128_PAIRING_PER_POINT,
-    charge_gas,
-)
+from ...vm.gas import GasCosts, charge_gas
 from ...vm.memory import buffer_read
 from ..exceptions import InvalidParameter, OutOfGasError
 
@@ -155,7 +149,7 @@ def alt_bn128_add(evm: Evm) -> None:
     data = evm.message.data
 
     # GAS
-    charge_gas(evm, GAS_ALT_BN128_ADD)
+    charge_gas(evm, GasCosts.PRECOMPILE_ECADD)
 
     # OPERATION
     try:
@@ -183,7 +177,7 @@ def alt_bn128_mul(evm: Evm) -> None:
     data = evm.message.data
 
     # GAS
-    charge_gas(evm, GAS_ALT_BN128_MUL)
+    charge_gas(evm, GasCosts.PRECOMPILE_ECMUL)
 
     # OPERATION
     try:
@@ -213,10 +207,8 @@ def alt_bn128_pairing_check(evm: Evm) -> None:
     # GAS
     charge_gas(
         evm,
-        Uint(
-            GAS_ALT_BN128_PAIRING_PER_POINT * (len(data) // 192)
-            + GAS_ALT_BN128_PAIRING_BASE
-        ),
+        GasCosts.PRECOMPILE_ECPAIRING_PER_POINT * (ulen(data) // Uint(192))
+        + GasCosts.PRECOMPILE_ECPAIRING_BASE,
     )
 
     # OPERATION

@@ -127,7 +127,7 @@ pytestmark = [
         ),
     ],
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_valid(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -212,7 +212,7 @@ def test_valid_multi_inf(
     BLS12_PAIRING precompile.
     """
     gas_costs = fork.gas_costs()
-    extra_gas = 70_000 + gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
+    extra_gas = 70_000 + gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
 
     max_gas_limit = fork.transaction_gas_limit_cap() or Environment().gas_limit
 
@@ -395,7 +395,7 @@ def test_valid_multi_inf(
     ],
 )
 @pytest.mark.parametrize("expected_output", [Spec.INVALID], ids=[""])
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_invalid(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -427,7 +427,7 @@ def test_invalid_multi_inf(
     BLS12_PAIRING precompile and an invalid tail.
     """
     gas_costs = fork.gas_costs()
-    extra_gas = 70_000 + gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
+    extra_gas = 70_000 + gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
 
     max_gas_limit = fork.transaction_gas_limit_cap() or Environment().gas_limit
 

@@ -1,16 +1,16 @@
 """
-Test ported from static filler.
+Test_random_statetest246.
 
 Ported from:
-tests/static/state_tests/stRandom/randomStatetest246Filler.json
+state_tests/stRandom/randomStatetest246Filler.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stRandom/randomStatetest246Filler.json"],
+    ["state_tests/stRandom/randomStatetest246Filler.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -30,11 +30,10 @@ def test_random_statetest246(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x945304eb96065b2a98b57a48a06ae28d285a71b5")
-    sender = EOA(
-        key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
-    )
+    """Test_random_statetest246."""
+    coinbase = Address(0x945304EB96065B2A98B57A48A06AE28D285A71B5)
+    contract_0 = Address(0x095E7BAEA6A6C7C4C2DFEB977EFAC326AF552D87)
+    sender = pre.fund_eoa(amount=0xDE0B6B3A7640000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -45,53 +44,50 @@ def test_random_statetest246(
         gas_limit=9223372036854775807,
     )
 
-    # Source: raw bytecode
-    contract = pre.deploy_contract(
-        code=(
-            Op.NUMBER
-            + Op.TIMESTAMP
-            + Op.BALANCE(address=Op.COINBASE)
-            + Op.PREVRANDAO
-            + Op.COINBASE
-            + Op.NUMBER
-            + Op.TIMESTAMP
-            + Op.SWAP4
-            + Op.SSTORE(key=Op.MULMOD, value=Op.OR)
-        ),
+    # Source: raw
+    # 0x434241314441434293170955
+    contract_0 = pre.deploy_contract(  # noqa: F841
+        code=Op.NUMBER
+        + Op.TIMESTAMP
+        + Op.BALANCE(address=Op.COINBASE)
+        + Op.PREVRANDAO
+        + Op.COINBASE
+        + Op.NUMBER
+        + Op.TIMESTAMP
+        + Op.SWAP4
+        + Op.SSTORE(key=Op.MULMOD, value=Op.OR),
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x095e7baea6a6c7c4c2dfeb977efac326af552d87"),  # noqa: E501
     )
-    # Source: raw bytecode
-    pre.deploy_contract(
-        code=(
-            Op.JUMPI(
-                pc=0x9,
-                condition=Op.ISZERO(Op.SLOAD(key=Op.CALLDATALOAD(offset=0x0))),
-            )
-            + Op.STOP
-            + Op.JUMPDEST
-            + Op.SSTORE(
-                key=Op.CALLDATALOAD(offset=0x0),
-                value=Op.CALLDATALOAD(offset=0x20),
-            )
+    # Source: raw
+    # 0x6000355415600957005b60203560003555
+    coinbase = pre.deploy_contract(  # noqa: F841
+        code=Op.JUMPI(
+            pc=0x9,
+            condition=Op.ISZERO(Op.SLOAD(key=Op.CALLDATALOAD(offset=0x0))),
+        )
+        + Op.STOP
+        + Op.JUMPDEST
+        + Op.SSTORE(
+            key=Op.CALLDATALOAD(offset=0x0), value=Op.CALLDATALOAD(offset=0x20)
         ),
         balance=46,
         nonce=0,
-        address=coinbase,  # noqa: E501
+        address=Address(0x945304EB96065B2A98B57A48A06AE28D285A71B5),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=bytes.fromhex("42"),
+        to=contract_0,
+        data=Bytes("42"),
         gas_limit=400000,
-        value=100000,
+        value=0x186A0,
     )
 
     post = {
-        contract: Account(storage={57403: 1000}),
+        contract_0: Account(storage={57403: 1000, 0xD9250A4F8C: 0}, nonce=0),
+        coinbase: Account(storage={}, nonce=0),
+        sender: Account(storage={}, code=b"", nonce=1),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -331,7 +331,7 @@ def test_maximum_gas_refund(
 def total_cost_floor_per_token(fork: Fork) -> int:
     """Total cost floor per token."""
     gas_costs = fork.gas_costs()
-    return gas_costs.GAS_TX_DATA_TOKEN_FLOOR
+    return gas_costs.TX_DATA_TOKEN_FLOOR
 
 
 @pytest.mark.xdist_group(name="bigmem")
@@ -347,6 +347,7 @@ def total_cost_floor_per_token(fork: Fork) -> int:
 # Osaka originally, but Monad introduces tx gas limit cap differently
 @pytest.mark.valid_from("MONAD_EIGHT")
 @pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_tx_gas_limit_cap_full_calldata(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -686,7 +687,7 @@ def test_tx_gas_limit_cap_authorized_tx(
     # EIP-7702 authorization transaction cost:
     # 21000 + 16 * non-zero calldata bytes + 4 * zero calldata bytes + 1900 *
     # access list storage key count + 2400 * access list address count + access
-    # list data cost + GAS_AUTH_PER_EMPTY_ACCOUNT_COST * authorization list
+    # list data cost + AUTH_PER_EMPTY_ACCOUNT_COST * authorization list
     # length
     #
     # There is no calldata and no storage keys in this test case.

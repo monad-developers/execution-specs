@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_zero_value_transaction_call.
 
 Ported from:
-tests/static/state_tests/stZeroCallsTest/ZeroValue_TransactionCALLFiller.json
+state_tests/stZeroCallsTest/ZeroValue_TransactionCALLFiller.json
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -21,9 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stZeroCallsTest/ZeroValue_TransactionCALLFiller.json",  # noqa: E501
-    ],
+    ["state_tests/stZeroCallsTest/ZeroValue_TransactionCALLFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -31,12 +30,11 @@ def test_zero_value_transaction_call(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_zero_value_transaction_call."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
     )
-    contract = Address("0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b")
 
     env = Environment(
         fee_recipient=coinbase,
@@ -51,10 +49,16 @@ def test_zero_value_transaction_call(
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=Address(0xB94F5374FCE5EDBC8E2A8697C15331677E6EBF0B),
+        data=Bytes(""),
         gas_limit=600000,
     )
 
-    post: dict = {}
+    post = {
+        Address(
+            0xB94F5374FCE5EDBC8E2A8697C15331677E6EBF0B
+        ): Account.NONEXISTENT,
+        sender: Account(nonce=1),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

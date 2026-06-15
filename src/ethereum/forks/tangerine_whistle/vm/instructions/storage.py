@@ -13,13 +13,10 @@ Implementations of the EVM storage related instructions.
 
 from ethereum_types.numeric import Uint
 
-from ...state import get_storage, set_storage
+from ...state_tracker import get_storage, set_storage
 from .. import Evm
 from ..gas import (
-    GAS_SLOAD,
-    GAS_STORAGE_SET,
-    GAS_STORAGE_UPDATE,
-    REFUND_STORAGE_CLEAR,
+    GasCosts,
     charge_gas,
 )
 from ..stack import pop, push
@@ -40,12 +37,11 @@ def sload(evm: Evm) -> None:
     key = pop(evm.stack).to_be_bytes32()
 
     # GAS
-    charge_gas(evm, GAS_SLOAD)
+    charge_gas(evm, GasCosts.SLOAD)
 
     # OPERATION
-    value = get_storage(
-        evm.message.block_env.state, evm.message.current_target, key
-    )
+    tx_state = evm.message.tx_env.state
+    value = get_storage(tx_state, evm.message.current_target, key)
 
     push(evm.stack, value)
 
@@ -68,20 +64,20 @@ def sstore(evm: Evm) -> None:
     new_value = pop(evm.stack)
 
     # GAS
-    state = evm.message.block_env.state
-    current_value = get_storage(state, evm.message.current_target, key)
+    tx_state = evm.message.tx_env.state
+    current_value = get_storage(tx_state, evm.message.current_target, key)
     if new_value != 0 and current_value == 0:
-        gas_cost = GAS_STORAGE_SET
+        gas_cost = GasCosts.STORAGE_SET
     else:
-        gas_cost = GAS_STORAGE_UPDATE
+        gas_cost = GasCosts.COLD_STORAGE_WRITE
 
     if new_value == 0 and current_value != 0:
-        evm.refund_counter += REFUND_STORAGE_CLEAR
+        evm.refund_counter += GasCosts.REFUND_STORAGE_CLEAR
 
     charge_gas(evm, gas_cost)
 
     # OPERATION
-    set_storage(state, evm.message.current_target, key, new_value)
+    set_storage(tx_state, evm.message.current_target, key, new_value)
 
     # PROGRAM COUNTER
     evm.pc += Uint(1)

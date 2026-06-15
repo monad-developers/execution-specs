@@ -424,11 +424,13 @@ class BesuExceptionMapper(ExceptionMapper):
             r"exceeds transaction sender account balance 0x[0-9a-f]+"
         ),
         TransactionException.INTRINSIC_GAS_TOO_LOW: (
-            r"transaction invalid intrinsic gas cost \d+ "
+            r"transaction invalid intrinsic gas cost \d+"
+            r"(?: \(regular \d+ \+ state \d+\))? "
             r"exceeds gas limit \d+"
         ),
         TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST: (
-            r"transaction invalid intrinsic gas cost \d+ "
+            r"transaction invalid intrinsic gas cost \d+"
+            r"(?: \(regular \d+ \+ state \d+\))? "
             r"exceeds gas limit \d+"
         ),
         TransactionException.SENDER_NOT_EOA: (
@@ -455,17 +457,8 @@ class BesuExceptionMapper(ExceptionMapper):
             r"Blob transaction has too many blobs: \d+|"
             r"Invalid Blob Count: \d+"
         ),
-        # BAL Exceptions: TODO - review once all clients completed.
-        BlockException.INVALID_BAL_EXTRA_ACCOUNT: (
-            r"Block access list hash mismatch, "
-            r"calculated:\s*(0x[a-f0-9]+)\s+header:\s*(0x[a-f0-9]+)|"
-            r"Block access list validation failed for block 0x[a-f0-9]+"
-        ),
+        # BAL Exceptions
         BlockException.INVALID_BAL_HASH: (
-            r"Block access list hash mismatch, "
-            r"calculated:\s*(0x[a-f0-9]+)\s+header:\s*(0x[a-f0-9]+)"
-        ),
-        BlockException.INVALID_BAL_MISSING_ACCOUNT: (
             r"Block access list hash mismatch, "
             r"calculated:\s*(0x[a-f0-9]+)\s+header:\s*(0x[a-f0-9]+)"
         ),

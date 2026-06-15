@@ -38,6 +38,7 @@ from execution_testing.fixtures import (
     StateFixture,
 )
 from execution_testing.fixtures.common import FixtureBlobSchedule
+from execution_testing.fixtures.post_verifications import PostVerifications
 from execution_testing.fixtures.state import (
     FixtureConfig,
     FixtureEnvironment,
@@ -45,7 +46,7 @@ from execution_testing.fixtures.state import (
     FixtureTransaction,
     FixtureTransactionReceipt,
 )
-from execution_testing.forks import Fork
+from execution_testing.forks import Fork, TransitionFork
 from execution_testing.logging import (
     get_logger,
 )
@@ -131,7 +132,7 @@ class StateTest(BaseTest):
         current_gas_limit: int,
         pre_alloc: Alloc,
         env: Environment,
-        enable_post_processing: bool,
+        ignore_gas_differences: bool,
     ) -> bool:
         """Verify a new lower gas limit yields the same transaction outcome."""
         base_traces = base_tool_result.traces
@@ -161,7 +162,7 @@ class StateTest(BaseTest):
         )
         if not base_traces.are_equivalent(
             modified_tool_output.result.traces,
-            enable_post_processing,
+            ignore_gas_differences,
         ):
             logger.debug(
                 f"Traces are not equivalent (gas_limit={current_gas_limit})"
@@ -233,7 +234,7 @@ class StateTest(BaseTest):
     def discard_fixture_format_by_marks(
         cls,
         fixture_format: FixtureFormat,
-        fork: Fork,
+        fork: Fork | TransitionFork,
         markers: List[pytest.Mark],
     ) -> bool:
         """
@@ -267,9 +268,14 @@ class StateTest(BaseTest):
         # - Base Fee Per Gas: Block's base fee depends on the parent's value
         # - Excess Blob Gas: Block's excess blob gas value depends on
         #                    the parent's value
+        genesis_block_number = self.env.number - 1
+        genesis_timestamp = 0
+        genesis_fork = self.fork.fork_at(
+            block_number=genesis_block_number, timestamp=genesis_timestamp
+        )
         kwargs: Dict[str, Any] = {
-            "number": self.env.number - 1,
-            "timestamp": 0,
+            "number": genesis_block_number,
+            "timestamp": genesis_timestamp,
         }
 
         if "gas_limit" in self.env.model_fields_set:
@@ -290,8 +296,8 @@ class StateTest(BaseTest):
             # will be subtracted from the excess blob gas when the first block
             # is mined.
             kwargs["excess_blob_gas"] = self.env.excess_blob_gas + (
-                self.fork.target_blobs_per_block()
-                * self.fork.blob_gas_per_blob()
+                genesis_fork.target_blobs_per_block()
+                * genesis_fork.blob_gas_per_blob()
             )
 
         return Environment(**kwargs)
@@ -301,6 +307,9 @@ class StateTest(BaseTest):
         Generate the single block that represents this state test in a
         BlockchainTest format.
         """
+        number = self.env.number
+        timestamp = self.env.timestamp
+        fork = self.fork.fork_at(block_number=number, timestamp=timestamp)
         kwargs = {
             "number": self.env.number,
             "timestamp": self.env.timestamp,
@@ -310,13 +319,14 @@ class StateTest(BaseTest):
             "extra_data": self.env.extra_data,
             "withdrawals": self.env.withdrawals,
             "parent_beacon_block_root": self.env.parent_beacon_block_root,
+            "slot_number": self.env.slot_number,
             "txs": [self.tx],
             "ommers": [],
             "header_verify": self.blockchain_test_header_verify,
             "rlp_modifier": self.blockchain_test_rlp_modifier,
             "expected_block_access_list": self.expected_block_access_list,
         }
-        if not self.fork.header_prev_randao_required():
+        if not fork.header_prev_randao_required():
             kwargs["difficulty"] = self.env.difficulty
         if "block_exception" in self.model_fields_set:
             kwargs["exception"] = self.block_exception  # type: ignore
@@ -395,7 +405,7 @@ class StateTest(BaseTest):
             self.operation_mode == OpMode.OPTIMIZE_GAS
             or self.operation_mode == OpMode.OPTIMIZE_GAS_POST_PROCESSING
         ):
-            enable_post_processing = (
+            ignore_gas_differences = (
                 self.operation_mode == OpMode.OPTIMIZE_GAS_POST_PROCESSING
             )
             base_tool_output = transition_tool_output
@@ -415,7 +425,7 @@ class StateTest(BaseTest):
                 current_gas_limit=self.tx.gas_limit - 1,
                 pre_alloc=pre_alloc,
                 env=env,
-                enable_post_processing=enable_post_processing,
+                ignore_gas_differences=ignore_gas_differences,
             ):
                 minimum_gas_limit = 0
                 maximum_gas_limit = int(self.tx.gas_limit)
@@ -431,7 +441,7 @@ class StateTest(BaseTest):
                         current_gas_limit=current_gas_limit,
                         pre_alloc=pre_alloc,
                         env=env,
-                        enable_post_processing=enable_post_processing,
+                        ignore_gas_differences=ignore_gas_differences,
                     ):
                         maximum_gas_limit = current_gas_limit
                     else:
@@ -455,7 +465,7 @@ class StateTest(BaseTest):
                     current_gas_limit=minimum_gas_limit,
                     pre_alloc=pre_alloc,
                     env=env,
-                    enable_post_processing=enable_post_processing,
+                    ignore_gas_differences=ignore_gas_differences,
                 )
                 gas_optimization = current_gas_limit
             else:
@@ -505,6 +515,7 @@ class StateTest(BaseTest):
             gas_optimization=gas_optimization,
             benchmark_gas_used=transition_tool_output.result.gas_used,
             benchmark_opcode_count=transition_tool_output.result.opcode_count,
+            post_verifications=PostVerifications.from_alloc(self.post),
         )
 
     def get_genesis_environment(self) -> Environment:

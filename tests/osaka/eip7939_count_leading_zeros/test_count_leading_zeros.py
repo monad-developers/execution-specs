@@ -86,10 +86,10 @@ def generous_gas(fork: Fork, sstore_count: int = 1) -> int:
     """
     gas_costs = fork.gas_costs()
     sstore_cost = sstore_count * (
-        gas_costs.GAS_STORAGE_SET + gas_costs.GAS_COLD_SLOAD
+        gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
     )
     intrinsic_cost = fork.transaction_intrinsic_cost_calculator()()
-    access_cost = gas_costs.GAS_COLD_ACCOUNT_ACCESS
+    access_cost = gas_costs.COLD_ACCOUNT_ACCESS
     return access_cost + sstore_cost + intrinsic_cost + 50_000
 
 
@@ -385,11 +385,18 @@ def test_clz_fork_transition(
 
 
 @pytest.mark.valid_from("Osaka")
-@pytest.mark.parametrize("opcode", [Op.JUMPI, Op.JUMP])
+@pytest.mark.parametrize(
+    "opcode,jumpi_condition",
+    [
+        (op, cond)
+        for op in [Op.JUMPI, Op.JUMP]
+        for cond in [True, False]
+        if not (op == Op.JUMP and not cond)
+    ],
+)
 @pytest.mark.parametrize("valid_jump", [True, False])
-@pytest.mark.parametrize("jumpi_condition", [True, False])
 @pytest.mark.parametrize("bits", [0, 16, 64, 128, 255])
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_clz_jump_operation(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -400,9 +407,6 @@ def test_clz_jump_operation(
     fork: Fork,
 ) -> None:
     """Test CLZ opcode with valid and invalid jump."""
-    if opcode == Op.JUMP and not jumpi_condition:
-        pytest.skip("Duplicate case for JUMP.")
-
     code = Op.PUSH32(1 << bits)
 
     if opcode == Op.JUMPI:

@@ -1,1 +1,1 @@
-"""Tests ported from stCreate2."""
+"""Ported static tests: stCreate2."""  # noqa: N999

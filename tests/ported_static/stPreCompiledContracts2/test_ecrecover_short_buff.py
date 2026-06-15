@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_ecrecover_short_buff.
 
 Ported from:
-tests/static/state_tests/stPreCompiledContracts2/ecrecoverShortBuffFiller.yml
+state_tests/stPreCompiledContracts2/ecrecoverShortBuffFiller.yml
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,9 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stPreCompiledContracts2/ecrecoverShortBuffFiller.yml",  # noqa: E501
-    ],
+    ["state_tests/stPreCompiledContracts2/ecrecoverShortBuffFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -32,8 +31,9 @@ def test_ecrecover_short_buff(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_ecrecover_short_buff."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    contract_0 = Address(0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC)
     sender = EOA(
         key=0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
     )
@@ -48,7 +48,8 @@ def test_ecrecover_short_buff(
     )
 
     pre[sender] = Account(balance=0xDE0B6B3A7640000, nonce=1)
-    # Source: Yul
+    # Source: yul
+    # berlin
     # {
     #   let maxLength := 0xA0
     #
@@ -78,94 +79,97 @@ def test_ecrecover_short_buff(
     #      // The expected retval is one, so to avoid specifying every length
     #      // in the expect: section we subtract one.
     #      sstore(len, sub(sload(len), 1))
-    #
-    # ... (4 more lines)
-    contract = pre.deploy_contract(
-        code=(
-            Op.PUSH1[0xA0]
-            + Op.PUSH1[0x0]
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0x8A, condition=Op.LT(Op.DUP2, Op.DUP2))
-            + Op.POP
-            + Op.MSTORE(offset=Op.DUP1, value=0x0)
-            + Op.MSTORE(offset=0x20, value=0x1B)
-            + Op.MSTORE(
-                offset=0x40,
-                value=0x184870A8E4FAA6065DDF65C873935D3E48E3D1C7B7853F25CD79B8247F771910,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=0x60,
-                value=0x226140B6B66554C7FCFA38589E433CC148EBE5C8482EB3093AB1D9A932C96F58,  # noqa: E501
-            )
-            + Op.PUSH1[0x0]
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0x67, condition=Op.LT(Op.DUP2, Op.DUP2))
-            + Op.STOP
-            + Op.JUMPDEST
-            + Op.DUP1
-            + Op.PUSH1[0x20]
-            + Op.PUSH2[0x100]
-            + Op.PUSH1[0x1]
-            + Op.SWAP4
-            + Op.PUSH1[0x0]
-            + Op.DUP1
-            + Op.DUP7
-            + Op.GAS
-            + Op.CALL
-            + Op.DUP3
-            + Op.SWAP1
-            + Op.SSTORE(key=Op.DUP2, value=Op.SUB)
-            + Op.SSTORE(
-                key=Op.ADD(Op.DUP3, 0x1000), value=Op.MLOAD(offset=0x100)
-            )
-            + Op.ADD
-            + Op.JUMP(pc=0x5F)
-            + Op.JUMPDEST
-            + Op.PUSH4[0xDEAD60A7]
-            + Op.SSTORE(key=Op.DUP3, value=Op.DUP1)
-            + Op.ADD(Op.DUP3, 0x1000)
-            + Op.SSTORE
-            + Op.PUSH1[0x1]
-            + Op.ADD
-            + Op.JUMP(pc=0x4)
-        ),
+    # ... (5 more lines)
+    contract_0 = pre.deploy_contract(  # noqa: F841
+        code=Op.PUSH1[0xA0]
+        + Op.PUSH1[0x0]
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0x8A, condition=Op.LT(Op.DUP2, Op.DUP2))
+        + Op.POP
+        + Op.MSTORE(offset=Op.DUP1, value=0x0)
+        + Op.MSTORE(offset=0x20, value=0x1B)
+        + Op.MSTORE(
+            offset=0x40,
+            value=0x184870A8E4FAA6065DDF65C873935D3E48E3D1C7B7853F25CD79B8247F771910,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=0x60,
+            value=0x226140B6B66554C7FCFA38589E433CC148EBE5C8482EB3093AB1D9A932C96F58,  # noqa: E501
+        )
+        + Op.PUSH1[0x0]
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0x67, condition=Op.LT(Op.DUP2, Op.DUP2))
+        + Op.STOP
+        + Op.JUMPDEST
+        + Op.DUP1
+        + Op.PUSH1[0x20]
+        + Op.PUSH2[0x100]
+        + Op.PUSH1[0x1]
+        + Op.SWAP4
+        + Op.PUSH1[0x0]
+        + Op.DUP1
+        + Op.DUP7
+        + Op.GAS
+        + Op.CALL
+        + Op.DUP3
+        + Op.SWAP1
+        + Op.SSTORE(key=Op.DUP2, value=Op.SUB)
+        + Op.SSTORE(key=Op.ADD(Op.DUP3, 0x1000), value=Op.MLOAD(offset=0x100))
+        + Op.ADD
+        + Op.JUMP(pc=0x5F)
+        + Op.JUMPDEST
+        + Op.PUSH4[0xDEAD60A7]
+        + Op.SSTORE(key=Op.DUP3, value=Op.DUP1)
+        + Op.ADD(Op.DUP3, 0x1000)
+        + Op.SSTORE
+        + Op.PUSH1[0x1]
+        + Op.ADD
+        + Op.JUMP(pc=0x4),
         storage={
-            0x0: 0x60A7,
-            0x11: 0x60A7,
-            0x22: 0x60A7,
-            0x33: 0x60A7,
-            0x44: 0x60A7,
-            0x55: 0x60A7,
-            0x66: 0x60A7,
-            0x77: 0x60A7,
-            0x80: 0x60A7,
-            0x99: 0x60A7,
-            0x1000: 0x60A7,
-            0x1011: 0x60A7,
-            0x1022: 0x60A7,
-            0x1033: 0x60A7,
-            0x1044: 0x60A7,
-            0x1055: 0x60A7,
-            0x1066: 0x60A7,
-            0x1077: 0x60A7,
-            0x1080: 0x60A7,
-            0x1099: 0x60A7,
+            0: 24743,
+            17: 24743,
+            34: 24743,
+            51: 24743,
+            68: 24743,
+            85: 24743,
+            102: 24743,
+            119: 24743,
+            128: 24743,
+            153: 24743,
+            4096: 24743,
+            4113: 24743,
+            4130: 24743,
+            4147: 24743,
+            4164: 24743,
+            4181: 24743,
+            4198: 24743,
+            4215: 24743,
+            4224: 24743,
+            4249: 24743,
         },
-        address=Address("0xcccccccccccccccccccccccccccccccccccccccc"),  # noqa: E501
+        nonce=1,
+        address=Address(0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=bytes.fromhex("00"),
+        to=contract_0,
+        data=Bytes("00"),
         gas_limit=7400000,
+        value=0x186A0,
         nonce=1,
-        value=100000,
     )
 
     post = {
-        contract: Account(
+        contract_0: Account(
             storage={
+                0: 0,
+                1: 0,
+                159: 0,
+                4096: 0,
+                4112: 0,
+                4144: 0,
+                4192: 0,
                 4193: 0x8E5817968F74FFB0255AE41EEFA6F89DD0183FA1,
                 4194: 0xB7529ED60A10291754A635ED9FD67C1723F4D83B,
                 4195: 0x669457CE81442F235FFC4123662BA14A72B3D68,

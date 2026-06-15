@@ -1,16 +1,16 @@
 """
-expect section set -indexes field by default equal to -1.
+Expect section set -indexes field by default equal to -1.
 
 Ported from:
-tests/static/state_tests/stExample/indexesOmitExampleFiller.yml
+state_tests/stExample/indexesOmitExampleFiller.yml
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +22,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stExample/indexesOmitExampleFiller.yml"],
+    ["state_tests/stExample/indexesOmitExampleFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -31,10 +31,8 @@ def test_indexes_omit_example(
     pre: Alloc,
 ) -> None:
     """Expect section set -indexes field by default equal to -1."""
-    coinbase = Address("0xeb201d2887816e041f6e807e804f64f3a7a226fe")
-    sender = EOA(
-        key=0xB1F4CBC3A50042184425A6F9E996D0910F7BA879457CE5DAC5C71E498AD3C005
-    )
+    coinbase = Address(0xEB201D2887816E041F6E807E804F64F3A7A226FE)
+    sender = pre.fund_eoa(amount=0xDE0B6B3A7640000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -45,29 +43,31 @@ def test_indexes_omit_example(
         gas_limit=71794957647893862,
     )
 
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
-    # Source: LLL
+    pre[coinbase] = Account(balance=0, nonce=1)
+    # Source: lll
     # {
     #    ; Can also add lll style comments here
     #    [[0]] (ADD 1 1)
     # }
-    contract = pre.deploy_contract(
+    target = pre.deploy_contract(  # noqa: F841
         code=Op.SSTORE(key=0x0, value=Op.ADD(0x1, 0x1)) + Op.STOP,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0xad21eb96c7a254c810474f7b1e1e66ca449a3426"),  # noqa: E501
     )
-    pre[coinbase] = Account(balance=0, nonce=1)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=400000,
-        value=100000,
+        value=0x186A0,
     )
 
     post = {
-        contract: Account(storage={0: 2}),
+        target: Account(
+            storage={0: 2},
+            code=bytes.fromhex("600160010160005500"),
+        ),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

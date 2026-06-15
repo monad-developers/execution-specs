@@ -1743,7 +1743,7 @@ def test_many_accounts_balance_change(
             # Warmed using access lists for cheapest call
             delegated_address_warm=True,
         ).gas_cost(fork)
-        + gas_costs.GAS_TX_ACCESS_LIST_ADDRESS
+        + gas_costs.TX_ACCESS_LIST_ADDRESS
     )
     gas_limit = fork.transaction_gas_limit_cap()
     assert gas_limit is not None

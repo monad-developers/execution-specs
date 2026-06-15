@@ -25,6 +25,8 @@ from execution_testing import (
 from .common import INF_POINT, Z
 from .spec import Spec, ref_spec_4844
 
+pytestmark = pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
+
 REFERENCE_SPEC_GIT_PATH = ref_spec_4844.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4844.version
 
@@ -66,7 +68,7 @@ def call_gas(fork: Fork) -> int:
     Defaults to the point evaluation precompile gas cost, but can be
     parametrized to test different amounts.
     """
-    return fork.gas_costs().GAS_PRECOMPILE_POINT_EVALUATION
+    return fork.gas_costs().PRECOMPILE_POINT_EVALUATION
 
 
 def copy_opcode_cost(fork: Fork, length: int) -> int:
@@ -157,7 +159,7 @@ def tx(
         data=precompile_input,
         to=precompile_caller_address,
         value=0,
-        gas_limit=fork.gas_costs().GAS_PRECOMPILE_POINT_EVALUATION * 20,
+        gas_limit=fork.gas_costs().PRECOMPILE_POINT_EVALUATION * 20,
     )
 
 
@@ -172,7 +174,7 @@ def post(
     Prepare expected post for each test, depending on the success or failure of
     the precompile call and the gas usage.
     """
-    precompile_gas = fork.gas_costs().GAS_PRECOMPILE_POINT_EVALUATION
+    precompile_gas = fork.gas_costs().PRECOMPILE_POINT_EVALUATION
     if proof == "correct":
         expected_gas_usage = (
             call_gas if call_gas < precompile_gas else precompile_gas
@@ -203,7 +205,7 @@ def post(
 )
 @pytest.mark.parametrize("proof", ["correct", "incorrect"])
 @pytest.mark.valid_from("Cancun")
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_point_evaluation_precompile_gas_usage(
     state_test: StateTestFiller,
     pre: Dict,

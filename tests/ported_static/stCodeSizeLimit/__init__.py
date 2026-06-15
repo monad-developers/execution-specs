@@ -1,1 +1,1 @@
-"""Tests ported from stCodeSizeLimit."""
+"""Ported static tests: stCodeSizeLimit."""  # noqa: N999

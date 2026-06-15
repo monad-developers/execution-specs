@@ -1,6 +1,5 @@
 """Helper class to load and run VM tests."""
 
-from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Tuple
 
@@ -49,19 +48,20 @@ class VmTestLoader:
     def __init__(self, network: str, fork_name: str):
         self.network = network
         self.fork_name = fork_name
+        self.hardfork = TestHardfork.by_short_name(fork_name)
 
         # Import relevant items from fork
         self.fork = self._module("fork")
         self.BlockChain = self.fork.BlockChain
         self.get_last_256_block_hashes = self.fork.get_last_256_block_hashes
 
-        self.state = self._module("state")
-        self.State = self.state.State
-        self.close_state = self.state.close_state
-        self.set_account = self.state.set_account
-        self.set_storage = self.state.set_storage
-        self.storage_root = self.state.storage_root
-        self.store_code = self.state.store_code
+        state_mod = self._state_module()
+        self.State = state_mod.State
+        self.close_state = state_mod.close_state
+        self.set_account = state_mod.set_account
+        self.set_storage = state_mod.set_storage
+        self.storage_root = state_mod.storage_root
+        self.store_code = state_mod.store_code
 
         self.fork_types = self._module("fork_types")
         self.Account = self.fork_types.Account
@@ -84,7 +84,17 @@ class VmTestLoader:
         self.process_message_call = self.interpreter.process_message_call
 
     def _module(self, name: str) -> Any:
-        return import_module(f"ethereum.forks.{self.fork_name}.{name}")
+        return self.hardfork.module(name)
+
+    def _state_module(self) -> Any:
+        # TODO: remove this fallback once the state module is ported over
+        # to the older forks
+        try:
+            return self._module("state")
+        except ModuleNotFoundError:
+            import ethereum.state
+
+            return ethereum.state
 
     def run_test_from_dict(self, json_data: Dict[str, Any]) -> None:
         """

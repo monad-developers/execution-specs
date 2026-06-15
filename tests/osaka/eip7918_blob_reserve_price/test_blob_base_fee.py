@@ -28,7 +28,10 @@ from .spec import Spec, ref_spec_7918
 REFERENCE_SPEC_GIT_PATH = ref_spec_7918.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7918.version
 
-pytestmark = pytest.mark.valid_from("Osaka")
+pytestmark = [
+    pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True),
+    pytest.mark.valid_from("Osaka"),
+]
 
 
 @pytest.fixture
@@ -232,7 +235,7 @@ def get_boundary_scenarios(fork: Fork) -> Iterator[Any]:
     "parent_excess_blobs,block_base_fee_per_gas_delta",
     get_boundary_scenarios,
 )
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_reserve_price_boundary(
     blockchain_test: BlockchainTestFiller,
     env: Environment,

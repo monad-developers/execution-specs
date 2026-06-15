@@ -1,8 +1,8 @@
 """
-https://github.com/ethereum/tests/issues/564.
+Https://github.com/ethereum/tests/issues/564.
 
 Ported from:
-tests/static/state_tests/stShift/shiftSignedCombinationsFiller.yml
+state_tests/stShift/shiftSignedCombinationsFiller.yml
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stShift/shiftSignedCombinationsFiller.yml"],
+    ["state_tests/stShift/shiftSignedCombinationsFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.valid_until("Prague")
@@ -31,8 +32,8 @@ def test_shift_signed_combinations(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Https://github.com/ethereum/tests/issues/564."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Https://github."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xE04D1AC7DDDA0C98397D56A0B501E960D4CD325A39286919AC23C1A07009A869
     )
@@ -46,7 +47,8 @@ def test_shift_signed_combinations(
         gas_limit=100000000,
     )
 
-    # Source: LLL
+    pre[sender] = Account(balance=0xDE0B6B3A7640000)
+    # Source: lll
     # {
     #   (def 'sstore_n 0)
     #   (MSTORE sstore_n 0x0ff)
@@ -78,280 +80,248 @@ def test_shift_signed_combinations(
     #   (MSTORE (ADD data_jstart (MUL 32 5)) 0x00000000000000000000000000000000000000000000000000000000000000ff)  # noqa: E501
     #   (MSTORE (ADD data_jstart (MUL 32 6)) 0x0000000000000000000000000000000000000000000000000000000000000100)  # noqa: E501
     # ... (99 more lines)
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE(offset=0x0, value=0xFF)
-            + Op.MSTORE(offset=Op.ADD(0x2774, Op.MUL(0x20, 0x0)), value=0x80)
-            + Op.MSTORE(offset=Op.ADD(0x2774, Op.MUL(0x20, 0x1)), value=0x8000)
-            + Op.MSTORE(
-                offset=Op.ADD(0x2774, Op.MUL(0x20, 0x2)), value=0x80000000
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x2774, Op.MUL(0x20, 0x3)),
-                value=0x8000000000000000,
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x2774, Op.MUL(0x20, 0x4)),
-                value=0x80000000000000000000000000000000,
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x2774, Op.MUL(0x20, 0x5)),
-                value=0x8000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
-            )
-            + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x0)), value=0x0)
-            + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x1)), value=0x1)
-            + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x2)), value=0x2)
-            + Op.MSTORE(offset=Op.ADD(0x2774, Op.MUL(0x20, 0x3)), value=0x5)
-            + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x4)), value=0xFE)
-            + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x5)), value=0xFF)
-            + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x6)), value=0x100)
-            + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x7)), value=0x101)
-            + Op.MSTORE(
-                offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x8)),
-                value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x9)),
-                value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xA)),
-                value=0x8000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xB)),
-                value=0xA000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xC)),
-                value=0x5555555555555555555555555555555555555555555555555555555555555555,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xD)),
-                value=0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,  # noqa: E501
-            )
-            + Op.MSTORE(offset=0x20, value=0x0)
-            + Op.JUMPDEST
-            + Op.JUMPI(
-                pc=0x40D,
-                condition=Op.ISZERO(Op.LT(Op.MLOAD(offset=0x20), 0x6)),
-            )
-            + Op.MSTORE(offset=0x40, value=0x0)
-            + Op.JUMPDEST
-            + Op.JUMPI(
-                pc=0x3FF,
-                condition=Op.ISZERO(Op.LT(Op.MLOAD(offset=0x40), 0xE)),
-            )
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x1000001D)
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.JUMPI(
-                pc=0x24C,
-                condition=Op.EQ(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))
-                        ),
-                    ),
-                    0x0,
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(offset=0x0, value=0xFF)
+        + Op.MSTORE(offset=Op.ADD(0x2774, Op.MUL(0x20, 0x0)), value=0x80)
+        + Op.MSTORE(offset=Op.ADD(0x2774, Op.MUL(0x20, 0x1)), value=0x8000)
+        + Op.MSTORE(offset=Op.ADD(0x2774, Op.MUL(0x20, 0x2)), value=0x80000000)
+        + Op.MSTORE(
+            offset=Op.ADD(0x2774, Op.MUL(0x20, 0x3)), value=0x8000000000000000
+        )
+        + Op.MSTORE(
+            offset=Op.ADD(0x2774, Op.MUL(0x20, 0x4)),
+            value=0x80000000000000000000000000000000,
+        )
+        + Op.MSTORE(
+            offset=Op.ADD(0x2774, Op.MUL(0x20, 0x5)),
+            value=0x8000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
+        )
+        + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x0)), value=0x0)
+        + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x1)), value=0x1)
+        + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x2)), value=0x2)
+        + Op.MSTORE(offset=Op.ADD(0x2774, Op.MUL(0x20, 0x3)), value=0x5)
+        + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x4)), value=0xFE)
+        + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x5)), value=0xFF)
+        + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x6)), value=0x100)
+        + Op.MSTORE(offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x7)), value=0x101)
+        + Op.MSTORE(
+            offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x8)),
+            value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=Op.ADD(0x4E84, Op.MUL(0x20, 0x9)),
+            value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xA)),
+            value=0x8000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xB)),
+            value=0xA000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xC)),
+            value=0x5555555555555555555555555555555555555555555555555555555555555555,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=Op.ADD(0x4E84, Op.MUL(0x20, 0xD)),
+            value=0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,  # noqa: E501
+        )
+        + Op.MSTORE(offset=0x20, value=0x0)
+        + Op.JUMPDEST
+        + Op.JUMPI(
+            pc=0x40D, condition=Op.ISZERO(Op.LT(Op.MLOAD(offset=0x20), 0x6))
+        )
+        + Op.MSTORE(offset=0x40, value=0x0)
+        + Op.JUMPDEST
+        + Op.JUMPI(
+            pc=0x3FF, condition=Op.ISZERO(Op.LT(Op.MLOAD(offset=0x40), 0xE))
+        )
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x1000001D)
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.JUMPI(
+            pc=0x24C,
+            condition=Op.EQ(
+                Op.MLOAD(
+                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
                 ),
-            )
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.MLOAD(
-                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))),
+                0x0,
+            ),
+        )
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.MLOAD(
+                offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
+            ),
+        )
+        + Op.JUMP(pc=0x253)
+        + Op.JUMPDEST
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.JUMPI(
+            pc=0x282,
+            condition=Op.EQ(
+                Op.MLOAD(
+                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
                 ),
-            )
-            + Op.JUMP(pc=0x253)
-            + Op.JUMPDEST
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.JUMPI(
-                pc=0x282,
-                condition=Op.EQ(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))
-                        ),
-                    ),
-                    0x0,
+                0x0,
+            ),
+        )
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.MLOAD(
+                offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
+            ),
+        )
+        + Op.JUMP(pc=0x289)
+        + Op.JUMPDEST
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.SAR(
+                Op.MLOAD(
+                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
                 ),
-            )
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.MLOAD(
-                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))),
+                Op.MLOAD(
+                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
                 ),
-            )
-            + Op.JUMP(pc=0x289)
-            + Op.JUMPDEST
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.SAR(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))
-                        ),
-                    ),
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))
-                        ),
-                    ),
+            ),
+        )
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x1000001B)
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.JUMPI(
+            pc=0x2EE,
+            condition=Op.EQ(
+                Op.MLOAD(
+                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
                 ),
-            )
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x1000001B)
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.JUMPI(
-                pc=0x2EE,
-                condition=Op.EQ(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))
-                        ),
-                    ),
-                    0x0,
+                0x0,
+            ),
+        )
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.MLOAD(
+                offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
+            ),
+        )
+        + Op.JUMP(pc=0x2F5)
+        + Op.JUMPDEST
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.JUMPI(
+            pc=0x324,
+            condition=Op.EQ(
+                Op.MLOAD(
+                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
                 ),
-            )
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.MLOAD(
-                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))),
+                0x0,
+            ),
+        )
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.MLOAD(
+                offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
+            ),
+        )
+        + Op.JUMP(pc=0x32B)
+        + Op.JUMPDEST
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.SHL(
+                Op.MLOAD(
+                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
                 ),
-            )
-            + Op.JUMP(pc=0x2F5)
-            + Op.JUMPDEST
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.JUMPI(
-                pc=0x324,
-                condition=Op.EQ(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))
-                        ),
-                    ),
-                    0x0,
+                Op.MLOAD(
+                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
                 ),
-            )
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.MLOAD(
-                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))),
+            ),
+        )
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x1000001C)
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.JUMPI(
+            pc=0x390,
+            condition=Op.EQ(
+                Op.MLOAD(
+                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
                 ),
-            )
-            + Op.JUMP(pc=0x32B)
-            + Op.JUMPDEST
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.SHL(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))
-                        ),
-                    ),
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))
-                        ),
-                    ),
+                0x0,
+            ),
+        )
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.MLOAD(
+                offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
+            ),
+        )
+        + Op.JUMP(pc=0x397)
+        + Op.JUMPDEST
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.JUMPI(
+            pc=0x3C6,
+            condition=Op.EQ(
+                Op.MLOAD(
+                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
                 ),
-            )
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x1000001C)
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.JUMPI(
-                pc=0x390,
-                condition=Op.EQ(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))
-                        ),
-                    ),
-                    0x0,
+                0x0,
+            ),
+        )
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.MLOAD(
+                offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
+            ),
+        )
+        + Op.JUMP(pc=0x3CD)
+        + Op.JUMPDEST
+        + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0),
+            value=Op.SHR(
+                Op.MLOAD(
+                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20)))
                 ),
-            )
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.MLOAD(
-                    offset=Op.ADD(0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))),
+                Op.MLOAD(
+                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40)))
                 ),
-            )
-            + Op.JUMP(pc=0x397)
-            + Op.JUMPDEST
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.JUMPI(
-                pc=0x3C6,
-                condition=Op.EQ(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))
-                        ),
-                    ),
-                    0x0,
-                ),
-            )
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.MLOAD(
-                    offset=Op.ADD(0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))),
-                ),
-            )
-            + Op.JUMP(pc=0x3CD)
-            + Op.JUMPDEST
-            + Op.SSTORE(key=Op.MLOAD(offset=0x0), value=0x80)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x0, value=Op.ADD(0x1, Op.MLOAD(offset=0x0)))
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=Op.SHR(
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x2774, Op.MUL(0x20, Op.MLOAD(offset=0x20))
-                        ),
-                    ),
-                    Op.MLOAD(
-                        offset=Op.ADD(
-                            0x4E84, Op.MUL(0x20, Op.MLOAD(offset=0x40))
-                        ),
-                    ),
-                ),
-            )
-            + Op.MSTORE(offset=0x40, value=Op.ADD(0x1, Op.MLOAD(offset=0x40)))
-            + Op.JUMP(pc=0x200)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x20, value=Op.ADD(0x1, Op.MLOAD(offset=0x20)))
-            + Op.JUMP(pc=0x1EF)
-            + Op.JUMPDEST
-            + Op.STOP
-            + Op.STOP
-        ),
+            ),
+        )
+        + Op.MSTORE(offset=0x40, value=Op.ADD(0x1, Op.MLOAD(offset=0x40)))
+        + Op.JUMP(pc=0x200)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x20, value=Op.ADD(0x1, Op.MLOAD(offset=0x20)))
+        + Op.JUMP(pc=0x1EF)
+        + Op.JUMPDEST
+        + Op.STOP * 2,
         balance=0xDE0B6B3A7640000,
         nonce=0,
-        address=Address("0x6c08b7236ee4784e5499b9a576902679d8f863d5"),  # noqa: E501
+        address=Address(0x6C08B7236EE4784E5499B9A576902679D8F863D5),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=80000000,
         value=1,
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 256: 0x1000001D,
                 257: 128,
@@ -1182,6 +1152,7 @@ def test_shift_signed_combinations(
                 1261: 0x8000000000000000000000000000000000000000000000000000000000000000,  # noqa: E501
                 1262: 0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,  # noqa: E501
             },
+            balance=0xDE0B6B3A7640001,
         ),
     }
 

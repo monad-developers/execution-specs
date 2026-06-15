@@ -19,11 +19,11 @@ from execution_testing.test_types.block_types import Environment
         pytest.param(0, marks=pytest.mark.exception_test),
         pytest.param(1, marks=pytest.mark.exception_test),
         pytest.param(4999, marks=pytest.mark.exception_test),
-        pytest.param(5000, marks=pytest.mark.valid_until("Osaka")),
+        pytest.param(5000, marks=pytest.mark.valid_before("EIP7928")),
         pytest.param(
             5000,
             marks=[
-                pytest.mark.valid_from("Amsterdam"),
+                pytest.mark.valid_from("EIP7928"),
                 pytest.mark.exception_test,
             ],
         ),
@@ -47,7 +47,7 @@ def test_gas_limit_below_minimum(
     if gas_limit < 5000:
         block.rlp_modifier = Header(**modified_fields)
         block.exception = BlockException.INVALID_GASLIMIT
-    elif fork.header_bal_hash_required():
+    elif fork.is_eip_enabled(7928):
         block.exception = BlockException.BLOCK_ACCESS_LIST_GAS_LIMIT_EXCEEDED
 
     blockchain_test(pre=pre, post={}, blocks=[block], genesis_environment=env)

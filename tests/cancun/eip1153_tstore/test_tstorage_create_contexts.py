@@ -298,11 +298,13 @@ def test_tstore_rollback_on_failed_create(
     #
     # TLOAD(1)==0:     return_size = 0x600a > max code size -> fail
     # TLOAD(1)==0x6000: return_size = 0x0a <= max code size -> succeed
+    max_code_size = fork.max_code_size()
+
     initcode = (
         Op.TLOAD(1)
-        + Op.PUSH4(fork.max_code_size() + 0x0A)
+        + Op.PUSH4(max_code_size + 0x0A)
         + Op.SUB
-        + Op.TSTORE(1, fork.max_code_size())
+        + Op.TSTORE(1, max_code_size)
         + Op.PUSH1(0)
         + Op.RETURN
     )

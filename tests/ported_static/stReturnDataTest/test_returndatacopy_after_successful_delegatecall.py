@@ -1,17 +1,16 @@
 """
-Test ported from static filler.
+Test_returndatacopy_after_successful_delegatecall.
 
 Ported from:
-tests/static/state_tests/stReturnDataTest
-returndatacopy_after_successful_delegatecallFiller.json
+state_tests/stReturnDataTest/returndatacopy_after_successful_delegatecallFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stReturnDataTest/returndatacopy_after_successful_delegatecallFiller.json",  # noqa: E501
+        "state_tests/stReturnDataTest/returndatacopy_after_successful_delegatecallFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,11 +32,9 @@ def test_returndatacopy_after_successful_delegatecall(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x834185262E53584684BF2B72C64E510013C235D0F45E462DB65900455DF45A35
-    )
+    """Test_returndatacopy_after_successful_delegatecall."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x6400000000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -48,52 +45,44 @@ def test_returndatacopy_after_successful_delegatecall(
         gas_limit=111669149696,
     )
 
-    pre.deploy_contract(
-        code=(
-            Op.MSTORE(offset=0x0, value=Op.CALLER)
-            + Op.RETURN(offset=0x0, size=0x20)
-            + Op.STOP
-        ),
+    # Source: lll
+    # { (MSTORE 0x0 (CALLER)) (RETURN 0 32) }
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(offset=0x0, value=Op.CALLER)
+        + Op.RETURN(offset=0x0, size=0x20)
+        + Op.STOP,
         balance=0x6400000000,
         nonce=0,
-        address=Address("0x52fd0cbc013ee33577eec035031dbc4489a1e0bd"),  # noqa: E501
     )
-    # Source: LLL
+    # Source: lll
     # { (DELEGATECALL 60000 <contract:0x1000000000000000000000000000000000000002> 0 0 0 0) (RETURNDATACOPY 0x0 0x0 32) ( SSTORE 0 (MLOAD 0))}  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.POP(
-                Op.DELEGATECALL(
-                    gas=0xEA60,
-                    address=0x52FD0CBC013EE33577EEC035031DBC4489A1E0BD,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.POP(
+            Op.DELEGATECALL(
+                gas=0xEA60,
+                address=addr,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x0,
             )
-            + Op.RETURNDATACOPY(dest_offset=0x0, offset=0x0, size=0x20)
-            + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
-            + Op.STOP
-        ),
+        )
+        + Op.RETURNDATACOPY(dest_offset=0x0, offset=0x0, size=0x20)
+        + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
+        + Op.STOP,
         storage={
-            0x0: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
+            0: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
         },
         nonce=0,
-        address=Address("0xb669c96e9e7ccfd69d0fd0ffcf9260e9d1e6f5c4"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x6400000000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=100000,
     )
 
-    post = {
-        contract: Account(
-            storage={0: 0xC102734F6A1E4747310179C0A0FC16E674AA901D},
-        ),
-    }
+    post = {target: Account(storage={0: sender})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

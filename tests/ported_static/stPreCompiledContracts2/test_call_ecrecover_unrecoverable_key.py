@@ -1,9 +1,8 @@
 """
-CALL to ECREC precompile with input that has a valid signature structure...
+CALL to ECREC precompile with input that has a valid signature...
 
 Ported from:
-tests/static/state_tests/stPreCompiledContracts2
-CallEcrecoverUnrecoverableKeyFiller.json
+state_tests/stPreCompiledContracts2/CallEcrecoverUnrecoverableKeyFiller.json
 """
 
 import pytest
@@ -12,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +24,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stPreCompiledContracts2/CallEcrecoverUnrecoverableKeyFiller.json",  # noqa: E501
+        "state_tests/stPreCompiledContracts2/CallEcrecoverUnrecoverableKeyFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -34,7 +34,7 @@ def test_call_ecrecover_unrecoverable_key(
     pre: Alloc,
 ) -> None:
     """CALL to ECREC precompile with input that has a valid signature..."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xE04D1AC7DDDA0C98397D56A0B501E960D4CD325A39286919AC23C1A07009A869
     )
@@ -48,56 +48,55 @@ def test_call_ecrecover_unrecoverable_key(
         gas_limit=10000000,
     )
 
-    # Source: LLL
+    pre[sender] = Account(balance=0xDE0B6B3A7640000)
+    # Source: lll
     # { (MSTORE 0 0xa8b53bdf3306a35a7103ab5504a0c9b492295564b6202b1942a84ef300107281) (MSTORE 32 0x000000000000000000000000000000000000000000000000000000000000001b) (MSTORE 64 0x3078356531653033663533636531386237373263636230303933666637316633) (MSTORE 96 0x6635336635633735623734646362333161383561613862383839326234653862) (MSTORE 128 0x1122334455667788991011121314151617181920212223242526272829303132) (CALL 300000 1 0 0 128 128 32) (SSTORE 0 (MLOAD 128)) }  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE(
-                offset=0x0,
-                value=0xA8B53BDF3306A35A7103AB5504A0C9B492295564B6202B1942A84EF300107281,  # noqa: E501
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(
+            offset=0x0,
+            value=0xA8B53BDF3306A35A7103AB5504A0C9B492295564B6202B1942A84EF300107281,  # noqa: E501
+        )
+        + Op.MSTORE(offset=0x20, value=0x1B)
+        + Op.MSTORE(
+            offset=0x40,
+            value=0x3078356531653033663533636531386237373263636230303933666637316633,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=0x60,
+            value=0x6635336635633735623734646362333161383561613862383839326234653862,  # noqa: E501
+        )
+        + Op.MSTORE(
+            offset=0x80,
+            value=0x1122334455667788991011121314151617181920212223242526272829303132,  # noqa: E501
+        )
+        + Op.POP(
+            Op.CALL(
+                gas=0x493E0,
+                address=0x1,
+                value=0x0,
+                args_offset=0x0,
+                args_size=0x80,
+                ret_offset=0x80,
+                ret_size=0x20,
             )
-            + Op.MSTORE(offset=0x20, value=0x1B)
-            + Op.MSTORE(
-                offset=0x40,
-                value=0x3078356531653033663533636531386237373263636230303933666637316633,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=0x60,
-                value=0x6635336635633735623734646362333161383561613862383839326234653862,  # noqa: E501
-            )
-            + Op.MSTORE(
-                offset=0x80,
-                value=0x1122334455667788991011121314151617181920212223242526272829303132,  # noqa: E501
-            )
-            + Op.POP(
-                Op.CALL(
-                    gas=0x493E0,
-                    address=0x1,
-                    value=0x0,
-                    args_offset=0x0,
-                    args_size=0x80,
-                    ret_offset=0x80,
-                    ret_size=0x20,
-                ),
-            )
-            + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x80))
-            + Op.STOP
-        ),
+        )
+        + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x80))
+        + Op.STOP,
         balance=0x1312D00,
         nonce=0,
-        address=Address("0x85c44d846ed50ac9e384c1b575fd96f3edf5751f"),  # noqa: E501
+        address=Address(0x85C44D846ED50AC9E384C1B575FD96F3EDF5751F),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=3652240,
-        value=100000,
+        value=0x186A0,
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 0: 0x1122334455667788991011121314151617181920212223242526272829303132,  # noqa: E501
             },

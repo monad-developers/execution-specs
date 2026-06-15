@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_static_call_sha256_4_gas99.
 
 Ported from:
-tests/static/state_tests/stStaticCall/static_CallSha256_4_gas99Filler.json
+state_tests/stStaticCall/static_CallSha256_4_gas99Filler.json
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,19 +23,17 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stStaticCall/static_CallSha256_4_gas99Filler.json",  # noqa: E501
-    ],
+    ["state_tests/stStaticCall/static_CallSha256_4_gas99Filler.json"],
 )
 @pytest.mark.valid_from("Cancun")
-@pytest.mark.pre_alloc_mutable
 @pytest.mark.slow
+@pytest.mark.pre_alloc_mutable
 def test_static_call_sha256_4_gas99(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_static_call_sha256_4_gas99."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xE04D1AC7DDDA0C98397D56A0B501E960D4CD325A39286919AC23C1A07009A869
     )
@@ -49,42 +48,41 @@ def test_static_call_sha256_4_gas99(
     )
 
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
-    # Source: LLL
+    # Source: lll
     # { (MSTORE 0 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff) [[ 2 ]] (STATICCALL 99 2 0 32 0 32) [[ 0 ]] (MLOAD 0)}  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.MSTORE(
-                offset=0x0,
-                value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
-            )
-            + Op.SSTORE(
-                key=0x2,
-                value=Op.STATICCALL(
-                    gas=0x63,
-                    address=0x2,
-                    args_offset=0x0,
-                    args_size=0x20,
-                    ret_offset=0x0,
-                    ret_size=0x20,
-                ),
-            )
-            + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
-            + Op.STOP
-        ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.MSTORE(
+            offset=0x0,
+            value=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
+        )
+        + Op.SSTORE(
+            key=0x2,
+            value=Op.STATICCALL(
+                gas=0x63,
+                address=0x2,
+                args_offset=0x0,
+                args_size=0x20,
+                ret_offset=0x0,
+                ret_size=0x20,
+            ),
+        )
+        + Op.SSTORE(key=0x0, value=Op.MLOAD(offset=0x0))
+        + Op.STOP,
         balance=0x1312D00,
         nonce=0,
-        address=Address("0xeda46fa30192c0ab5a8e9c2567faf9a110ce6720"),  # noqa: E501
+        address=Address(0xEDA46FA30192C0AB5A8E9C2567FAF9A110CE6720),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=365224,
-        value=100000,
+        value=0x186A0,
     )
 
     post = {
-        contract: Account(
+        target: Account(
             storage={
                 0: 0xAF9613760F72635FBDB44A5A0A63C39F12AF30F950A6EE5C971BE188E89C4051,  # noqa: E501
                 2: 1,

@@ -12,57 +12,140 @@ EVM gas constants and calculators.
 """
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Final, List, Tuple, final
 
-from ethereum_types.numeric import U256, Uint
+from ethereum_types.numeric import U256, Uint, ulen
 
 from ethereum.state import Address
 from ethereum.trace import GasAndRefund, evm_trace
 from ethereum.utils.numeric import ceil32
 
-from ..state import State, account_exists
+from ..state_tracker import TransactionState, account_exists
 from . import Evm
 from .exceptions import OutOfGasError
 
-GAS_JUMPDEST = Uint(1)
-GAS_BASE = Uint(2)
-GAS_VERY_LOW = Uint(3)
-GAS_SLOAD = Uint(50)
-GAS_STORAGE_SET = Uint(20000)
-GAS_STORAGE_UPDATE = Uint(5000)
-REFUND_STORAGE_CLEAR = 15000
-GAS_LOW = Uint(5)
-GAS_MID = Uint(8)
-GAS_HIGH = Uint(10)
-GAS_EXPONENTIATION = Uint(10)
-GAS_EXPONENTIATION_PER_BYTE = Uint(10)
-GAS_MEMORY = Uint(3)
-GAS_KECCAK256 = Uint(30)
-GAS_KECCAK256_PER_WORD = Uint(6)
-GAS_COPY = Uint(3)
-GAS_BLOCK_HASH = Uint(20)
-GAS_EXTERNAL = Uint(20)
-GAS_BALANCE = Uint(20)
-GAS_LOG = Uint(375)
-GAS_LOG_DATA_PER_BYTE = Uint(8)
-GAS_LOG_TOPIC = Uint(375)
-GAS_CREATE = Uint(32000)
-GAS_CODE_DEPOSIT_PER_BYTE = Uint(200)
-GAS_ZERO = Uint(0)
-GAS_CALL = Uint(40)
-GAS_NEW_ACCOUNT = Uint(25000)
-GAS_CALL_VALUE = Uint(9000)
-GAS_CALL_STIPEND = Uint(2300)
-REFUND_SELF_DESTRUCT = Uint(24000)
-GAS_ECRECOVER = Uint(3000)
-GAS_SHA256 = Uint(60)
-GAS_SHA256_WORD = Uint(12)
-GAS_RIPEMD160 = Uint(600)
-GAS_RIPEMD160_WORD = Uint(120)
-GAS_IDENTITY = Uint(15)
-GAS_IDENTITY_WORD = Uint(3)
+
+# These values may be patched at runtime by a future gas repricing utility
+class GasCosts:
+    """
+    Constant gas values for the EVM.
+    """
+
+    # Tiers
+    BASE: Final[Uint] = Uint(2)
+    VERY_LOW: Final[Uint] = Uint(3)
+    LOW: Final[Uint] = Uint(5)
+    MID: Final[Uint] = Uint(8)
+    HIGH: Final[Uint] = Uint(10)
+
+    # Access
+    SLOAD: Final[Uint] = Uint(50)
+
+    # Storage
+    STORAGE_SET: Final[Uint] = Uint(20000)
+    COLD_STORAGE_WRITE: Final[Uint] = Uint(5000)
+
+    # Call
+    CALL_VALUE: Final[Uint] = Uint(9000)
+    CALL_STIPEND: Final[Uint] = Uint(2300)
+    NEW_ACCOUNT: Final[Uint] = Uint(25000)
+
+    # Contract Creation
+    CODE_DEPOSIT_PER_BYTE: Final[Uint] = Uint(200)
+
+    # Utility
+    ZERO: Final[Uint] = Uint(0)
+    MEMORY_PER_WORD: Final[Uint] = Uint(3)
+
+    # Refunds
+    REFUND_STORAGE_CLEAR: Final[int] = 15000
+    REFUND_SELF_DESTRUCT: Final[Uint] = Uint(24000)
+
+    # Precompiles
+    PRECOMPILE_ECRECOVER: Final[Uint] = Uint(3000)
+    PRECOMPILE_SHA256_BASE: Final[Uint] = Uint(60)
+    PRECOMPILE_SHA256_PER_WORD: Final[Uint] = Uint(12)
+    PRECOMPILE_RIPEMD160_BASE: Final[Uint] = Uint(600)
+    PRECOMPILE_RIPEMD160_PER_WORD: Final[Uint] = Uint(120)
+    PRECOMPILE_IDENTITY_BASE: Final[Uint] = Uint(15)
+    PRECOMPILE_IDENTITY_PER_WORD: Final[Uint] = Uint(3)
+
+    # Transactions
+    TX_BASE: Final[Uint] = Uint(21000)
+    TX_DATA_PER_ZERO: Final[Uint] = Uint(4)
+    TX_DATA_PER_NON_ZERO: Final[Uint] = Uint(68)
+
+    # Block
+    LIMIT_ADJUSTMENT_FACTOR: Final[Uint] = Uint(1024)
+    LIMIT_MINIMUM: Final[Uint] = Uint(5000)
+
+    # Static Opcodes
+    OPCODE_ADD: Final[Uint] = VERY_LOW
+    OPCODE_SUB: Final[Uint] = VERY_LOW
+    OPCODE_MUL: Final[Uint] = LOW
+    OPCODE_DIV: Final[Uint] = LOW
+    OPCODE_SDIV: Final[Uint] = LOW
+    OPCODE_MOD: Final[Uint] = LOW
+    OPCODE_SMOD: Final[Uint] = LOW
+    OPCODE_ADDMOD: Final[Uint] = MID
+    OPCODE_MULMOD: Final[Uint] = MID
+    OPCODE_SIGNEXTEND: Final[Uint] = LOW
+    OPCODE_LT: Final[Uint] = VERY_LOW
+    OPCODE_GT: Final[Uint] = VERY_LOW
+    OPCODE_SLT: Final[Uint] = VERY_LOW
+    OPCODE_SGT: Final[Uint] = VERY_LOW
+    OPCODE_EQ: Final[Uint] = VERY_LOW
+    OPCODE_ISZERO: Final[Uint] = VERY_LOW
+    OPCODE_AND: Final[Uint] = VERY_LOW
+    OPCODE_OR: Final[Uint] = VERY_LOW
+    OPCODE_XOR: Final[Uint] = VERY_LOW
+    OPCODE_NOT: Final[Uint] = VERY_LOW
+    OPCODE_BYTE: Final[Uint] = VERY_LOW
+    OPCODE_JUMP: Final[Uint] = MID
+    OPCODE_JUMPI: Final[Uint] = HIGH
+    OPCODE_JUMPDEST: Final[Uint] = Uint(1)
+    OPCODE_CALLDATALOAD: Final[Uint] = VERY_LOW
+    OPCODE_BLOCKHASH: Final[Uint] = Uint(20)
+    OPCODE_COINBASE: Final[Uint] = BASE
+    OPCODE_POP: Final[Uint] = BASE
+    OPCODE_MSIZE: Final[Uint] = BASE
+    OPCODE_PC: Final[Uint] = BASE
+    OPCODE_GAS: Final[Uint] = BASE
+    OPCODE_ADDRESS: Final[Uint] = BASE
+    OPCODE_ORIGIN: Final[Uint] = BASE
+    OPCODE_CALLER: Final[Uint] = BASE
+    OPCODE_CALLVALUE: Final[Uint] = BASE
+    OPCODE_CALLDATASIZE: Final[Uint] = BASE
+    OPCODE_CODESIZE: Final[Uint] = BASE
+    OPCODE_GASPRICE: Final[Uint] = BASE
+    OPCODE_TIMESTAMP: Final[Uint] = BASE
+    OPCODE_NUMBER: Final[Uint] = BASE
+    OPCODE_GASLIMIT: Final[Uint] = BASE
+    OPCODE_DIFFICULTY: Final[Uint] = BASE
+    OPCODE_PUSH: Final[Uint] = VERY_LOW
+    OPCODE_DUP: Final[Uint] = VERY_LOW
+    OPCODE_SWAP: Final[Uint] = VERY_LOW
+
+    OPCODE_CALLDATACOPY_BASE: Final[Uint] = VERY_LOW
+    OPCODE_CODECOPY_BASE: Final[Uint] = VERY_LOW
+    OPCODE_MLOAD_BASE: Final[Uint] = VERY_LOW
+    OPCODE_MSTORE_BASE: Final[Uint] = VERY_LOW
+    OPCODE_MSTORE8_BASE: Final[Uint] = VERY_LOW
+    OPCODE_COPY_PER_WORD: Final[Uint] = Uint(3)
+    OPCODE_CREATE_BASE: Final[Uint] = Uint(32000)
+    OPCODE_EXP_BASE: Final[Uint] = Uint(10)
+    OPCODE_EXP_PER_BYTE: Final[Uint] = Uint(10)
+    OPCODE_KECCAK256_BASE: Final[Uint] = Uint(30)
+    OPCODE_KECCAK256_PER_WORD: Final[Uint] = Uint(6)
+    OPCODE_LOG_BASE: Final[Uint] = Uint(375)
+    OPCODE_LOG_DATA_PER_BYTE: Final[Uint] = Uint(8)
+    OPCODE_LOG_TOPIC: Final[Uint] = Uint(375)
+    OPCODE_EXTERNAL_BASE: Final[Uint] = Uint(20)
+    OPCODE_BALANCE: Final[Uint] = Uint(20)
+    OPCODE_CALL_BASE: Final[Uint] = Uint(40)
 
 
+@final
 @dataclass
 class ExtendMemory:
     """
@@ -78,11 +161,12 @@ class ExtendMemory:
     expand_by: Uint
 
 
+@final
 @dataclass
 class MessageCallGas:
     """
-    Define the gas cost and gas given to the sub-call for
-    executing the call opcodes.
+    Define the gas cost and gas given to the sub-call for executing the call
+    opcodes.
 
     `cost`: `ethereum.base_types.Uint`
         The gas required to execute the call opcode, excludes
@@ -134,7 +218,7 @@ def calculate_memory_gas_cost(size_in_bytes: Uint) -> Uint:
 
     """
     size_in_words = ceil32(size_in_bytes) // Uint(32)
-    linear_cost = size_in_words * GAS_MEMORY
+    linear_cost = size_in_words * GasCosts.MEMORY_PER_WORD
     quadratic_cost = size_in_words ** Uint(2) // Uint(512)
     total_gas_cost = linear_cost + quadratic_cost
     try:
@@ -164,7 +248,7 @@ def calculate_gas_extend_memory(
     """
     size_to_extend = Uint(0)
     to_be_paid = Uint(0)
-    current_size = Uint(len(memory))
+    current_size = ulen(memory)
     for start_position, size in extensions:
         if size == 0:
             continue
@@ -184,7 +268,7 @@ def calculate_gas_extend_memory(
 
 
 def calculate_message_call_gas(
-    state: State, gas: Uint, to: Address, value: U256
+    state: TransactionState, gas: Uint, to: Address, value: U256
 ) -> MessageCallGas:
     """
     Calculates the gas amount for executing Opcodes `CALL` and `CALLCODE`.
@@ -205,8 +289,12 @@ def calculate_message_call_gas(
     message_call_gas: `MessageCallGas`
 
     """
-    create_gas_cost = Uint(0) if account_exists(state, to) else GAS_NEW_ACCOUNT
-    transfer_gas_cost = Uint(0) if value == 0 else GAS_CALL_VALUE
-    cost = GAS_CALL + gas + create_gas_cost + transfer_gas_cost
-    stipend = gas if value == 0 else GAS_CALL_STIPEND + gas
+    create_gas_cost = (
+        Uint(0) if account_exists(state, to) else GasCosts.NEW_ACCOUNT
+    )
+    transfer_gas_cost = Uint(0) if value == 0 else GasCosts.CALL_VALUE
+    cost = (
+        GasCosts.OPCODE_CALL_BASE + gas + create_gas_cost + transfer_gas_cost
+    )
+    stipend = gas if value == 0 else GasCosts.CALL_STIPEND + gas
     return MessageCallGas(cost, stipend)

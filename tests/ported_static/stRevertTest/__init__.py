@@ -1,1 +1,1 @@
-"""Tests ported from stRevertTest."""
+"""Ported static tests: stRevertTest."""  # noqa: N999

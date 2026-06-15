@@ -94,17 +94,17 @@ def sufficient_gas(
         cost = 700  # Pre-Berlin call cost
         gas_costs = fork.gas_costs()
         if is_value_call:
-            cost += gas_costs.GAS_CALL_VALUE
+            cost += gas_costs.CALL_VALUE
         if callee_opcode == Op.CALL:
-            cost += gas_costs.GAS_NEW_ACCOUNT
+            cost += gas_costs.NEW_ACCOUNT
     elif fork == Homestead:
         cost = 40  # Homestead call cost
         cost += 1  # mandatory callee gas allowance
         gas_costs = fork.gas_costs()
         if is_value_call:
-            cost += gas_costs.GAS_CALL_VALUE
+            cost += gas_costs.CALL_VALUE
         if callee_opcode == Op.CALL:
-            cost += gas_costs.GAS_NEW_ACCOUNT
+            cost += gas_costs.NEW_ACCOUNT
     else:
         raise Exception("Only forks Homestead and >=Byzantium supported")
 
@@ -230,7 +230,7 @@ def expected_block_access_list(
     gas_shortage: int,
 ) -> None | BlockAccessListExpectation:
     """The expected block access list for >=Amsterdam cases."""
-    if fork.header_bal_hash_required():
+    if fork.is_eip_enabled(7928):
         if callee_opcode == Op.CALL:
             if gas_shortage:
                 # call runs OOG after state access due to `is_account_alive` in
@@ -318,7 +318,7 @@ def test_value_transfer_gas_calculation(
 @pytest.mark.parametrize("gas_shortage", [0, 1])
 @pytest.mark.valid_from("Byzantium")
 @pytest.mark.valid_until("Berlin")
-@pytest.mark.json_loader
+@pytest.mark.eels_base_coverage
 def test_value_transfer_gas_calculation_byzantium(
     state_test: StateTestFiller,
     pre: Alloc,

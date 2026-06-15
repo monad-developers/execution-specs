@@ -1,17 +1,16 @@
 """
-Test ported from static filler.
+Test_zero_value_call_to_empty_oog_revert_paris.
 
 Ported from:
-tests/static/state_tests/stZeroCallsRevert
-ZeroValue_CALL_ToEmpty_OOGRevert_ParisFiller.json
+state_tests/stZeroCallsRevert/ZeroValue_CALL_ToEmpty_OOGRevert_ParisFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stZeroCallsRevert/ZeroValue_CALL_ToEmpty_OOGRevert_ParisFiller.json",  # noqa: E501
+        "state_tests/stZeroCallsRevert/ZeroValue_CALL_ToEmpty_OOGRevert_ParisFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,12 +32,9 @@ def test_zero_value_call_to_empty_oog_revert_paris(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x4F31B3206FBF0E0E598B9B1A7D8AC86302A0FF1D8930738F1BEBAE9B67173E52
-    )
-    callee = Address("0x76fae819612a29489a1a43208613d8f8557b8898")
+    """Test_zero_value_call_to_empty_oog_revert_paris."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0xE8D4A51000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -49,41 +45,42 @@ def test_zero_value_call_to_empty_oog_revert_paris(
         gas_limit=10000000,
     )
 
-    # Source: LLL
+    addr = pre.fund_eoa(amount=10)  # noqa: F841
+    # Source: lll
     # { [[0]](GAS) [[1]] (CALL 60000 <eoa:0xc94f5374fce5edbc8e2a8697c15331677e6ebf0b> 0 0 0 0 0) [[2]]12 [[3]]12 [[4]]12 [[100]] (GAS) }  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.SSTORE(key=0x0, value=Op.GAS)
-            + Op.SSTORE(
-                key=0x1,
-                value=Op.CALL(
-                    gas=0xEA60,
-                    address=0x76FAE819612A29489A1A43208613D8F8557B8898,
-                    value=0x0,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
-            )
-            + Op.SSTORE(key=0x2, value=0xC)
-            + Op.SSTORE(key=0x3, value=0xC)
-            + Op.SSTORE(key=0x4, value=0xC)
-            + Op.SSTORE(key=0x64, value=Op.GAS)
-            + Op.STOP
-        ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.SSTORE(key=0x0, value=Op.GAS)
+        + Op.SSTORE(
+            key=0x1,
+            value=Op.CALL(
+                gas=0xEA60,
+                address=addr,
+                value=0x0,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x0,
+            ),
+        )
+        + Op.SSTORE(key=0x2, value=0xC)
+        + Op.SSTORE(key=0x3, value=0xC)
+        + Op.SSTORE(key=0x4, value=0xC)
+        + Op.SSTORE(key=0x64, value=Op.GAS)
+        + Op.STOP,
         nonce=0,
-        address=Address("0x3b02666bf6e822d04045c3aae0d6b4d6a64249c3"),  # noqa: E501
     )
-    pre[callee] = Account(balance=10, nonce=0)
-    pre[sender] = Account(balance=0xE8D4A51000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=135000,
     )
 
-    post: dict = {}
+    post = {
+        sender: Account(nonce=1),
+        addr: Account(storage={}, balance=10),
+        target: Account(storage={0: 0, 1: 0, 100: 0}),
+    }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

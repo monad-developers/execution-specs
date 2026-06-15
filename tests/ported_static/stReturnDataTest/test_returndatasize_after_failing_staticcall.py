@@ -1,17 +1,16 @@
 """
-Test ported from static filler.
+Test_returndatasize_after_failing_staticcall.
 
 Ported from:
-tests/static/state_tests/stReturnDataTest
-returndatasize_after_failing_staticcallFiller.json
+state_tests/stReturnDataTest/returndatasize_after_failing_staticcallFiller.json
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stReturnDataTest/returndatasize_after_failing_staticcallFiller.json",  # noqa: E501
+        "state_tests/stReturnDataTest/returndatasize_after_failing_staticcallFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,12 +32,9 @@ def test_returndatasize_after_failing_staticcall(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x834185262E53584684BF2B72C64E510013C235D0F45E462DB65900455DF45A35
-    )
-    callee_1 = Address("0x905c744acaf4d8f5436c9c5e91e0626d44add821")
+    """Test_returndatasize_after_failing_staticcall."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0x6400000000)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -49,45 +45,42 @@ def test_returndatasize_after_failing_staticcall(
         gas_limit=111669149696,
     )
 
-    # Source: raw bytecode
-    pre.deploy_contract(
+    addr = pre.fund_eoa(amount=0x100000)  # noqa: F841
+    # Source: raw
+    # 0xfd
+    addr_2 = pre.deploy_contract(  # noqa: F841
         code=Op.REVERT,
         balance=0x6400000000,
         nonce=0,
-        address=Address("0x665521fd750490fd880ee369c267fca44ed8a078"),  # noqa: E501
     )
-    pre[callee_1] = Account(balance=0x100000, nonce=0)
-    # Source: LLL
+    # Source: lll
     # { (seq (STATICCALL 60000 <contract:0x1000000000000000000000000000000000000002> 0 0 0 0) (SSTORE 0 (RETURNDATASIZE)))}  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.POP(
-                Op.STATICCALL(
-                    gas=0xEA60,
-                    address=0x665521FD750490FD880EE369C267FCA44ED8A078,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.POP(
+            Op.STATICCALL(
+                gas=0xEA60,
+                address=addr_2,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x0,
             )
-            + Op.SSTORE(key=0x0, value=Op.RETURNDATASIZE)
-            + Op.STOP
-        ),
+        )
+        + Op.SSTORE(key=0x0, value=Op.RETURNDATASIZE)
+        + Op.STOP,
         storage={
-            0x0: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
+            0: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,  # noqa: E501
         },
         nonce=0,
-        address=Address("0xb59b41f3a1359dd85455601db8e79f621d7e63f6"),  # noqa: E501
     )
-    pre[sender] = Account(balance=0x6400000000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=100000,
     )
 
-    post: dict = {}
+    post = {target: Account(storage={0: 0})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

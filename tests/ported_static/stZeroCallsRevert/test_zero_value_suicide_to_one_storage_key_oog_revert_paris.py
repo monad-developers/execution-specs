@@ -1,9 +1,8 @@
 """
-Test ported from static filler.
+Test_zero_value_suicide_to_one_storage_key_oog_revert_paris.
 
 Ported from:
-tests/static/state_tests/stZeroCallsRevert
-ZeroValue_SUICIDE_ToOneStorageKey_OOGRevert_ParisFiller.json
+state_tests/stZeroCallsRevert/ZeroValue_SUICIDE_ToOneStorageKey_OOGRevert_ParisFiller.json
 """
 
 import pytest
@@ -12,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -24,7 +24,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 @pytest.mark.ported_from(
     [
-        "tests/static/state_tests/stZeroCallsRevert/ZeroValue_SUICIDE_ToOneStorageKey_OOGRevert_ParisFiller.json",  # noqa: E501
+        "state_tests/stZeroCallsRevert/ZeroValue_SUICIDE_ToOneStorageKey_OOGRevert_ParisFiller.json"  # noqa: E501
     ],
 )
 @pytest.mark.valid_from("Cancun")
@@ -33,12 +33,12 @@ def test_zero_value_suicide_to_one_storage_key_oog_revert_paris(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_zero_value_suicide_to_one_storage_key_oog_revert_paris."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    addr_2 = Address(0x4757608F18B70777AE788DD4056EEED52F7AA68F)
     sender = EOA(
         key=0x4F31B3206FBF0E0E598B9B1A7D8AC86302A0FF1D8930738F1BEBAE9B67173E52
     )
-    callee = Address("0x4757608f18b70777ae788dd4056eeed52f7aa68f")
 
     env = Environment(
         fee_recipient=coinbase,
@@ -49,52 +49,53 @@ def test_zero_value_suicide_to_one_storage_key_oog_revert_paris(
         gas_limit=10000000,
     )
 
-    # Source: LLL
-    # { (CALL 50000 <contract:0xd94f5374fce5edbc8e2a8697c15331677e6ebf0b> 0 0 0 0 0) [[2]]12 [[3]]12 [[4]]12 }  # noqa: E501
-    contract = pre.deploy_contract(
-        code=(
-            Op.POP(
-                Op.CALL(
-                    gas=0xC350,
-                    address=0x8D444744833C9B79FDFE630F155CF1F3BBEB92E3,
-                    value=0x0,
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
-            )
-            + Op.SSTORE(key=0x2, value=0xC)
-            + Op.SSTORE(key=0x3, value=0xC)
-            + Op.SSTORE(key=0x4, value=0xC)
-            + Op.STOP
-        ),
-        storage={0x0: 0x1},
-        nonce=0,
-        address=Address("0x1d63510fcd4f3069306ebae45ec6910c0bc944c8"),  # noqa: E501
-    )
-    pre[callee] = Account(balance=10, nonce=0, storage={0x0: 0x1})
-    callee_1 = pre.deploy_contract(
-        code=(
-            Op.SELFDESTRUCT(address=0x4757608F18B70777AE788DD4056EEED52F7AA68F)
-            + Op.STOP
-        ),
-        storage={0x0: 0x1},
-        nonce=0,
-        address=Address("0x8d444744833c9b79fdfe630f155cf1f3bbeb92e3"),  # noqa: E501
-    )
     pre[sender] = Account(balance=0xE8D4A51000)
+    pre[addr_2] = Account(balance=10, storage={0: 1})
+    # Source: lll
+    # { (SELFDESTRUCT <eoa:0xc94f5374fce5edbc8e2a8697c15331677e6ebf0b>) }
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.SELFDESTRUCT(
+            address=0x4757608F18B70777AE788DD4056EEED52F7AA68F
+        )
+        + Op.STOP,
+        storage={0: 1},
+        nonce=0,
+        address=Address(0x8D444744833C9B79FDFE630F155CF1F3BBEB92E3),  # noqa: E501
+    )
+    # Source: lll
+    # { (CALL 50000 <contract:0xd94f5374fce5edbc8e2a8697c15331677e6ebf0b> 0 0 0 0 0) [[2]]12 [[3]]12 [[4]]12 }  # noqa: E501
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.POP(
+            Op.CALL(
+                gas=0xC350,
+                address=0x8D444744833C9B79FDFE630F155CF1F3BBEB92E3,
+                value=0x0,
+                args_offset=0x0,
+                args_size=0x0,
+                ret_offset=0x0,
+                ret_size=0x0,
+            )
+        )
+        + Op.SSTORE(key=0x2, value=0xC)
+        + Op.SSTORE(key=0x3, value=0xC)
+        + Op.SSTORE(key=0x4, value=0xC)
+        + Op.STOP,
+        storage={0: 1},
+        nonce=0,
+        address=Address(0x1D63510FCD4F3069306EBAE45EC6910C0BC944C8),  # noqa: E501
+    )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=75000,
     )
 
     post = {
-        contract: Account(storage={0: 1}),
-        callee: Account(storage={0: 1}),
-        callee_1: Account(storage={0: 1}),
+        sender: Account(nonce=1),
+        target: Account(storage={0: 1}),
+        addr_2: Account(storage={0: 1}, balance=10),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

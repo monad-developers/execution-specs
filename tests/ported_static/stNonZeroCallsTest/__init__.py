@@ -1,1 +1,1 @@
-"""Tests ported from stNonZeroCallsTest."""
+"""Ported static tests: stNonZeroCallsTest."""  # noqa: N999

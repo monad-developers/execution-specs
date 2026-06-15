@@ -214,7 +214,10 @@ def test_mod(
     # sign bits.
     # The result stays negative.
     if fixed_opcode_count is not None:
-        pytest.skip("fixed-opcode-count not supported in test_mode")
+        pytest.skip(
+            "test_mod uses a data-dependent chain length, "
+            "incompatible with --fixed-opcode-count"
+        )
     should_negate = opcode == Op.SMOD
 
     num_numerators = 15
@@ -299,6 +302,7 @@ def test_mod(
 
     input_value = initial_mod if not should_negate else neg(initial_mod)
     benchmark_test(
+        target_opcode=opcode,
         code_generator=JumpLoopGenerator(
             setup=setup,
             attack_block=attack_block,
@@ -437,6 +441,7 @@ def test_exp_bench_arithmetic(
     attack_block = Op.DUP2 + Op.EXP
     cleanup = Op.POP + Op.POP + Op.DUP2 + Op.DUP2
     benchmark_test(
+        target_opcode=Op.EXP,
         code_generator=JumpLoopGenerator(
             setup=setup,
             attack_block=attack_block,

@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_random_statetest430.
 
 Ported from:
-tests/static/state_tests/stRandom2/randomStatetest430Filler.json
+state_tests/stRandom2/randomStatetest430Filler.json
 """
 
 import pytest
@@ -11,6 +11,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -22,7 +23,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stRandom2/randomStatetest430Filler.json"],
+    ["state_tests/stRandom2/randomStatetest430Filler.json"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -30,8 +31,8 @@ def test_random_statetest430(
     state_test: StateTestFiller,
     pre: Alloc,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x4f3f701464972e74606d6ea82d4d3080599a0e79")
+    """Test_random_statetest430."""
+    coinbase = Address(0x4F3F701464972E74606D6EA82D4D3080599A0E79)
     sender = EOA(
         key=0xB1F4CBC3A50042184425A6F9E996D0910F7BA879457CE5DAC5C71E498AD3C005
     )
@@ -46,66 +47,61 @@ def test_random_statetest430(
     )
 
     pre[sender] = Account(balance=0xDE0B6B3A7640000)
-    # Source: raw bytecode
-    contract = pre.deploy_contract(
-        code=(
-            Op.PUSH32[
-                0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE  # noqa: E501
-            ]
-            + Op.TIMESTAMP
-            + Op.PUSH32[0xC350]
-            + Op.PUSH32[
-                0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF  # noqa: E501
-            ]
-            + Op.PUSH32[0xC350]
-            + Op.PUSH32[0x4F3F701464972E74606D6EA82D4D3080599A0E79]
-            + Op.PUSH32[0x1]
-            + Op.PUSH32[0x0]
-            + Op.SSTORE(
-                key=Op.MLOAD(offset=0x0),
-                value=0x7D41A29934035B748E96A3135B696455,
-            )
-        ),
-        nonce=0,
-        address=Address("0x477526f193cfa214f3d2bcbb76ac3612b1dad747"),  # noqa: E501
-    )
-    # Source: raw bytecode
-    pre.deploy_contract(
-        code=(
-            Op.JUMPI(
-                pc=0x9,
-                condition=Op.ISZERO(Op.SLOAD(key=Op.CALLDATALOAD(offset=0x0))),
-            )
-            + Op.STOP
-            + Op.JUMPDEST
-            + Op.SSTORE(
-                key=Op.CALLDATALOAD(offset=0x0),
-                value=Op.CALLDATALOAD(offset=0x20),
-            )
+    # Source: raw
+    # 0x6000355415600957005b60203560003555
+    coinbase = pre.deploy_contract(  # noqa: F841
+        code=Op.JUMPI(
+            pc=0x9,
+            condition=Op.ISZERO(Op.SLOAD(key=Op.CALLDATALOAD(offset=0x0))),
+        )
+        + Op.STOP
+        + Op.JUMPDEST
+        + Op.SSTORE(
+            key=Op.CALLDATALOAD(offset=0x0), value=Op.CALLDATALOAD(offset=0x20)
         ),
         balance=46,
         nonce=0,
-        address=coinbase,  # noqa: E501
+        address=Address(0x4F3F701464972E74606D6EA82D4D3080599A0E79),  # noqa: E501
+    )
+    # Source: raw
+    # 0x7ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe427f000000000000000000000000000000000000000000000000000000000000c3507fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f000000000000000000000000000000000000000000000000000000000000c3507f000000000000000000000000<contract:0x945304eb96065b2a98b57a48a06ae28d285a71b5>7f00000000000000000000000000000000000000000000000000000000000000017f00000000000000000000000000000000000000000000000000000000000000006f7d41a29934035b748e96a3135b69645560005155  # noqa: E501
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.PUSH32[
+            0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE
+        ]
+        + Op.TIMESTAMP
+        + Op.PUSH32[0xC350]
+        + Op.PUSH32[
+            0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+        ]
+        + Op.PUSH32[0xC350]
+        + Op.PUSH32[0x4F3F701464972E74606D6EA82D4D3080599A0E79]
+        + Op.PUSH32[0x1]
+        + Op.PUSH32[0x0]
+        + Op.SSTORE(
+            key=Op.MLOAD(offset=0x0), value=0x7D41A29934035B748E96A3135B696455
+        ),
+        nonce=0,
+        address=Address(0x477526F193CFA214F3D2BCBB76AC3612B1DAD747),  # noqa: E501
     )
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=bytes.fromhex(
-            "7ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe427f00"  # noqa: E501
-            "0000000000000000000000000000000000000000000000000000000000c3507fffffffff"  # noqa: E501
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f00000000000000"  # noqa: E501
-            "0000000000000000000000000000000000000000000000c3507f00000000000000000000"  # noqa: E501
-            "00004f3f701464972e74606d6ea82d4d3080599a0e797f00000000000000000000000000"  # noqa: E501
-            "000000000000000000000000000000000000017f00000000000000000000000000000000"  # noqa: E501
-            "000000000000000000000000000000006f7d41a29934035b748e96a3135b6964"
+        to=target,
+        data=Bytes(
+            "7ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe427f000000000000000000000000000000000000000000000000000000000000c3507fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f000000000000000000000000000000000000000000000000000000000000c3507f0000000000000000000000004f3f701464972e74606d6ea82d4d3080599a0e797f00000000000000000000000000000000000000000000000000000000000000017f00000000000000000000000000000000000000000000000000000000000000006f7d41a29934035b748e96a3135b6964"  # noqa: E501
         ),
         gas_limit=100000,
-        value=1811277343,
+        value=0x6BF5E61F,
     )
 
     post = {
-        contract: Account(storage={0: 0x7D41A29934035B748E96A3135B696455}),
+        target: Account(
+            storage={0: 0x7D41A29934035B748E96A3135B696455},
+            nonce=0,
+        ),
+        coinbase: Account(storage={}, nonce=0),
+        sender: Account(storage={}, code=b"", nonce=1),
     }
 
     state_test(env=env, pre=pre, post=post, tx=tx)

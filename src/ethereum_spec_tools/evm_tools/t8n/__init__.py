@@ -7,7 +7,8 @@ import fnmatch
 import json
 import os
 from contextlib import AbstractContextManager
-from typing import Any, Final, TextIO, Tuple, Type, TypeVar
+from dataclasses import astuple, dataclass
+from typing import Any, Final, TextIO, Type, TypeVar
 
 from ethereum_rlp import rlp
 from ethereum_types.numeric import U64, U256, Uint
@@ -16,14 +17,7 @@ from typing_extensions import override
 from ethereum import trace
 from ethereum.exceptions import EthereumException, InvalidBlock
 from ethereum.fork_criteria import ByBlockNumber, ByTimestamp, Unscheduled
-
-# TODO: Make this not amsterdam specific once the state tracker has
-# been added to older forks.
-from ethereum.forks.amsterdam.block_access_lists import (
-    BlockAccessIndex,
-    BlockAccessListBuilder,
-    validate_block_access_list_gas_limit,
-)
+from ethereum.merkle_patricia_trie import copy_trie
 from ethereum_spec_tools.forks import Hardfork, TemporaryHardfork
 
 from ..loaders.fixture_loader import Load
@@ -40,6 +34,7 @@ from .evm_trace.group import GroupTracer
 from .t8n_types import Alloc, Result, SendersAuthorities, Txs
 
 T = TypeVar("T")
+ForkCriteriaArgument = ByBlockNumber | ByTimestamp | Unscheduled | None
 
 
 def t8n_arguments(subparsers: argparse._SubParsersAction) -> None:
@@ -109,12 +104,95 @@ def t8n_arguments(subparsers: argparse._SubParsersAction) -> None:
     t8n_parser.add_argument("--state-test", action="store_true")
 
 
+@dataclass(frozen=True)
+class _ForkOverrides:
+    """Store temporary hardfork override values."""
+
+    fork_criteria: ForkCriteriaArgument = None
+    blob_target_gas_per_block: U64 | None = None
+    gas_per_blob: U64 | None = None
+    blob_min_gasprice: Uint | None = None
+    blob_base_fee_update_fraction: Uint | None = None
+    max_blob_gas_per_block: U64 | None = None
+    blob_schedule_target: U64 | None = None
+    blob_schedule_max: U64 | None = None
+
+    def is_empty(self) -> bool:
+        """Return true when all override values are unset."""
+        return all(value is None for value in astuple(self))
+
+    @staticmethod
+    def _matches_field(override: object | None, on: object, name: str) -> bool:
+        if override is None:
+            return True
+
+        try:
+            default = getattr(on, name)
+        except AttributeError:
+            return False
+
+        return override == default
+
+    def matches_template(
+        self,
+        template: Hardfork,
+    ) -> bool:
+        """Return true when the requested overrides match the template."""
+        if self.is_empty():
+            return True
+
+        if (
+            self.fork_criteria is not None
+            and self.fork_criteria != template.criteria
+        ):
+            return False
+
+        fork_mod = template.module("fork")
+        gas_costs = template.module("vm.gas").GasCosts
+
+        checks = (
+            (
+                self.max_blob_gas_per_block,
+                fork_mod,
+                "MAX_BLOB_GAS_PER_BLOCK",
+            ),
+            (
+                self.blob_target_gas_per_block,
+                gas_costs,
+                "BLOB_TARGET_GAS_PER_BLOCK",
+            ),
+            (self.gas_per_blob, gas_costs, "PER_BLOB"),
+            (
+                self.blob_min_gasprice,
+                gas_costs,
+                "BLOB_MIN_GASPRICE",
+            ),
+            (
+                self.blob_base_fee_update_fraction,
+                gas_costs,
+                "BLOB_BASE_FEE_UPDATE_FRACTION",
+            ),
+            (
+                self.blob_schedule_target,
+                gas_costs,
+                "BLOB_SCHEDULE_TARGET",
+            ),
+            (
+                self.blob_schedule_max,
+                gas_costs,
+                "BLOB_SCHEDULE_MAX",
+            ),
+        )
+
+        return all(self._matches_field(*x) for x in checks)
+
+
 class ForkCache(AbstractContextManager):
     """
     Stores references to temporary hardforks and cleans them up when exited.
     """
 
-    _cache: Final[dict[Tuple[object, ...], TemporaryHardfork]]
+    _cache: Final[dict[tuple[str, _ForkOverrides], TemporaryHardfork]]
 
     def __init__(self) -> None:
         self._cache = {}
@@ -141,27 +219,7 @@ class ForkCache(AbstractContextManager):
         Search the cache for a matching hardfork, or create one if it doesn't
         exist.
         """
-        cache_key = (
-            template.short_name,
-            fork_criteria,
-            blob_target_gas_per_block,
-            gas_per_blob,
-            blob_min_gasprice,
-            blob_base_fee_update_fraction,
-            max_blob_gas_per_block,
-            blob_schedule_target,
-            blob_schedule_max,
-        )
-        if all(x is None for x in cache_key[1:]):
-            return template
-
-        try:
-            return self._cache[cache_key]
-        except KeyError:
-            pass
-
-        clone = Hardfork.clone(
-            template=template,
+        overrides = _ForkOverrides(
             fork_criteria=fork_criteria,
             blob_target_gas_per_block=blob_target_gas_per_block,
             gas_per_blob=gas_per_blob,
@@ -170,6 +228,28 @@ class ForkCache(AbstractContextManager):
             max_blob_gas_per_block=max_blob_gas_per_block,
             blob_schedule_target=blob_schedule_target,
             blob_schedule_max=blob_schedule_max,
+        )
+        if overrides.matches_template(template):
+            return template
+
+        cache_key = (template.short_name, overrides)
+        try:
+            return self._cache[cache_key]
+        except KeyError:
+            pass
+
+        clone = Hardfork.clone(
+            template=template,
+            fork_criteria=overrides.fork_criteria,
+            blob_target_gas_per_block=overrides.blob_target_gas_per_block,
+            gas_per_blob=overrides.gas_per_blob,
+            blob_min_gasprice=overrides.blob_min_gasprice,
+            blob_base_fee_update_fraction=(
+                overrides.blob_base_fee_update_fraction
+            ),
+            max_blob_gas_per_block=overrides.max_blob_gas_per_block,
+            blob_schedule_target=overrides.blob_schedule_target,
+            blob_schedule_max=overrides.blob_schedule_max,
         )
         self._cache[cache_key] = clone
         return clone
@@ -310,16 +390,9 @@ class T8N(Load):
             "chain_id": self.chain_id,
         }
 
-        if self.fork.has_block_state:
-            from ethereum.forks.amsterdam.state_tracker import (
-                BlockState,
-            )
-
-            block_state = BlockState(pre_state=self.alloc.state)
-            kw_arguments["state"] = block_state
-            self._block_state = block_state
-        else:
-            kw_arguments["state"] = self.alloc.state
+        block_state = self.fork.BlockState(pre_state=self.alloc.state)
+        kw_arguments["state"] = block_state
+        self._block_state = block_state
 
         block_environment = self.fork.BlockEnvironment
 
@@ -339,8 +412,10 @@ class T8N(Load):
 
         if self.fork.has_hash_block_access_list:
             kw_arguments["block_access_list_builder"] = (
-                BlockAccessListBuilder()
+                self.fork.BlockAccessListBuilder()
             )
+        if self.fork.has_slot_number:
+            kw_arguments["slot_number"] = self.env.slot_number
 
         if self.fork.has_senders_authorities:
             kw_arguments[
@@ -352,10 +427,9 @@ class T8N(Load):
     def backup_state(self) -> None:
         """Back up the state in order to restore in case of an error."""
         state = self.alloc.state
-        main_trie = self.fork.copy_trie(state._main_trie)
+        main_trie = copy_trie(state._main_trie)
         storage_tries = {
-            k: self.fork.copy_trie(t)
-            for (k, t) in state._storage_tries.items()
+            k: copy_trie(t) for (k, t) in state._storage_tries.items()
         }
         self.alloc.state_backup = (
             main_trie,
@@ -376,9 +450,10 @@ class T8N(Load):
         miner_reward = block_reward + (
             ommer_count * (block_reward // U256(32))
         )
-        self.fork.create_ether(
-            block_env.state, block_env.coinbase, miner_reward
-        )
+
+        rewards_state = self.fork.TransactionState(parent=block_env.state)
+
+        self.fork.create_ether(rewards_state, block_env.coinbase, miner_reward)
 
         for ommer in self.env.ommers:
             # Ommer age with respect to the current block.
@@ -387,8 +462,10 @@ class T8N(Load):
                 (U256(8) - ommer_age) * block_reward
             ) // U256(8)
             self.fork.create_ether(
-                block_env.state, ommer.coinbase, ommer_miner_reward
+                rewards_state, ommer.coinbase, ommer_miner_reward
             )
+
+        self.fork.incorporate_tx_into_block(rewards_state)
 
     def run_state_test(self) -> Any:
         """
@@ -460,7 +537,7 @@ class T8N(Load):
         num_txs = len(self.txs.transactions)
         if self.fork.has_hash_block_access_list:
             block_env.block_access_list_builder.block_access_index = (
-                BlockAccessIndex(Uint(num_txs) + Uint(1))
+                self.fork.BlockAccessIndex(Uint(num_txs) + Uint(1))
             )
 
         if not self.fork.proof_of_stake:
@@ -485,7 +562,7 @@ class T8N(Load):
             )
 
             # Validate block access list gas limit constraint (EIP-7928)
-            validate_block_access_list_gas_limit(
+            self.fork.validate_block_access_list_gas_limit(
                 block_access_list=block_output.block_access_list,
                 block_gas_limit=block_env.block_gas_limit,
             )

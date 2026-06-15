@@ -1,12 +1,12 @@
 """
-The execution records the EIP-1559 transaction origin balance to make sure...
+The execution records the EIP-1559 transaction origin balance to make...
 
 properly computed based on the effective gas price (not the maximum gas price
 as in
 the transaction validity check).
 
 Ported from:
-tests/static/state_tests/stEIP1559/senderBalanceFiller.yml
+state_tests/stEIP1559/senderBalanceFiller.yml
 """
 
 import pytest
@@ -15,6 +15,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    Bytes,
     Environment,
     StateTestFiller,
     Transaction,
@@ -26,7 +27,7 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stEIP1559/senderBalanceFiller.yml"],
+    ["state_tests/stEIP1559/senderBalanceFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.pre_alloc_mutable
@@ -35,7 +36,7 @@ def test_sender_balance(
     pre: Alloc,
 ) -> None:
     """The execution records the EIP-1559 transaction origin balance to..."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0xE04D1AC7DDDA0C98397D56A0B501E960D4CD325A39286919AC23C1A07009A869
     )
@@ -49,27 +50,28 @@ def test_sender_balance(
         gas_limit=30000000,
     )
 
-    # Source: Yul
+    pre[sender] = Account(balance=0xDE0B6B3A7640000)
+    # Source: yul
+    # london
     # {
     #   sstore(0, balance(caller()))
     # }
-    contract = pre.deploy_contract(
+    target = pre.deploy_contract(  # noqa: F841
         code=Op.SSTORE(key=0x0, value=Op.BALANCE(address=Op.CALLER)) + Op.STOP,
         nonce=0,
-        address=Address("0x420132f96200ba8e5c98298a85633c35c4f052ef"),  # noqa: E501
+        address=Address(0x420132F96200BA8E5C98298A85633C35C4F052EF),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xDE0B6B3A7640000)
 
     tx = Transaction(
         sender=sender,
-        to=contract,
+        to=target,
+        data=Bytes(""),
         gas_limit=60000,
         max_fee_per_gas=1000,
         max_priority_fee_per_gas=100,
+        access_list=[],
     )
 
-    post = {
-        contract: Account(storage={0: 0xDE0B6B3A6FE6060}),
-    }
+    post = {target: Account(storage={0: 0xDE0B6B3A6FE6060})}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

@@ -1,8 +1,8 @@
 """
-Test ported from static filler.
+Test_static_check_opcodes.
 
 Ported from:
-tests/static/state_tests/stStaticCall/static_CheckOpcodesFiller.json
+state_tests/stStaticCall/static_CheckOpcodesFiller.json
 """
 
 import pytest
@@ -12,8 +12,13 @@ from execution_testing import (
     Address,
     Alloc,
     Environment,
+    Hash,
     StateTestFiller,
     Transaction,
+)
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
 )
 from execution_testing.vm import Op
 
@@ -22,108 +27,74 @@ REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    ["tests/static/state_tests/stStaticCall/static_CheckOpcodesFiller.json"],
+    ["state_tests/stStaticCall/static_CheckOpcodesFiller.json"],
 )
 @pytest.mark.valid_from("Cancun")
+@pytest.mark.slow
 @pytest.mark.parametrize(
-    "tx_data_hex, tx_gas_limit, tx_value, expected_post",
+    "d, g, v",
     [
-        (
-            "000000000000000000000000b4b91c40f3e3a6e5576b0413572b88d535cee7b0",
-            50000,
+        pytest.param(
             0,
-            {
-                Address("0x50f628d871a69f2db31e98d7fbf8ae6f1fc0d55c"): Account(
-                    storage={1: 1}
-                )
-            },
-        ),
-        (
-            "000000000000000000000000b4b91c40f3e3a6e5576b0413572b88d535cee7b0",
-            50000,
-            100,
-            {
-                Address("0x50f628d871a69f2db31e98d7fbf8ae6f1fc0d55c"): Account(
-                    storage={1: 1}
-                )
-            },
-        ),
-        (
-            "000000000000000000000000b4b91c40f3e3a6e5576b0413572b88d535cee7b0",
-            335000,
             0,
-            {
-                Address("0x50f628d871a69f2db31e98d7fbf8ae6f1fc0d55c"): Account(
-                    storage={1: 1}
-                )
-            },
-        ),
-        (
-            "000000000000000000000000b4b91c40f3e3a6e5576b0413572b88d535cee7b0",
-            335000,
-            100,
-            {
-                Address("0x50f628d871a69f2db31e98d7fbf8ae6f1fc0d55c"): Account(
-                    storage={1: 1}
-                )
-            },
-        ),
-        (
-            "000000000000000000000000e4b8baa7da1a97bff89d7db0ae345dd30cd8c1d0",
-            50000,
             0,
-            {},
+            id="d0-g0-v0",
         ),
-        (
-            "000000000000000000000000e4b8baa7da1a97bff89d7db0ae345dd30cd8c1d0",
-            50000,
-            100,
-            {},
-        ),
-        (
-            "000000000000000000000000e4b8baa7da1a97bff89d7db0ae345dd30cd8c1d0",
-            335000,
+        pytest.param(
             0,
-            {
-                Address("0x50f628d871a69f2db31e98d7fbf8ae6f1fc0d55c"): Account(
-                    storage={1: 1}
-                )
-            },
+            0,
+            1,
+            id="d0-g0-v1",
         ),
-        (
-            "000000000000000000000000e4b8baa7da1a97bff89d7db0ae345dd30cd8c1d0",
-            335000,
-            100,
-            {
-                Address("0x50f628d871a69f2db31e98d7fbf8ae6f1fc0d55c"): Account(
-                    storage={1: 1}
-                )
-            },
+        pytest.param(
+            0,
+            1,
+            0,
+            id="d0-g1-v0",
         ),
-    ],
-    ids=[
-        "case0",
-        "case1",
-        "case2",
-        "case3",
-        "case4",
-        "case5",
-        "case6",
-        "case7",
+        pytest.param(
+            0,
+            1,
+            1,
+            id="d0-g1-v1",
+        ),
+        pytest.param(
+            1,
+            0,
+            0,
+            id="d1-g0-v0",
+        ),
+        pytest.param(
+            1,
+            0,
+            1,
+            id="d1-g0-v1",
+        ),
+        pytest.param(
+            1,
+            1,
+            0,
+            id="d1-g1-v0",
+        ),
+        pytest.param(
+            1,
+            1,
+            1,
+            id="d1-g1-v1",
+        ),
     ],
 )
 @pytest.mark.pre_alloc_mutable
-@pytest.mark.slow
 def test_static_check_opcodes(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
-    tx_gas_limit: int,
-    tx_value: int,
-    expected_post: dict,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
+    """Test_static_check_opcodes."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
     sender = EOA(
         key=0x4F31B3206FBF0E0E598B9B1A7D8AC86302A0FF1D8930738F1BEBAE9B67173E52
     )
@@ -137,151 +108,176 @@ def test_static_check_opcodes(
         gas_limit=10000000,
     )
 
-    pre.deploy_contract(
-        code=(
-            Op.JUMPI(
-                pc=0x22,
-                condition=Op.EQ(
-                    0xFAA10B404AB607779993C016CD5DA73AE1F29D7E,
-                    Op.ORIGIN,
-                ),
-            )
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x28)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.JUMPI(
-                pc=0x4B,
-                condition=Op.EQ(
-                    0xE4B8BAA7DA1A97BFF89D7DB0AE345DD30CD8C1D0,
-                    Op.CALLER,
-                ),
-            )
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x51)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.JUMPI(
-                pc=0x74,
-                condition=Op.EQ(
-                    0xB4B91C40F3E3A6E5576B0413572B88D535CEE7B0,
-                    Op.ADDRESS,
-                ),
-            )
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x7A)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0x8A, condition=Op.EQ(0x0, Op.CALLVALUE))
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x90)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.STOP
-        ),
-        nonce=0,
-        address=Address("0x2b8b4845acb3ef63f61f109b960754cf76dfbdfd"),  # noqa: E501
-    )
-    # Source: LLL
+    pre[sender] = Account(balance=0xE8D4A51000)
+    # Source: lll
     # { [[1]] (STATICCALL 100000 (CALLDATALOAD 0) 0 0 0 0) }
-    contract = pre.deploy_contract(
-        code=(
-            Op.SSTORE(
-                key=0x1,
-                value=Op.STATICCALL(
-                    gas=0x186A0,
-                    address=Op.CALLDATALOAD(offset=0x0),
-                    args_offset=0x0,
-                    args_size=0x0,
-                    ret_offset=0x0,
-                    ret_size=0x0,
-                ),
-            )
-            + Op.STOP
-        ),
-        nonce=0,
-        address=Address("0x50f628d871a69f2db31e98d7fbf8ae6f1fc0d55c"),  # noqa: E501
-    )
-    pre.deploy_contract(
-        code=(
-            Op.JUMPI(
-                pc=0x22,
-                condition=Op.EQ(
-                    0xFAA10B404AB607779993C016CD5DA73AE1F29D7E,
-                    Op.ORIGIN,
-                ),
-            )
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x28)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.JUMPI(
-                pc=0x4B,
-                condition=Op.EQ(
-                    0x50F628D871A69F2DB31E98D7FBF8AE6F1FC0D55C,
-                    Op.CALLER,
-                ),
-            )
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x51)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.JUMPI(
-                pc=0x74,
-                condition=Op.EQ(
-                    0xB4B91C40F3E3A6E5576B0413572B88D535CEE7B0,
-                    Op.ADDRESS,
-                ),
-            )
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x7A)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.JUMPI(pc=0x8A, condition=Op.EQ(0x0, Op.CALLVALUE))
-            + Op.SSTORE(key=0x1, value=0x2)
-            + Op.JUMP(pc=0x90)
-            + Op.JUMPDEST
-            + Op.MSTORE(offset=0x1, value=0x1)
-            + Op.JUMPDEST
-            + Op.STOP
-        ),
-        nonce=0,
-        address=Address("0xb4b91c40f3e3a6e5576b0413572b88d535cee7b0"),  # noqa: E501
-    )
-    pre.deploy_contract(
-        code=(
-            Op.STATICCALL(
+    target = pre.deploy_contract(  # noqa: F841
+        code=Op.SSTORE(
+            key=0x1,
+            value=Op.STATICCALL(
                 gas=0x186A0,
-                address=0x2B8B4845ACB3EF63F61F109B960754CF76DFBDFD,
+                address=Op.CALLDATALOAD(offset=0x0),
                 args_offset=0x0,
                 args_size=0x0,
                 ret_offset=0x0,
                 ret_size=0x0,
-            )
-            + Op.STOP
-        ),
+            ),
+        )
+        + Op.STOP,
         nonce=0,
-        address=Address("0xe4b8baa7da1a97bff89d7db0ae345dd30cd8c1d0"),  # noqa: E501
+        address=Address(0x50F628D871A69F2DB31E98D7FBF8AE6F1FC0D55C),  # noqa: E501
     )
-    pre[sender] = Account(balance=0xE8D4A51000)
+    # Source: lll
+    # { (if (= <eoa:sender:0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b> (ORIGIN)) (MSTORE 1 1) (SSTORE 1 2) ) (if (= <contract:target:0x1000000000000000000000000000000000000000> (CALLER)) (MSTORE 1 1) (SSTORE 1 2) ) (if (= <contract:0x1000000000000000000000000000000000000001> (ADDRESS)) (MSTORE 1 1) (SSTORE 1 2) )   (if (= 0 (CALLVALUE)) (MSTORE 1 1) (SSTORE 1 2) ) }  # noqa: E501
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.JUMPI(
+            pc=0x22,
+            condition=Op.EQ(
+                0xFAA10B404AB607779993C016CD5DA73AE1F29D7E, Op.ORIGIN
+            ),
+        )
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x28)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.JUMPI(
+            pc=0x4B,
+            condition=Op.EQ(
+                0x50F628D871A69F2DB31E98D7FBF8AE6F1FC0D55C, Op.CALLER
+            ),
+        )
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x51)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.JUMPI(
+            pc=0x74,
+            condition=Op.EQ(
+                0xB4B91C40F3E3A6E5576B0413572B88D535CEE7B0, Op.ADDRESS
+            ),
+        )
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x7A)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0x8A, condition=Op.EQ(0x0, Op.CALLVALUE))
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x90)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.STOP,
+        nonce=0,
+        address=Address(0xB4B91C40F3E3A6E5576B0413572B88D535CEE7B0),  # noqa: E501
+    )
+    # Source: lll
+    # { (STATICCALL 100000 <contract:0x1000000000000000000000000000000000000003> 0 0 0 0) }  # noqa: E501
+    addr_2 = pre.deploy_contract(  # noqa: F841
+        code=Op.STATICCALL(
+            gas=0x186A0,
+            address=0x2B8B4845ACB3EF63F61F109B960754CF76DFBDFD,
+            args_offset=0x0,
+            args_size=0x0,
+            ret_offset=0x0,
+            ret_size=0x0,
+        )
+        + Op.STOP,
+        nonce=0,
+        address=Address(0xE4B8BAA7DA1A97BFF89D7DB0AE345DD30CD8C1D0),  # noqa: E501
+    )
+    # Source: lll
+    # { (if (= <eoa:sender:0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b> (ORIGIN)) (MSTORE 1 1) (SSTORE 1 2) ) (if (= <contract:0x1000000000000000000000000000000000000002> (CALLER)) (MSTORE 1 1) (SSTORE 1 2) ) (if (= <contract:0x1000000000000000000000000000000000000001> (ADDRESS)) (MSTORE 1 1) (SSTORE 1 2) )   (if (= 0 (CALLVALUE)) (MSTORE 1 1) (SSTORE 1 2) ) }  # noqa: E501
+    addr_3 = pre.deploy_contract(  # noqa: F841
+        code=Op.JUMPI(
+            pc=0x22,
+            condition=Op.EQ(
+                0xFAA10B404AB607779993C016CD5DA73AE1F29D7E, Op.ORIGIN
+            ),
+        )
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x28)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.JUMPI(
+            pc=0x4B,
+            condition=Op.EQ(
+                0xE4B8BAA7DA1A97BFF89D7DB0AE345DD30CD8C1D0, Op.CALLER
+            ),
+        )
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x51)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.JUMPI(
+            pc=0x74,
+            condition=Op.EQ(
+                0xB4B91C40F3E3A6E5576B0413572B88D535CEE7B0, Op.ADDRESS
+            ),
+        )
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x7A)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.JUMPI(pc=0x8A, condition=Op.EQ(0x0, Op.CALLVALUE))
+        + Op.SSTORE(key=0x1, value=0x2)
+        + Op.JUMP(pc=0x90)
+        + Op.JUMPDEST
+        + Op.MSTORE(offset=0x1, value=0x1)
+        + Op.JUMPDEST
+        + Op.STOP,
+        nonce=0,
+        address=Address(0x2B8B4845ACB3EF63F61F109B960754CF76DFBDFD),  # noqa: E501
+    )
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": -1, "gas": 1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                target: Account(storage={1: 1}),
+            },
+        },
+        {
+            "indexes": {"data": 1, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                target: Account(storage={1: 0}),
+            },
+        },
+        {
+            "indexes": {"data": 0, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {
+                sender: Account(nonce=1),
+                target: Account(storage={1: 1}),
+            },
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Hash(addr, left_padding=True),
+        Hash(addr_2, left_padding=True),
+    ]
+    tx_gas = [50000, 335000]
+    tx_value = [0, 100]
 
     tx = Transaction(
         sender=sender,
-        to=contract,
-        data=tx_data,
-        gas_limit=tx_gas_limit,
-        value=tx_value,
+        to=target,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
+        error=_exc,
     )
-
-    post = expected_post
 
     state_test(env=env, pre=pre, post=post, tx=tx)

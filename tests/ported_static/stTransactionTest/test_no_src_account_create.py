@@ -1,475 +1,247 @@
 """
-Test ported from static filler.
+Test_no_src_account_create.
 
 Ported from:
-tests/static/state_tests/stTransactionTest/NoSrcAccountCreateFiller.yml
+state_tests/stTransactionTest/NoSrcAccountCreateFiller.yml
 """
 
 import pytest
 from execution_testing import (
-    EOA,
     AccessList,
     Address,
     Alloc,
+    Bytes,
     Environment,
     Hash,
     StateTestFiller,
     Transaction,
     TransactionException,
 )
+from execution_testing.forks import Fork
+from execution_testing.specs.static_state.expect_section import (
+    resolve_expect_post,
+)
+from execution_testing.vm import Op
 
 REFERENCE_SPEC_GIT_PATH = "N/A"
 REFERENCE_SPEC_VERSION = "N/A"
 
 
 @pytest.mark.ported_from(
-    [
-        "tests/static/state_tests/stTransactionTest/NoSrcAccountCreateFiller.yml",  # noqa: E501
-    ],
+    ["state_tests/stTransactionTest/NoSrcAccountCreateFiller.yml"],
 )
 @pytest.mark.valid_from("Cancun")
 @pytest.mark.parametrize(
-    "tx_data_hex, tx_gas_limit, tx_value, tx_access_list, tx_error",
+    "d, g, v",
     [
         pytest.param(
-            "",
-            21000,
-            0,
-            None,
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case0",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "",
-            21000,
-            1,
-            None,
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case1",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "",
-            210000,
-            0,
-            None,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case2",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "",
-            210000,
-            1,
-            None,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case3",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "",
             0,
             0,
-            None,
-            TransactionException.INTRINSIC_GAS_TOO_LOW,
-            id="case4",
+            0,
+            id="d0-g0-v0",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "",
+            0,
             0,
             1,
-            None,
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case5",
+            id="d0-g0-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "dead60a7",
-            21000,
-            0,
-            None,
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case6",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "dead60a7",
-            21000,
-            1,
-            None,
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case7",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "dead60a7",
-            210000,
-            0,
-            None,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case8",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "dead60a7",
-            210000,
-            1,
-            None,
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case9",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "dead60a7",
-            0,
-            0,
-            None,
-            TransactionException.INTRINSIC_GAS_TOO_LOW,
-            id="case10",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "dead60a7",
             0,
             1,
-            None,
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case11",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            21000,
             0,
-            [],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case12",
+            id="d0-g1-v0",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
-            21000,
-            1,
-            [],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case13",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            210000,
-            0,
-            [],
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case14",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            210000,
-            1,
-            [],
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case15",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            0,
-            0,
-            [],
-            TransactionException.INTRINSIC_GAS_TOO_LOW,
-            id="case16",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
             0,
             1,
-            [],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case17",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            21000,
-            0,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[],
-                )
-            ],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case18",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            21000,
             1,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[],
-                )
-            ],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case19",
+            id="d0-g1-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
-            210000,
             0,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[],
-                )
-            ],
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case20",
+            2,
+            0,
+            id="d0-g2-v0",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
-            210000,
+            0,
+            2,
             1,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[],
-                )
-            ],
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case21",
+            id="d0-g2-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
+            1,
             0,
             0,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[],
-                )
-            ],
-            TransactionException.INTRINSIC_GAS_TOO_LOW,
-            id="case22",
+            id="d1-g0-v0",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
+            1,
             0,
             1,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[],
-                )
-            ],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case23",
+            id="d1-g0-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
-            21000,
-            0,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
-                        ),
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000001"  # noqa: E501
-                        ),
-                    ],
-                )
-            ],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case24",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            21000,
             1,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
-                        ),
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000001"  # noqa: E501
-                        ),
-                    ],
-                )
-            ],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case25",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            210000,
-            0,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
-                        ),
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000001"  # noqa: E501
-                        ),
-                    ],
-                )
-            ],
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case26",
-            marks=pytest.mark.exception_test,
-        ),
-        pytest.param(
-            "00",
-            210000,
             1,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
-                        ),
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000001"  # noqa: E501
-                        ),
-                    ],
-                )
-            ],
-            TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-            id="case27",
+            0,
+            id="d1-g1-v0",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
-            0,
-            0,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
-                        ),
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000001"  # noqa: E501
-                        ),
-                    ],
-                )
-            ],
-            TransactionException.INTRINSIC_GAS_TOO_LOW,
-            id="case28",
+            1,
+            1,
+            1,
+            id="d1-g1-v1",
             marks=pytest.mark.exception_test,
         ),
         pytest.param(
-            "00",
+            1,
+            2,
+            0,
+            id="d1-g2-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            1,
+            2,
+            1,
+            id="d1-g2-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            2,
+            0,
+            0,
+            id="d2-g0-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            2,
             0,
             1,
-            [
-                AccessList(
-                    address=Address(
-                        "0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"
-                    ),
-                    storage_keys=[
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
-                        ),
-                        Hash(
-                            "0x0000000000000000000000000000000000000000000000000000000000000001"  # noqa: E501
-                        ),
-                    ],
-                )
-            ],
-            [
-                TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
-                TransactionException.INTRINSIC_GAS_TOO_LOW,
-            ],
-            id="case29",
+            id="d2-g0-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            2,
+            1,
+            0,
+            id="d2-g1-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            2,
+            1,
+            1,
+            id="d2-g1-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            2,
+            2,
+            0,
+            id="d2-g2-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            2,
+            2,
+            1,
+            id="d2-g2-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            3,
+            0,
+            0,
+            id="d3-g0-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            3,
+            0,
+            1,
+            id="d3-g0-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            3,
+            1,
+            0,
+            id="d3-g1-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            3,
+            1,
+            1,
+            id="d3-g1-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            3,
+            2,
+            0,
+            id="d3-g2-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            3,
+            2,
+            1,
+            id="d3-g2-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            4,
+            0,
+            0,
+            id="d4-g0-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            4,
+            0,
+            1,
+            id="d4-g0-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            4,
+            1,
+            0,
+            id="d4-g1-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            4,
+            1,
+            1,
+            id="d4-g1-v1",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            4,
+            2,
+            0,
+            id="d4-g2-v0",
+            marks=pytest.mark.exception_test,
+        ),
+        pytest.param(
+            4,
+            2,
+            1,
+            id="d4-g2-v1",
             marks=pytest.mark.exception_test,
         ),
     ],
@@ -478,17 +250,14 @@ REFERENCE_SPEC_VERSION = "N/A"
 def test_no_src_account_create(
     state_test: StateTestFiller,
     pre: Alloc,
-    tx_data_hex: str,
-    tx_gas_limit: int,
-    tx_value: int,
-    tx_access_list: list | None,
-    tx_error: object,
+    fork: Fork,
+    d: int,
+    g: int,
+    v: int,
 ) -> None:
-    """Test ported from static filler."""
-    coinbase = Address("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba")
-    sender = EOA(
-        key=0x4A2FFC8867FD8D1773481CF13F36E44F033133C579520D2745E46C3BBBF21E6A
-    )
+    """Test_no_src_account_create."""
+    coinbase = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+    sender = pre.fund_eoa(amount=0)
 
     env = Environment(
         fee_recipient=coinbase,
@@ -499,26 +268,151 @@ def test_no_src_account_create(
         gas_limit=89128960,
     )
 
-    # Source: raw bytecode
-    pre.deploy_contract(
-        code=bytes.fromhex("00"),
+    # Source: raw
+    # 0x00
+    addr = pre.deploy_contract(  # noqa: F841
+        code=Op.STOP,
         nonce=0,
-        address=Address("0x4d7b154e5bf8310a4d8220c8eed80020e4b8f86f"),  # noqa: E501
     )
 
-    tx_data = bytes.fromhex(tx_data_hex) if tx_data_hex else b""
+    expect_entries_: list[dict] = [
+        {
+            "indexes": {"data": 0, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Homestead": [
+                    TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
+                    TransactionException.INTRINSIC_GAS_TOO_LOW,
+                ],
+                "Frontier": TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
+            },
+        },
+        {
+            "indexes": {"data": 1, "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Frontier": [
+                    TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
+                    TransactionException.INTRINSIC_GAS_TOO_LOW,
+                ]
+            },
+        },
+        {
+            "indexes": {"data": [0, 1], "gas": 1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Frontier": TransactionException.INSUFFICIENT_ACCOUNT_FUNDS
+            },
+        },
+        {
+            "indexes": {"data": [0, 1], "gas": 2, "value": 1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Frontier": [
+                    TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
+                    TransactionException.INTRINSIC_GAS_TOO_LOW,
+                ]
+            },
+        },
+        {
+            "indexes": {"data": [0, 1], "gas": 2, "value": 0},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Frontier": TransactionException.INTRINSIC_GAS_TOO_LOW
+            },
+        },
+        {
+            "indexes": {"data": [2, 3, 4], "gas": 0, "value": -1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Cancun": [
+                    TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
+                    TransactionException.INTRINSIC_GAS_TOO_LOW,
+                ],
+                ">=Frontier<MuirGlacier": TransactionException.TYPE_NOT_SUPPORTED,  # noqa: E501
+            },
+        },
+        {
+            "indexes": {"data": [2, 3, 4], "gas": 1, "value": -1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Cancun": TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
+                ">=Frontier<MuirGlacier": TransactionException.TYPE_NOT_SUPPORTED,  # noqa: E501
+            },
+        },
+        {
+            "indexes": {"data": [2, 3, 4], "gas": 2, "value": 1},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Cancun": [
+                    TransactionException.INSUFFICIENT_ACCOUNT_FUNDS,
+                    TransactionException.INTRINSIC_GAS_TOO_LOW,
+                ],
+                ">=Frontier<MuirGlacier": TransactionException.TYPE_NOT_SUPPORTED,  # noqa: E501
+            },
+        },
+        {
+            "indexes": {"data": [2, 3, 4], "gas": 2, "value": 0},
+            "network": [">=Cancun"],
+            "result": {},
+            "expect_exception": {
+                ">=Cancun": TransactionException.INTRINSIC_GAS_TOO_LOW,
+                ">=Frontier<MuirGlacier": TransactionException.TYPE_NOT_SUPPORTED,  # noqa: E501
+            },
+        },
+    ]
+
+    post, _exc = resolve_expect_post(expect_entries_, d, g, v, fork)
+
+    tx_data = [
+        Bytes(""),
+        Bytes("dead60a7"),
+        Op.STOP,
+        Op.STOP,
+        Op.STOP,
+    ]
+    tx_gas = [21000, 210000, 0]
+    tx_value = [0, 1]
+    tx_access_lists: dict[int, list] = {
+        2: [],
+        3: [
+            AccessList(
+                address=addr,
+                storage_keys=[],
+            ),
+        ],
+        4: [
+            AccessList(
+                address=addr,
+                storage_keys=[
+                    Hash(
+                        "0x0000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
+                    ),  # noqa: E501
+                    Hash(
+                        "0x0000000000000000000000000000000000000000000000000000000000000001"  # noqa: E501
+                    ),  # noqa: E501
+                ],
+            ),
+        ],
+    }
 
     tx = Transaction(
         sender=sender,
         to=None,
-        data=tx_data,
-        gas_limit=tx_gas_limit,
+        data=tx_data[d],
+        gas_limit=tx_gas[g],
+        value=tx_value[v],
         gas_price=100,
-        value=tx_value,
-        access_list=tx_access_list,
-        error=tx_error,
+        access_list=tx_access_lists.get(d),
+        error=_exc,
     )
-
-    post: dict = {}
 
     state_test(env=env, pre=pre, post=post, tx=tx)

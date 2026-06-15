@@ -1,1 +1,1 @@
-"""Tests ported from stDelegatecallTestHomestead."""
+"""Ported static tests: stDelegatecallTestHomestead."""  # noqa: N999

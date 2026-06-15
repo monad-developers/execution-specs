@@ -1,1 +1,1 @@
-"""Tests ported from stSelfBalance."""
+"""Ported static tests: stSelfBalance."""  # noqa: N999
