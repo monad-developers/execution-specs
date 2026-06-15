@@ -121,17 +121,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Draft Pre-release to EEST Repository
+      - name: Draft release on EELS (canonical)
         run: |
-          # Strip "tests-" prefix from tag for EEST
-          TAG_NAME="${{ github.ref_name }}"
-          RELEASE_TAG="${TAG_NAME#tests-}"
-
-          gh release create "$RELEASE_TAG" \
-            --repo monad-developers/execution-spec-tests \
-            --draft \
-            --prerelease \
-            --generate-notes \
-            ./artifacts/**/*
+          FEATURE_PREFIX="${TAG_NAME%%@*}"
+          PREV_TAG=$(
+            git tag --list "${FEATURE_PREFIX}@v*" --sort=-v:refname \
+              | grep -v "^${TAG_NAME}$" \
+              | head -n 1 \
+            || true
+          )
+          RELEASE_ARGS=(--draft --generate-notes)
+          if [ "$FEATURE_NAME" != "mainnet" ]; then
+            RELEASE_ARGS+=(--prerelease)
+          fi
+          if [ -n "$PREV_TAG" ]; then
+            RELEASE_ARGS+=(--notes-start-tag "$PREV_TAG")
+          fi
+          gh release create "$TAG_NAME" "${RELEASE_ARGS[@]}" ./artifacts/**/*.tar.gz
         env:
+          TAG_NAME: ${{ github.ref_name }}
+          FEATURE_NAME: ${{ needs.setup.outputs.feature_name }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Draft release on EEST (mirror)
+        run: |
+          EEST_TAG="${TAG_NAME#tests-}"
+          RELEASE_ARGS=(--repo monad-developers/execution-spec-tests --draft)
+          if [ "$FEATURE_NAME" != "mainnet" ]; then
+            RELEASE_ARGS+=(--prerelease)
+          fi
+          RELEASE_ARGS+=(--notes "This release is mirrored from [monad-developers/execution-specs ${TAG_NAME}](https://github.com/monad-developers/execution-specs/releases/tag/${TAG_NAME}).")
+          gh release create "$EEST_TAG" "${RELEASE_ARGS[@]}" ./artifacts/**/*.tar.gz
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          FEATURE_NAME: ${{ needs.setup.outputs.feature_name }}
           GH_TOKEN: ${{ secrets.EEST_RELEASE_TOKEN }}

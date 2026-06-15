@@ -4,7 +4,7 @@ mainnet:
   fill-params: --until=BPO2 --generate-all-formats
 
 monad:
-  evm-type: develop
+  evm-type: eels
   # --suppress-no-test-exit-code works around a problem where multi-phase fill
   # (triggered by tarball output) fails to proceed on no tests processed
   # in 1st phase (exit code 5)
