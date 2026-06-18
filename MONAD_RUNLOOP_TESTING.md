@@ -65,9 +65,12 @@ uv run consume direct --input ../fixtures_eestnet \
   monad revision schedule from the fixture's `network`
   (`FORK_REVISION_SCHEDULES` in `clis/monad.py`) and the harness
   injects it into the chain.
-- `consume` options: `-n 3` parallelizes (hugepages support roughly
-  three concurrent runloops), `-k <expr>` filters tests,
-  `--dump-dir <dir>` saves harness input/output/logs per test.
+- `consume` options: `-n <workers>` parallelizes, `-k <expr>` filters
+  tests, `--dump-dir <dir>` saves harness input/output/logs per test.
+- Parallelism is CPU-bound: one runloop peaks near 4 cores (~386% CPU
+  across ~14 threads), so budget ~5 vCPUs per worker (`-n N` needs
+  roughly `5 * N` cores). On a small host (e.g. 4 vCPUs) run
+  sequentially — `-n` above 1 oversubscribes and runs slower.
 
 ## Behavior and known limits
 
