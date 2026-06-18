@@ -11,8 +11,8 @@ fixture's `postState`, compared account by account
 | Repo / branch | Role |
 |---|---|
 | `monad-exp/monad-eest-rust-harness` @ `execute-with-eestnet` | `eest-runner` harness: builds consensus blocks from a digested fixture and runs them on the runloop |
-| `pdobacz/monad-bft` @ `execute-with-eestnet` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
-| `pdobacz/monad` @ `execute-with-eestnet` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
+| `monad-bft` @ `execute-with-eestnet` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
+| `monad` @ `execute-with-eestnet` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
 | this repo @ `execute-with-eestnet` | `MonadFixtureConsumer` (`packages/testing/.../client_clis/clis/monad.py`) wired into `consume direct` |
 
 ## One-time setup
@@ -34,8 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/category-labs/monad-bft/master/dock
 bin/eest-runner --version
 ```
 
-In this repo, sync the Python environment once so `uv run fill` and
-`uv run consume` resolve the workspace deps:
+In this repo:
 
 ```sh
 uv sync
@@ -46,9 +45,6 @@ alongside the binary (copying only the binary leaves a stale library
 that fails silently).
 
 ## Fill + consume
-
-Run from this repo; `uv run` resolves the project environment, so no
-manual `source .venv/bin/activate` is needed.
 
 ```sh
 uv run fill --clean -m blockchain_test <test paths...> \
@@ -71,9 +67,7 @@ uv run consume direct --input ../fixtures_eestnet \
   monad revision schedule from the fixture's `network`
   (`FORK_REVISION_SCHEDULES` in `clis/monad.py`) and the harness
   injects it into the chain.
-- `consume` options: `-n <workers>` parallelizes, `-k <expr>` filters
-  tests, `--dump-dir <dir>` saves harness input/output/logs per test.
-- Parallelism is CPU-bound: one runloop peaks near 4 cores (~386% CPU
+- `consume` parallelism is CPU-bound: one runloop peaks near 4 cores (~386% CPU
   across ~14 threads), so budget ~5 vCPUs per worker (`-n N` needs
   roughly `5 * N` cores). On a small host (e.g. 4 vCPUs) run
   sequentially — `-n` above 1 oversubscribes and runs slower.
@@ -83,12 +77,6 @@ uv run consume direct --input ../fixtures_eestnet \
 - Fixtures containing expected-invalid blocks are skipped: the ledger
   machine validates blocks at proposal time and cannot write invalid
   ones.
-- The fixture's genesis block is installed verbatim (state and
-  header), so block 1's parent hash and EIP-2935 slot 0 match.
-  Hashes of blocks the runloop itself executed differ from the
-  fixture's (delayed execution: headers carry monad's own roots), so
-  tests asserting BLOCKHASH/EIP-2935 values of non-genesis blocks
-  fail by design — exclude them from monad consume sets.
 - The runloop runs in a privileged container (io_uring) and needs
   `vm.nr_hugepages >= 2048` on the host; the `bin/` wrappers
   re-provision this automatically (it resets on host reboot).
