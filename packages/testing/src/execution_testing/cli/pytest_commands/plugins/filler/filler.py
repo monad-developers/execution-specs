@@ -70,7 +70,10 @@ from execution_testing.forks import (
 )
 from execution_testing.specs import BaseTest
 from execution_testing.specs.base import FillResult, OpMode
-from execution_testing.test_types import EnvironmentDefaults
+from execution_testing.test_types import (
+    EnvironmentDefaults,
+    MonadRunloopDefaults,
+)
 from execution_testing.test_types.chain_config_types import (
     DEFAULT_CHAIN_ID,
     ChainConfigDefaults,
@@ -574,6 +577,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ),
     )
     test_group.addoption(
+        "--monad-runloop",
+        action="store_true",
+        dest="monad_runloop",
+        default=False,
+        help=(
+            "Stamp monad blocks with the consensus-derived header fields "
+            "the production runloop produces (prev_randao, extra_data, "
+            "gas_limit, requests_hash), so filled block hashes and EIP-2935 "
+            "history storage match the monad `eest-runner` consumer."
+        ),
+    )
+    test_group.addoption(
         "--generate-pre-alloc-groups",
         action="store_true",
         dest="generate_pre_alloc_groups",
@@ -693,6 +708,10 @@ def pytest_configure(config: pytest.Config) -> None:
     # Modify the block gas limit if specified.
     if option_was_explicitly_set(config, "--block-gas-limit"):
         EnvironmentDefaults.gas_limit = config.getoption("block_gas_limit")
+
+    # Stamp monad blocks with runloop-conformant header fields if requested.
+    if config.getoption("monad_runloop"):
+        MonadRunloopDefaults.enabled = True
 
     # Initialize fixture output configuration
     config.fixture_output = FixtureOutput.from_config(  # type: ignore[attr-defined]

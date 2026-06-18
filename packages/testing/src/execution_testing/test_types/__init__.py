@@ -17,6 +17,7 @@ from .block_access_list import (
 from .block_types import (
     Environment,
     EnvironmentDefaults,
+    MonadRunloopDefaults,
     Withdrawal,
 )
 from .chain_config_types import ChainConfig, ChainConfigDefaults
@@ -72,6 +73,7 @@ __all__ = (
     "DepositRequest",
     "Environment",
     "EnvironmentDefaults",
+    "MonadRunloopDefaults",
     "EOA",
     "NetworkWrappedTransaction",
     "Removable",
