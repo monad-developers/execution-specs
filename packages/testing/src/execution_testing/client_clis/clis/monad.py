@@ -155,9 +155,23 @@ class MonadFixtureConsumer(
         """Create and format a fresh triedb file via `monad-mpt`."""
         monad_mpt = self.binary.parent / "monad-mpt"
         with open(db_path, "wb") as f:
-            f.truncate(8 * 1024**3)
+            f.truncate(2 * 1024**3)
+        # Fixtures persist a tiny state across a few blocks; the
+        # production defaults (256 MiB chunks at an 18-chunk minimum,
+        # plus a 268M-entry history ring) make formatting and the
+        # genesis commit dominate runtime. Shrinking both cuts per-test
+        # time from ~100s to ~2s with identical post-state.
         subprocess.run(
-            [str(monad_mpt), "--storage", str(db_path), "--create"],
+            [
+                str(monad_mpt),
+                "--storage",
+                str(db_path),
+                "--create",
+                "--chunk-capacity",
+                "26",
+                "--root-offsets-chunk-count",
+                "2",
+            ],
             capture_output=True,
             text=True,
             check=True,
