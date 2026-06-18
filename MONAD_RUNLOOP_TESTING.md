@@ -34,21 +34,29 @@ curl -fsSL https://raw.githubusercontent.com/category-labs/monad-bft/master/dock
 bin/eest-runner --version
 ```
 
+In this repo, sync the Python environment once so `uv run fill` and
+`uv run consume` resolve the workspace deps:
+
+```sh
+uv sync
+```
+
 Always rebuild with `./build.sh`; it syncs `libmonad_execution.so`
 alongside the binary (copying only the binary leaves a stale library
 that fails silently).
 
 ## Fill + consume
 
-```sh
-source .venv/bin/activate   # in this repo
+Run from this repo; `uv run` resolves the project environment, so no
+manual `source .venv/bin/activate` is needed.
 
-fill --clean -m blockchain_test <test paths...> \
+```sh
+uv run fill --clean -m blockchain_test <test paths...> \
     --fork MONAD_NINE --chain-id 30143 \
     --output ../fixtures_eestnet
 
-consume direct --input ../fixtures_eestnet \
-    --bin <harness checkout>/bin/eest-runner
+uv run consume direct --input ../fixtures_eestnet \
+    --bin ../monad-eest-rust-harness/bin/eest-runner
 ```
 
 - `--chain-id 30143` is EestNet's chain id; transactions must be
