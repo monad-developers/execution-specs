@@ -340,6 +340,18 @@ class MonadFixtureConsumer(
             actual = actual_post.get(address.lower())
             mismatches.extend(_compare_account(address, expected, actual))
 
+        # Assert the final state root, the last executed block's root. Under
+        # monad's synchronous execution it equals the fixture's last block
+        # `stateRoot`; invalid-block fixtures are skipped above, so every
+        # block carries a header.
+        expected_state_root = fixture["blocks"][-1]["blockHeader"]["stateRoot"]
+        actual_state_root = output["state_root"]
+        if int(expected_state_root, 16) != int(actual_state_root, 16):
+            mismatches.append(
+                f"state_root expected {expected_state_root}, "
+                f"got {actual_state_root}"
+            )
+
         if mismatches:
             raise Exception(
                 "post-state mismatch on the monad runloop:\n"

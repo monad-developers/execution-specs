@@ -37,6 +37,29 @@ class EnvironmentDefaults:
     gas_limit: int = DEFAULT_BLOCK_GAS_LIMIT
 
 
+@dataclass
+class MonadRunloopDefaults:
+    """
+    Consensus-derived header values the monad runloop produces.
+
+    When `fill` runs with `--monad-runloop`, monad blocks are stamped
+    with these so filled block hashes and EIP-2935 history storage match
+    the production runloop (which the `eest-runner` consumer executes).
+    They are the only header fields that differ from the synchronous EEST
+    defaults; the execution-result roots already agree.
+    """
+
+    enabled: bool = False
+    # prev_randao = blake3(rlp(BLS round-signature over Round(0))) with the
+    # harness's all-zero proposer key. Constant because the harness never
+    # advances the round (Round(0) for every block).
+    prev_randao: int = (
+        0x15B2551B9CE2307DCFF661B7DEE9CC4D09F304F03E7887B0E948A1C29F0E5826
+    )
+    # proposal_gas_limit of the active monad chain revision (V_0_11_0).
+    gas_limit: int = 200_000_000
+
+
 class WithdrawalGeneric(CamelModel, Generic[NumberBoundTypeVar]):
     """
     Withdrawal generic type, used as a parent class for `Withdrawal` and

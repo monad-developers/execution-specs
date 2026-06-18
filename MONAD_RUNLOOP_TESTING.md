@@ -52,13 +52,19 @@ manual `source .venv/bin/activate` is needed.
 
 ```sh
 uv run fill --clean -m blockchain_test <test paths...> \
-    --fork MONAD_NINE --chain-id 30143 \
+    --fork MONAD_NINE --chain-id 30143 --monad-runloop \
     --output ../fixtures_eestnet
 
 uv run consume direct --input ../fixtures_eestnet \
     --bin ../monad-eest-rust-harness/bin/eest-runner
 ```
 
+- `--monad-runloop` stamps monad blocks with the consensus-derived
+  header fields the runloop produces (prev_randao from the round-0 BLS
+  signature, 32-byte extra_data, the proposal gas limit, zero
+  requests_hash) so filled block hashes and EIP-2935 history storage
+  match the runloop; without it those slots diverge and fail the
+  post-state compare.
 - `--chain-id 30143` is EestNet's chain id; transactions must be
   signed for it, so it is required at fill time.
 - Block timestamps need no special handling: the consumer derives the
