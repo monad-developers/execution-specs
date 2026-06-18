@@ -35,7 +35,9 @@ from ..fixture_consumer_tool import FixtureConsumerTool
 FORK_REVISION_SCHEDULES = {
     "MONAD_EIGHT": [(8, 0)],
     "MONAD_NINE": [(9, 0)],
+    "MONAD_NEXT": [(10, 0)],
     "MONAD_EIGHTToMONAD_NINEAtTime15k": [(8, 0), (9, 15_000)],
+    "MONAD_NINEToMONAD_NEXTAtTime15k": [(9, 0), (10, 15_000)],
 }
 
 
@@ -195,6 +197,13 @@ class MonadFixtureConsumer(
                 "26",
                 "--root-offsets-chunk-count",
                 "2",
+                # The page-encoded monad state machine; required for
+                # MONAD_NEXT (MIP-8 pageified storage) read_storage_page,
+                # and handles earlier monad revisions too.
+                # NOTE: may BREAK for pre-MIP-8 setups.
+                # TODO this
+                "--state-machine",
+                "monad",
             ],
             capture_output=True,
             text=True,
