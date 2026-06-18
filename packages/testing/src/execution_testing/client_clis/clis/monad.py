@@ -10,12 +10,16 @@ and the runloop, then emits the resulting post-state, which is compared
 against the fixture's `postState`.
 """
 
+import ctypes
 import json
+import os
 import re
+import signal
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pytest
 
@@ -33,6 +37,26 @@ FORK_REVISION_SCHEDULES = {
     "MONAD_NINE": [(9, 0)],
     "MONAD_EIGHTToMONAD_NINEAtTime15k": [(8, 0), (9, 15_000)],
 }
+
+
+_LIBC: Optional[ctypes.CDLL]
+try:
+    _LIBC = ctypes.CDLL("libc.so.6", use_errno=True)
+except OSError:
+    _LIBC = None
+
+
+def _set_pdeathsig() -> None:
+    """
+    Have the kernel SIGTERM this child when its parent dies.
+
+    Runs in the child between fork and exec. `PR_SET_PDEATHSIG` (1)
+    fires even if pytest is SIGKILLed, so the docker client receives a
+    signal it can forward to stop the container instead of leaving the
+    runloop orphaned.
+    """
+    if _LIBC is not None:
+        _LIBC.prctl(1, signal.SIGTERM)
 
 
 def _hex32(value: str) -> str:
@@ -177,6 +201,61 @@ class MonadFixtureConsumer(
             check=True,
         )
 
+    def _run_harness(
+        self,
+        input_path: Path,
+        output_path: Path,
+        ledger_dir: Path,
+        db_path: Path,
+    ) -> Tuple[str, str, int]:
+        """
+        Run `eest-runner`, tearing down its container when we exit.
+
+        A killed docker client does not stop its container, so a
+        dockerized runloop would otherwise keep spinning past pytest.
+        Two teardown paths cover this: an explicit `docker kill` on the
+        named container when this call is interrupted, and a parent-death
+        signal so the client is also stopped if pytest dies without
+        unwinding (SIGTERM/SIGHUP, or SIGKILL).
+        """
+        container_name = f"eest-runner-{uuid.uuid4().hex}"
+        process = subprocess.Popen(
+            [
+                str(self.binary),
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+                "--ledger-dir",
+                str(ledger_dir),
+                "--db",
+                str(db_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+            preexec_fn=_set_pdeathsig,
+            env={
+                **os.environ,
+                "EEST_RUNNER_CONTAINER_NAME": container_name,
+            },
+        )
+        try:
+            stdout, stderr = process.communicate()
+        except BaseException:
+            try:
+                subprocess.run(
+                    ["docker", "kill", container_name],
+                    capture_output=True,
+                )
+            except Exception:
+                pass
+            process.kill()
+            process.wait()
+            raise
+        return stdout, stderr, process.returncode
+
     def consume_fixture(
         self,
         fixture_format: FixtureFormat,
@@ -223,20 +302,8 @@ class MonadFixtureConsumer(
 
             input_path.write_text(json.dumps(input_doc, indent=2))
 
-            result = subprocess.run(
-                [
-                    str(self.binary),
-                    "--input",
-                    str(input_path),
-                    "--output",
-                    str(output_path),
-                    "--ledger-dir",
-                    str(ledger_dir),
-                    "--db",
-                    str(db_path),
-                ],
-                capture_output=True,
-                text=True,
+            stdout, stderr, returncode = self._run_harness(
+                input_path, output_path, ledger_dir, db_path
             )
 
             if debug_output_path is not None:
@@ -244,17 +311,17 @@ class MonadFixtureConsumer(
                 (debug_output_path / "input.json").write_text(
                     input_path.read_text()
                 )
-                (debug_output_path / "stdout.txt").write_text(result.stdout)
-                (debug_output_path / "stderr.txt").write_text(result.stderr)
+                (debug_output_path / "stdout.txt").write_text(stdout)
+                (debug_output_path / "stderr.txt").write_text(stderr)
                 if output_path.exists():
                     (debug_output_path / "output.json").write_text(
                         output_path.read_text()
                     )
 
-            if result.returncode != 0:
+            if returncode != 0:
                 raise Exception(
-                    f"eest-runner failed (exit {result.returncode}):\n"
-                    f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+                    f"eest-runner failed (exit {returncode}):\n"
+                    f"stdout:\n{stdout}\nstderr:\n{stderr}"
                 )
 
             output = json.loads(output_path.read_text())
