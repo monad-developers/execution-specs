@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -177,16 +177,31 @@ class MonadFixtureConsumer(
         super().__init__(binary=binary)
         self.trace = trace
 
-    def _init_triedb(self, db_path: Path) -> None:
-        """Create and format a fresh triedb file via `monad-mpt`."""
+    def _init_triedb(
+        self, db_path: Path, schedule: List[Tuple[int, int]]
+    ) -> None:
+        """
+        Create and format a fresh triedb file via `monad-mpt`.
+
+        The storage encoding depends on the fixture's revision schedule.
+        MIP-8 (MONAD_NEXT, revision >= 10) uses a page-encoded triedb; older
+        revisions use slot encoding. A fixture that crosses the boundary
+        (e.g. a MONAD_NINE->MONAD_NEXT transition) needs both: a slot-encoded
+        primary plus an activated page-encoded secondary timeline, so the
+        runloop can dual-write across the fork.
+        """
         monad_mpt = self.binary.parent / "monad-mpt"
+        revisions = [revision for revision, _ in schedule]
+        uses_page = any(revision >= 10 for revision in revisions)
+        uses_slot = any(revision < 10 for revision in revisions)
+
         with open(db_path, "wb") as f:
             f.truncate(2 * 1024**3)
-        # Fixtures persist a tiny state across a few blocks; the
-        # production defaults (256 MiB chunks at an 18-chunk minimum,
-        # plus a 268M-entry history ring) make formatting and the
-        # genesis commit dominate runtime. Shrinking both cuts per-test
-        # time from ~100s to ~2s with identical post-state.
+
+        # Shrunk chunk capacity / history ring keep per-test time at ~2s
+        # (the production defaults dominate runtime). `monad` is the
+        # page-encoded state machine, `ethereum` the slot-encoded one.
+        primary = "monad" if uses_page and not uses_slot else "ethereum"
         subprocess.run(
             [
                 str(monad_mpt),
@@ -197,18 +212,29 @@ class MonadFixtureConsumer(
                 "26",
                 "--root-offsets-chunk-count",
                 "2",
-                # The page-encoded monad state machine; required for
-                # MONAD_NEXT (MIP-8 pageified storage) read_storage_page,
-                # and handles earlier monad revisions too.
-                # NOTE: may BREAK for pre-MIP-8 setups.
-                # TODO this
                 "--state-machine",
-                "monad",
+                primary,
             ],
             capture_output=True,
             text=True,
             check=True,
         )
+
+        if uses_page and uses_slot:
+            # Transition fixture: add a page-encoded secondary timeline.
+            subprocess.run(
+                [
+                    str(monad_mpt),
+                    "--storage",
+                    str(db_path),
+                    "--activate-secondary",
+                    "--state-machine",
+                    "monad",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
 
     def _run_harness(
         self,
@@ -307,7 +333,7 @@ class MonadFixtureConsumer(
             ledger_dir = tmp_path / "ledger"
             ledger_dir.mkdir()
             db_path = tmp_path / "triedb"
-            self._init_triedb(db_path)
+            self._init_triedb(db_path, FORK_REVISION_SCHEDULES[network])
 
             input_path.write_text(json.dumps(input_doc, indent=2))
 
