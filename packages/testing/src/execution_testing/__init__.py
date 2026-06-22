@@ -106,6 +106,7 @@ from .tools import (
     gas_test,
     generate_system_contract_deploy_test,
     generate_system_contract_error_test,
+    oog_test,
 )
 from .vm import (
     Bytecode,
@@ -226,4 +227,5 @@ __all__ = (
     "generate_system_contract_deploy_test",
     "generate_system_contract_error_test",
     "keccak256",
+    "oog_test",
 )

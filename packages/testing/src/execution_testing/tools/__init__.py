@@ -24,6 +24,7 @@ from .utility.generators import (
     gas_test,
     generate_system_contract_deploy_test,
     generate_system_contract_error_test,
+    oog_test,
 )
 from .utility.pytest import ParameterSet, extend_with_defaults
 from .utility.versioning import get_current_commit_hash_or_tag
@@ -50,4 +51,5 @@ __all__ = (
     "generate_system_contract_deploy_test",
     "generate_system_contract_error_test",
     "get_current_commit_hash_or_tag",
+    "oog_test",
 )

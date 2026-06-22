@@ -17,6 +17,7 @@ from execution_testing import (
     Transaction,
     TransactionException,
 )
+from execution_testing.forks import MONAD_NEXT
 
 REFERENCE_SPEC_GIT_PATH = "EIPS/eip-2930.md"
 REFERENCE_SPEC_VERSION = "c9db53a936c5c9cbe2db32ba0d1b86c4c6e73534"
@@ -49,7 +50,13 @@ def test_account_storage_warm_cold_state(
     """Test type 1 transaction."""
     env = Environment()
 
-    storage_reader_contract = pre.deploy_contract(Op.SLOAD(1) + Op.STOP)
+    # MIP-8 uses page-level access tracking (128 slots/page).
+    # Use slot on a different page so warm/cold distinction holds.
+    sload_slot = 129 if fork >= MONAD_NEXT else 1
+
+    storage_reader_contract = pre.deploy_contract(
+        Op.SLOAD(sload_slot) + Op.STOP
+    )
     # Overhead: PUSH args for CALL (popped_stack_items - 1)
     # + GAS opcode + PUSH for SLOAD
     overhead_cost = (
@@ -74,7 +81,7 @@ def test_account_storage_warm_cold_state(
     if account_warm:
         access_list_address = storage_reader_contract
     if storage_key_warm:
-        access_list_storage_key = Hash(1)
+        access_list_storage_key = Hash(sload_slot)
 
     access_lists: List[AccessList] = [
         AccessList(

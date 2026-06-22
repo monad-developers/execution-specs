@@ -120,6 +120,19 @@ class ForkLoad:
         return self._module("fork").state_transition
 
     @property
+    def has_paged_state_root(self) -> bool:
+        """
+        Check if the fork computes its state root with a custom paged
+        storage commitment (MIP-8) rather than the shared `State` method.
+        """
+        return hasattr(self._module("fork"), "compute_paged_state_root")
+
+    @property
+    def compute_paged_state_root(self) -> Any:
+        """compute_paged_state_root function of the fork (MIP-8)."""
+        return self._module("fork").compute_paged_state_root
+
+    @property
     def signing_hash(self) -> Any:
         """signing_hash function of the fork."""
         return self._module("transactions").signing_hash

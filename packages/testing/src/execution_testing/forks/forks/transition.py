@@ -7,6 +7,7 @@ from .forks import (
     BPO3,
     BPO4,
     MONAD_EIGHT,
+    MONAD_NEXT,
     MONAD_NINE,
     Amsterdam,
     Berlin,
@@ -67,6 +68,13 @@ class PragueToMONAD_EIGHTAtTime15k(TransitionBaseClass):  # noqa: N801
 )
 class MONAD_EIGHTToMONAD_NINEAtTime15k(TransitionBaseClass):  # noqa: N801
     """MONAD_EIGHT to MONAD_NINE transition at Timestamp 15k."""
+
+    pass
+
+
+@transition_fork(to_fork=MONAD_NEXT, from_fork=MONAD_NINE, at_timestamp=15_000)
+class MONAD_NINEToMONAD_NEXTAtTime15k(TransitionBaseClass):  # noqa: N801
+    """MONAD_NINE to MONAD_NEXT transition at Timestamp 15k."""
 
     pass
 
