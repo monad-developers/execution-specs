@@ -50,6 +50,11 @@ FORK_ORDER = [
     "BPO1",
     "BPO2",
     "Amsterdam",
+    # Monad forks are layered above the canonical forks. They never
+    # share a shared fork range, so their absolute position only needs
+    # to sort after the canonical forks.
+    "MONAD_EIGHT",
+    "MONAD_NINE",
 ]
 
 FORK_INDEX = {name: i for i, name in enumerate(FORK_ORDER)}
@@ -61,34 +66,49 @@ def load_config(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
-def parse_until_fork(fill_params: str) -> str | None:
+def parse_fork_bounds(fill_params: str) -> tuple[str | None, str | None]:
     """
-    Extract the ``--until`` value from fill-params.
+    Extract the ``--from``/``--until`` bounds from fill-params.
 
-    Return ``None`` when ``--fork`` is used instead (single-fork
-    feature that should not be split).
+    Return ``(None, None)`` when ``--fork`` is used instead (single-fork
+    feature that should not be split). ``--from`` may be absent, in
+    which case the feature fills from the first canonical fork.
     """
     if re.search(r"--fork\b", fill_params):
-        return None
-    m = re.search(r"--until[=\s]+(\S+)", fill_params)
-    return m.group(1) if m else None
+        return None, None
+    from_m = re.search(r"--from[=\s]+(\S+)", fill_params)
+    until_m = re.search(r"--until[=\s]+(\S+)", fill_params)
+    return (
+        from_m.group(1) if from_m else None,
+        until_m.group(1) if until_m else None,
+    )
 
 
-def applicable_ranges(fork_ranges: list[dict], until_fork: str) -> list[dict]:
+def applicable_ranges(
+    fork_ranges: list[dict], from_fork: str | None, until_fork: str
+) -> list[dict]:
     """
-    Return fork ranges whose ``from`` is at or before *until_fork*.
+    Return fork ranges overlapping the feature's ``[from, until]``.
 
-    Clamp the last applicable range's ``until`` to *until_fork* so we
-    never fill beyond the feature's declared boundary.
+    Clamp each returned range to the feature's bounds so we never fill
+    outside its declared window. A feature whose bounds fall outside
+    every shared range (e.g. the Monad forks) yields an empty list,
+    which signals an unsplit build.
     """
     limit = FORK_INDEX[until_fork]
+    start = FORK_INDEX[from_fork] if from_fork else 0
     result = []
     for r in fork_ranges:
-        if FORK_INDEX[r["from"]] <= limit:
-            entry = dict(r)
-            if FORK_INDEX[r["until"]] > limit:
-                entry["until"] = until_fork
-            result.append(entry)
+        r_from = FORK_INDEX[r["from"]]
+        r_until = FORK_INDEX[r["until"]]
+        if r_until < start or r_from > limit:
+            continue
+        entry = dict(r)
+        if r_from < start:
+            entry["from"] = from_fork
+        if r_until > limit:
+            entry["until"] = until_fork
+        result.append(entry)
     return result
 
 
@@ -103,9 +123,9 @@ def build_matrix(
     the combine step.  Unsplit features produce a single entry with
     empty labels.
     """
-    until = parse_until_fork(feature["fill-params"])
+    from_fork, until = parse_fork_bounds(feature["fill-params"])
     if until and fork_ranges:
-        ranges = applicable_ranges(fork_ranges, until)
+        ranges = applicable_ranges(fork_ranges, from_fork, until)
         if len(ranges) > 1:
             build = [
                 {
