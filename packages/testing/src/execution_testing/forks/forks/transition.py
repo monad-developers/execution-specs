@@ -56,13 +56,6 @@ class PragueToOsakaAtTime15k(TransitionBaseClass):
     pass
 
 
-@transition_fork(to_fork=MONAD_EIGHT, from_fork=Prague, at_timestamp=15_000)
-class PragueToMONAD_EIGHTAtTime15k(TransitionBaseClass):  # noqa: N801
-    """Prague to MONAD_EIGHT transition at Timestamp 15k."""
-
-    pass
-
-
 @transition_fork(
     to_fork=MONAD_NINE, from_fork=MONAD_EIGHT, at_timestamp=15_000
 )
