@@ -21,6 +21,13 @@ from execution_testing.test_types.block_types import Environment
 from execution_testing.test_types.transaction_types import TransactionDefaults
 
 
+@pytest.mark.monad_runloop(
+    pytest.mark.skip(
+        reason="Requires a test-controlled block gas limit; the monad "
+        "runloop fixes every block to the proposal gas limit, so the "
+        "over-limit tx no longer exceeds it."
+    )
+)
 @pytest.mark.exception_test
 @pytest.mark.eels_base_coverage
 def test_tx_gas_limit(
