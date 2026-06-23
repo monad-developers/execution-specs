@@ -23,7 +23,7 @@ REFERENCE_SPEC_GIT_PATH = ref_spec_mip4.git_path
 REFERENCE_SPEC_VERSION = ref_spec_mip4.version
 
 
-@pytest.mark.valid_at_transition_to("MONAD_NINE", subsequent_forks=True)
+@pytest.mark.valid_at_transition_to("MONAD_NINE")
 def test_fork_transition(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

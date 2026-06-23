@@ -712,6 +712,13 @@ def pytest_configure(config: pytest.Config) -> None:
     # Stamp monad blocks with runloop-conformant header fields if requested.
     if config.getoption("monad_runloop"):
         MonadRunloopDefaults.enabled = True
+        # The runloop builds every block at the monad proposal gas limit, so
+        # make it the default block gas limit too: tests that read
+        # env.gas_limit (the GASLIMIT opcode, tx-gas-vs-block-limit checks)
+        # then build expectations that match execution. An explicit
+        # --block-gas-limit still wins.
+        if not option_was_explicitly_set(config, "--block-gas-limit"):
+            EnvironmentDefaults.gas_limit = MonadRunloopDefaults.gas_limit
 
     # Initialize fixture output configuration
     config.fixture_output = FixtureOutput.from_config(  # type: ignore[attr-defined]
@@ -1844,6 +1851,11 @@ def pytest_collection_modifyitems(
             continue
         for marker in markers:
             if marker.name == "fill":
+                for mark in marker.args:
+                    item.add_marker(mark)
+            if marker.name == "monad_runloop" and config.getoption(
+                "monad_runloop", False
+            ):
                 for mark in marker.args:
                     item.add_marker(mark)
         if "yul" in item.fixturenames:  # type: ignore
