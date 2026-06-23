@@ -322,6 +322,7 @@ copytree
 cp
 CPUs
 CPython
+crate
 create
 create2
 create3
