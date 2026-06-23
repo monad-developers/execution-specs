@@ -41,7 +41,6 @@ from .forks.transition import (
     MONAD_NINEToMONAD_NEXTAtTime15k,
     OsakaToBPO1AtTime15k,
     ParisToShanghaiAtTime15k,
-    PragueToMONAD_EIGHTAtTime15k,
     PragueToOsakaAtTime15k,
     ShanghaiToCancunAtTime15k,
 )
@@ -122,7 +121,6 @@ __all__ = [
     "PragueToOsakaAtTime15k",
     "Osaka",
     "OsakaToBPO1AtTime15k",
-    "PragueToMONAD_EIGHTAtTime15k",
     "MONAD_EIGHT",
     "MONAD_EIGHTToMONAD_NINEAtTime15k",
     "MONAD_NINE",
