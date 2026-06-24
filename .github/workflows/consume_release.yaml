@@ -34,6 +34,10 @@ on:
         description: "Optional -k expression to consume a subset"
         required: false
         default: ""
+  # TEMP: run on push to this branch to exercise the workflow before
+  # workflow_dispatch is available on the default branch. Revert this commit.
+  push:
+    branches: [execute-with-eestnet-mip8]
 
 permissions:
   contents: read
@@ -70,7 +74,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: monad-exp/monad-eest-rust-harness
-          ref: ${{ inputs.harness_ref }}
+          ref: ${{ inputs.harness_ref || 'execute-with-eestnet-mip8' }} # TEMP fallback for push
           path: monad-eest-rust-harness
           submodules: recursive
           fetch-depth: 0
@@ -134,14 +138,19 @@ jobs:
       - name: Consume release
         id: consume
         shell: bash
+        env:
+          # TEMP fallbacks for the push trigger (input defaults don't apply on push):
+          # the mentioned monad_runloop release and exactly the mip8 fork-transition tests.
+          RELEASE: ${{ inputs.release || 'monad_runloop@v1.1.0-rc1' }}
+          FILTER: ${{ inputs.filter || 'mip8_pageified_storage and test_fork_transition' }}
         run: |
           set -o pipefail
           FILTER_ARG=()
-          if [ -n "${{ inputs.filter }}" ]; then
-            FILTER_ARG=(-k "${{ inputs.filter }}")
+          if [ -n "$FILTER" ]; then
+            FILTER_ARG=(-k "$FILTER")
           fi
           uv run consume direct \
-            --input "${{ inputs.release }}" \
+            --input "$RELEASE" \
             --bin "$GITHUB_WORKSPACE/monad-eest-rust-harness/bin/eest-runner" \
             "${FILTER_ARG[@]}" \
             --html report.html | tee consume.log
