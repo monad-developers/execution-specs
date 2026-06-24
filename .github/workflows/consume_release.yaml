@@ -40,7 +40,7 @@ on:
     branches: [execute-with-eestnet-mip8]
 
 permissions:
-  contents: read
+  contents: write # TEMP: write is needed to see/download the draft release in this repo
 
 jobs:
   consume:
@@ -135,13 +135,25 @@ jobs:
         shell: bash
         run: sudo sysctl -w vm.nr_hugepages=3072
 
+      # TEMP: the release fetcher can't see drafts (unauthenticated), so pull
+      # the draft asset here with the repo's own token, then consume locally.
+      - name: Download draft fixtures (TEMP)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "tests-monad_runloop@v1.1.0-rc1" \
+            --repo "${{ github.repository }}" \
+            --pattern 'fixtures_monad_runloop.tar.gz' --clobber
+          mkdir -p draft_fixtures
+          tar xzf fixtures_monad_runloop.tar.gz -C draft_fixtures
+
       - name: Consume release
         id: consume
         shell: bash
         env:
-          # TEMP fallbacks for the push trigger (input defaults don't apply on push):
-          # the mentioned monad_runloop release and exactly the mip8 fork-transition tests.
-          RELEASE: ${{ inputs.release || 'monad_runloop@v1.1.0-rc1' }}
+          # TEMP (push): consume the downloaded draft fixtures, mip8 fork-transition only.
+          RELEASE: draft_fixtures/fixtures
           FILTER: ${{ inputs.filter || 'mip8_pageified_storage and test_fork_transition' }}
         run: |
           set -o pipefail
