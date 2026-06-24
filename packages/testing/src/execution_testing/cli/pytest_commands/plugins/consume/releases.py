@@ -19,6 +19,7 @@ CACHED_RELEASE_INFORMATION_FILE = (
 )
 
 SUPPORTED_REPOS = [
+    "monad-developers/execution-spec-tests",
     "ethereum/execution-spec-tests",
     "ethereum/execution-specs",
     "ethereum/tests",
