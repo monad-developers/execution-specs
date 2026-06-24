@@ -1,0 +1,182 @@
+# Manually run a filled fixtures release against a pinned monad stack via
+# `consume direct` + the eest-runner runloop client.
+
+name: Consume Release (monad runloop)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Fixtures source: release spec (e.g. monad_runloop@v1.1.0-rc1), a fixtures.tar.gz URL, or latest"
+        required: true
+        default: "monad_runloop@latest"
+      harness_ref:
+        description: "monad-eest-rust-harness ref (branch/tag/SHA)"
+        required: false
+        default: "execute-with-eestnet-mip8"
+      monad_bft_repo:
+        description: "Override monad-bft from this owner/repo (e.g. category-labs/monad-bft); empty = keep the harness's pinned commit"
+        required: false
+        default: ""
+      monad_bft_ref:
+        description: "Ref/SHA in monad_bft_repo (default branch if empty); applies only when monad_bft_repo is set"
+        required: false
+        default: ""
+      monad_execution_repo:
+        description: "Override monad-execution from this owner/repo; empty = keep the harness's pinned commit"
+        required: false
+        default: ""
+      monad_execution_ref:
+        description: "Ref/SHA in monad_execution_repo (default branch if empty); applies only when monad_execution_repo is set"
+        required: false
+        default: ""
+      filter:
+        description: "Optional -k expression to consume a subset"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  consume:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1440 # hosted runners still cap at 6h; raise the runner for a full release
+    steps:
+      - name: Validate inputs
+        shell: bash
+        env:
+          BFT_REPO: ${{ inputs.monad_bft_repo }}
+          BFT_REF: ${{ inputs.monad_bft_ref }}
+          EXEC_REPO: ${{ inputs.monad_execution_repo }}
+          EXEC_REF: ${{ inputs.monad_execution_ref }}
+        run: |
+          set -euo pipefail
+          fail=0
+          if [ -n "$BFT_REF" ] && [ -z "$BFT_REPO" ]; then
+            echo "::error::monad_bft_ref is set but monad_bft_repo is empty; set monad_bft_repo to override monad-bft."
+            fail=1
+          fi
+          if [ -n "$EXEC_REF" ] && [ -z "$EXEC_REPO" ]; then
+            echo "::error::monad_execution_ref is set but monad_execution_repo is empty; set monad_execution_repo to override monad-execution."
+            fail=1
+          fi
+          [ "$fail" -eq 0 ]
+
+      - name: Checkout consumer (execution-specs)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Checkout monad-eest-rust-harness (build input)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: monad-exp/monad-eest-rust-harness
+          ref: ${{ inputs.harness_ref }}
+          path: monad-eest-rust-harness
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.MONAD_STACK_TOKEN }}
+
+      # Optional submodule overrides. Set a *_repo to pull that submodule from
+      # a different fork at *_ref (default branch if ref is empty); leave it
+      # empty to keep the harness's pinned commit. actions/checkout handles
+      # auth, so no manual credential setup is needed. The monad-bft override
+      # recurses (so monad-execution lands at the new bft's pin); the
+      # monad-execution override runs after, so it is not reset.
+      - name: Override monad-bft
+        if: ${{ inputs.monad_bft_repo != '' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ inputs.monad_bft_repo }}
+          ref: ${{ inputs.monad_bft_ref }}
+          path: monad-eest-rust-harness/monad-bft
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.MONAD_STACK_TOKEN }}
+
+      - name: Override monad-execution
+        if: ${{ inputs.monad_execution_repo != '' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ inputs.monad_execution_repo }}
+          ref: ${{ inputs.monad_execution_ref }}
+          path: monad-eest-rust-harness/monad-bft/monad-execution
+          fetch-depth: 0
+          token: ${{ secrets.MONAD_STACK_TOKEN }}
+
+      - name: Log pinned stack
+        working-directory: monad-eest-rust-harness
+        shell: bash
+        run: |
+          echo "monad-bft:       $(git -C monad-bft rev-parse HEAD)"
+          echo "monad-execution: $(git -C monad-bft/monad-execution rev-parse HEAD)"
+
+      - name: Build the monad-builder image
+        working-directory: monad-eest-rust-harness
+        shell: bash
+        run: docker build -t monad-builder:latest - < monad-bft/docker/builder/Dockerfile
+
+      - name: Build the eest-runner stack (build.sh)
+        working-directory: monad-eest-rust-harness
+        shell: bash
+        run: ./build.sh
+
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
+
+      - name: Install EEST
+        shell: bash
+        run: uv sync --no-progress
+
+      - name: Provision hugepages
+        shell: bash
+        run: sudo sysctl -w vm.nr_hugepages=3072
+
+      - name: Consume release
+        id: consume
+        shell: bash
+        run: |
+          set -o pipefail
+          FILTER_ARG=()
+          if [ -n "${{ inputs.filter }}" ]; then
+            FILTER_ARG=(-k "${{ inputs.filter }}")
+          fi
+          uv run consume direct \
+            --input "${{ inputs.release }}" \
+            --bin "$GITHUB_WORKSPACE/monad-eest-rust-harness/bin/eest-runner" \
+            "${FILTER_ARG[@]}" \
+            --html report.html | tee consume.log
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## consume \`${{ inputs.release }}\`"
+            echo ""
+            echo "| input | value |"
+            echo "|---|---|"
+            echo "| harness_ref | \`${{ inputs.harness_ref }}\` |"
+            echo "| monad_bft_ref | \`${{ inputs.monad_bft_ref || 'pinned' }}\` |"
+            echo "| monad_execution_ref | \`${{ inputs.monad_execution_ref || 'pinned' }}\` |"
+            echo "| filter | \`${{ inputs.filter || '(none)' }}\` |"
+            echo ""
+            echo '```'
+            grep -E "= .*(passed|failed|error|skipped).*in " consume.log | tail -1 || echo "no result line"
+            echo '```'
+            if grep -qE "^FAILED" consume.log; then
+              echo "### Failures"
+              echo '```'
+              grep -E "^FAILED" consume.log | sed -E 's/ - .*//' | sort -u | head -200
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report + log
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: consume-report
+          path: |
+            report.html
+            consume.log
+          if-no-files-found: warn
