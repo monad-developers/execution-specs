@@ -248,6 +248,14 @@ class Header:
     [SHA2-256]: https://en.wikipedia.org/wiki/SHA-2
     """
 
+    slot_number: U64
+    """
+    The slot number of this block as provided by the consensus layer.
+    Introduced in [EIP-7843].
+
+    [EIP-7843]: https://eips.ethereum.org/EIPS/eip-7843
+    """
+
 
 @final
 @slotted_freezable
