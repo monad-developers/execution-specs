@@ -533,6 +533,7 @@ def test_failed_create_with_value_no_log(
     env: Environment,
     pre: Alloc,
     sender: EOA,
+    fork: Fork,
     initcode: Bytecode,
 ) -> None:
     """
@@ -547,11 +548,17 @@ def test_failed_create_with_value_no_log(
     ) + Op.SSTORE(0, Op.CREATE(1, 32 - initcode_len, initcode_len))
     contract = pre.deploy_contract(contract_code, balance=1)
 
+    # INVALID initcode consumes all gas forwarded to the child CREATE
+    # frame, leaving the parent only the EIP-150 1/64 retained gas for
+    # the trailing SSTORE. Budget 64x that SSTORE's cost so the retained
+    # 1/64 covers it on forks with a heavier SSTORE schedule (MIP-8).
+    gas_limit = 100_000 + Op.SSTORE(new_value=0).gas_cost(fork) * 64
+
     tx = Transaction(
         sender=sender,
         to=contract,
         value=1,
-        gas_limit=500_000,
+        gas_limit=gas_limit,
         expected_receipt=TransactionReceipt(
             logs=[transfer_log(sender, contract, 1)]
         ),
