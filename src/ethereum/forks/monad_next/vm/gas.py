@@ -189,6 +189,7 @@ class GasCosts:
     OPCODE_CHAINID: Final[Uint] = BASE
     OPCODE_BASEFEE: Final[Uint] = BASE
     OPCODE_BLOBBASEFEE: Final[Uint] = BASE
+    OPCODE_SLOTNUM: Final[Uint] = BASE
     OPCODE_BLOBHASH: Final[Uint] = Uint(3)
     OPCODE_PUSH: Final[Uint] = VERY_LOW
     OPCODE_PUSH0: Final[Uint] = BASE
