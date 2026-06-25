@@ -56,7 +56,7 @@ from ..vm.eoa_delegation import (
 from ..vm.gas import GasCosts, charge_gas, page_index
 from ..vm.precompiled_contracts import MONAD_PRECOMPILE_ADDRESSES
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
-from . import Evm, EvmMemory
+from . import Evm, EvmMemory, emit_transfer_log
 from .exceptions import (
     AddressCollision,
     ExceptionalHalt,
@@ -412,6 +412,10 @@ def process_message(message: Message) -> Evm:
             message.current_target,
             message.value,
         )
+        if message.caller != message.current_target:
+            emit_transfer_log(
+                evm, message.caller, message.current_target, message.value
+            )
 
     try:
         if evm.message.code_address in PRE_COMPILED_CONTRACTS:
