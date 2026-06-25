@@ -1666,6 +1666,12 @@ class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
         return fn
 
 
+class MONAD_NEXT(MONAD_NINE, solc_name="cancun"):  # noqa: N801
+    """MONAD_NEXT fork."""
+
+    pass
+
+
 class BPO1(
     Osaka,
     bpo_fork=True,
