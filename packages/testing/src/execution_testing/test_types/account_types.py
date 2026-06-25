@@ -102,62 +102,12 @@ def storage_root(state: State, address: Bytes20) -> Bytes32:
         return EMPTY_TRIE_ROOT
 
 
-def _resolve_state_module(fork: Any) -> Tuple[Any, Any, Any, Any, Any]:
-    """
-    Pick the (State, set_account, set_storage, state_root, Account) tuple
-    matching ``fork``'s storage-hashing scheme. Defaults to the local
-    Frontier slot-based impl. MONAD_NEXT and any later fork switch to the
-    MIP-8 paged storage impl.
-
-    For transition forks the genesis pre-state uses the FROM fork's
-    scheme.
-    """
-    if fork is None:
-        return (State, set_account, set_storage, state_root, FrontierAccount)
-
-    from execution_testing.forks.forks.forks import MONAD_NEXT
-    from execution_testing.forks.transition_base_fork import (
-        TransitionBaseClass,
-    )
-
-    resolved = (
-        fork.transitions_from()
-        if isinstance(fork, type) and issubclass(fork, TransitionBaseClass)
-        else fork
-    )
-
-    if isinstance(resolved, type) and issubclass(resolved, MONAD_NEXT):
-        return (
-            State,
-            set_account,
-            set_storage,
-            _state_root_paged,
-            FrontierAccount,
-        )
-    return (State, set_account, set_storage, state_root, FrontierAccount)
-
-
 def state_root(state: State) -> Bytes32:
     """Calculate the state root."""
     assert not state._snapshots
 
     def get_storage_root(address: Bytes20) -> Bytes32:
         return storage_root(state, address)
-
-    return root(state._main_trie, get_storage_root=get_storage_root)
-
-
-def _state_root_paged(state: State) -> Bytes32:
-    """Calculate the state root using MIP-8 paged storage roots."""
-    from ethereum.paged_storage_trie import storage_root_paged
-
-    assert not state._snapshots
-
-    def get_storage_root(address: Bytes20) -> Bytes32:
-        trie = state._storage_tries.get(address)
-        if trie is None or not trie._data:
-            return EMPTY_TRIE_ROOT
-        return Bytes32(storage_root_paged(trie._data))
 
     return root(state._main_trie, get_storage_root=get_storage_root)
 
@@ -380,31 +330,16 @@ class Alloc(BaseAlloc):
             address for address, account in self.root.items() if not account
         ]
 
-    def state_root(self, fork: Any = None) -> Hash:
-        """
-        Return state root of the allocation.
-
-        ``fork`` selects the storage-hashing scheme. ``None`` keeps the
-        legacy slot-based MPT (used by every fork up to MONAD_NINE). When
-        ``fork.name() == "MONAD_NEXT"`` the per-fork MIP-8 paged storage
-        root impl is used so the genesis state_root matches what the C++
-        runtime computes for that fork.
-        """
-        (
-            StateCls,  # noqa N806
-            set_account_fn,
-            set_storage_fn,
-            state_root_fn,
-            AccountCls,  # noqa N806
-        ) = _resolve_state_module(fork)
-        state = StateCls()
+    def state_root(self) -> Hash:
+        """Return state root of the allocation."""
+        state = State()
         for address, account in self.root.items():
             if account is None:
                 continue
-            set_account_fn(
+            set_account(
                 state=state,
                 address=FrontierAddress(address),
-                account=AccountCls(
+                account=FrontierAccount(
                     nonce=Uint(account.nonce)
                     if account.nonce is not None
                     else Uint(0),
@@ -418,13 +353,13 @@ class Alloc(BaseAlloc):
             )
             if account.storage is not None:
                 for key, value in account.storage.root.items():
-                    set_storage_fn(
+                    set_storage(
                         state=state,
                         address=FrontierAddress(address),
                         key=Bytes32(Hash(key)),
                         value=U256(value),
                     )
-        return Hash(state_root_fn(state))
+        return Hash(state_root(state))
 
     def verify_post_alloc(self, got_alloc: "Alloc") -> None:
         """

@@ -146,9 +146,3 @@ class GasCosts:
     OPCODE_BLOBHASH: int = 0
     OPCODE_MCOPY_BASE: int = 0
     OPCODE_CLZ: int = 0
-
-    # MIP-8 page-based storage gas constants
-    PAGE_BASE_COST: int = 0
-    PAGE_LOAD_COST: int = 0
-    PAGE_WRITE_COST: int = 0
-    PAGE_STATE_GROWTH_COST: int = 0

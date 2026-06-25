@@ -445,7 +445,6 @@ slot_cold_gas = next(_slot)
 slot_warm_gas = next(_slot)
 slot_oog_call_result = next(_slot)
 slot_sanity_call_result = next(_slot)
-slot_setup_sanity_call_result = next(_slot)
 
 LEGACY_CALL_FAILURE = 0
 LEGACY_CALL_SUCCESS = 1
@@ -464,7 +463,6 @@ def gas_test(
     warm_gas: int | None = None,
     subject_address: Address | None = None,
     subject_balance: int = 0,
-    subject_storage: dict | None = None,
     oog_difference: int = 1,
     out_of_gas_testing: bool = True,
     prelude_code: Bytecode | None = None,
@@ -504,7 +502,6 @@ def gas_test(
         code_subject,
         balance=subject_balance,
         address=subject_address,
-        storage=subject_storage or {},
     )
 
     # Auxiliary instructions charged for at every gas run
@@ -634,116 +631,4 @@ def gas_test(
         to=address_legacy_harness, gas_limit=tx_gas, sender=sender
     )
 
-    state_test(pre=pre, tx=tx, post=post)
-
-
-def oog_test(
-    *,
-    fork: Fork,
-    state_test: StateTestFiller,
-    pre: Alloc,
-    subject_code: Bytecode,
-    setup_code: Bytecode | None = None,
-    expected_gas: int | None = None,
-    oog_difference: int = 1,
-    subject_balance: int = 0,
-    subject_storage: dict | None = None,
-    prelude_code: Bytecode | None = None,
-    tx_gas: int | None = None,
-) -> None:
-    """
-    Verify `subject_code` runs out of gas correctly.
-
-    Deploys three copies of the tested bytecode and invokes each
-    from a harness contract via CALL:
-    - A holds `setup_code + subject_code`, called with `expected_gas`
-      (expected to succeed).
-    - B holds `setup_code + subject_code`, called with
-      `expected_gas - oog_difference` (expected to OOG).
-    - C holds only `setup_code`, called with
-      `expected_gas - oog_difference`.
-
-    `expected_gas` defaults to
-    `(setup_code + subject_code).gas_cost(fork)`.
-
-    `prelude_code` runs once in the harness before the three calls
-    (e.g. to seed warm state visible to all runs).
-
-    Note: opcodes guarded by the EIP-2200 SSTORE stipend (>2300
-    gas required in the call frame) may not OOG cleanly when
-    `expected_gas` is near the stipend threshold.
-    """
-    if fork < Berlin:
-        raise ValueError(
-            "OOG tests before Berlin are not supported due to CALL gas changes"
-        )
-
-    if setup_code is None:
-        setup_code = Bytecode()
-
-    if prelude_code is None:
-        prelude_code = Bytecode()
-
-    full_code = setup_code + subject_code
-    if expected_gas is None:
-        expected_gas = full_code.gas_cost(fork)
-
-    address_subject_a, address_subject_b = (
-        pre.deploy_contract(
-            full_code + Op.STOP,
-            balance=subject_balance,
-            storage=subject_storage or {},
-        )
-        for _ in range(2)
-    )
-    address_setup_only = pre.deploy_contract(
-        setup_code + Op.STOP,
-        balance=subject_balance,
-        storage=subject_storage or {},
-    )
-
-    harness_code = (
-        prelude_code
-        + Op.SSTORE(
-            slot_sanity_call_result,
-            Op.CALL(gas=expected_gas, address=address_subject_a),
-        )
-        + Op.SSTORE(
-            slot_oog_call_result,
-            Op.CALL(
-                gas=expected_gas - oog_difference,
-                address=address_subject_b,
-            ),
-        )
-        + Op.SSTORE(
-            slot_setup_sanity_call_result,
-            Op.CALL(
-                gas=expected_gas - oog_difference,
-                address=address_setup_only,
-            ),
-        )
-        + Op.STOP
-    )
-    address_harness = pre.deploy_contract(harness_code)
-
-    if tx_gas is None:
-        intrinsic = fork.transaction_intrinsic_cost_calculator()(
-            calldata=b"", contract_creation=False
-        )
-        tx_gas = (
-            intrinsic + harness_code.gas_cost(fork) + 3 * expected_gas + 10_000
-        )
-
-    sender = pre.fund_eoa()
-    tx = Transaction(to=address_harness, gas_limit=tx_gas, sender=sender)
-
-    post = {
-        address_harness: Account(
-            storage={
-                slot_sanity_call_result: LEGACY_CALL_SUCCESS,
-                slot_oog_call_result: LEGACY_CALL_FAILURE,
-                slot_setup_sanity_call_result: LEGACY_CALL_SUCCESS,
-            },
-        ),
-    }
     state_test(pre=pre, tx=tx, post=post)
