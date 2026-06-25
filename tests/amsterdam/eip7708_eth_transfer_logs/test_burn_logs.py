@@ -30,6 +30,7 @@ from execution_testing import (
 from execution_testing import (
     Macros as Om,
 )
+from execution_testing.forks import MONAD_EIGHT
 
 from .spec import burn_log, ref_spec_7708, transfer_log
 
@@ -37,6 +38,26 @@ REFERENCE_SPEC_GIT_PATH = ref_spec_7708.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7708.version
 
 pytestmark = pytest.mark.valid_from("EIP7708")
+
+
+def _factory_with_runtime(factory_code: Bytecode) -> Bytecode:
+    """
+    Append a minimal STOP-byte runtime deployment to a factory body.
+
+    A factory created via a ``to=None`` transaction runs its body as
+    initcode; returning nothing deploys empty code. On Monad forks an
+    empty-code account that ends below the reserve balance is treated as
+    an EOA and reverts the whole transaction. Returning a single STOP
+    byte gives the factory non-empty runtime code so it is exempt from
+    the reserve-balance check. Inert on forks without a reserve balance.
+    """
+    return factory_code + Op.MSTORE8(0, 0x00) + Op.RETURN(0, 1)
+
+
+# Monad reserve balance (10 MON). Keeps a self-draining factory above the
+# reserve in the gas-exact priority-fee test, where deploying runtime code
+# would perturb the gas accounting. Inert on forks without a reserve balance.
+MONAD_RESERVE_BALANCE = 10 * 10**18
 
 
 def test_selfdestruct_to_self_pre_existing_no_log(
@@ -431,6 +452,7 @@ def test_finalization_burn_logs(
         + Op.MSTORE(0, reverse_sorted[2])
         + Op.CALL(gas=100_000, address=p3, args_offset=0, args_size=32)
     )
+    factory_code = _factory_with_runtime(factory_code)
 
     factory_balance = 1000 + 2000 + 3000
     pre.fund_address(factory_address, factory_balance)
@@ -595,6 +617,7 @@ def test_finalization_burn_logs_multi_account_ordering(
             args_offset=0,
             args_size=32,
         )
+    factory_code = _factory_with_runtime(factory_code)
 
     execution_logs = [
         transfer_log(factory_address, addr, create_balances[i])
@@ -705,6 +728,7 @@ def test_finalization_burn_log_single_account_multiple_transfers(
                 args_size=32,
             ),
         )
+    factory_code = _factory_with_runtime(factory_code)
 
     execution_logs = [
         transfer_log(factory_address, x, create_balance),
@@ -837,7 +861,12 @@ def test_selfdestruct_finalization_after_priority_fee(
             Op.CALLDATALOAD(0), address_warm=True, account_new=False
         ).gas_cost(fork)
 
-    pre.fund_address(factory_address, contract_balance)
+    # Fund the factory above the reserve balance so it does not revert on
+    # Monad forks once it drains `contract_balance` into the created
+    # contract. Deploying runtime code instead would perturb this test's
+    # exact gas accounting, so funding is used here. Inert on forks without
+    # a reserve balance (the factory keeps the headroom, which is unasserted).
+    pre.fund_address(factory_address, contract_balance + MONAD_RESERVE_BALANCE)
 
     # prio fee calc
     gas_price = 10
@@ -872,7 +901,18 @@ def test_selfdestruct_finalization_after_priority_fee(
         gas_refunds,
         gas_used // 5,  # max discount EIP-3529
     )
-    priority_fee = priority_fee_per_gas * (gas_used - discount)
+
+    gas_limit = 500_000
+    if fork.is_eip_enabled(8037):
+        gas_limit = 2_000_000
+
+    if fork >= MONAD_EIGHT:
+        # Monad charges the miner fee on the full gas limit (gas is not
+        # refunded to the sender), so the coinbase receives the priority
+        # fee on tx.gas rather than on the gas actually used.
+        priority_fee = priority_fee_per_gas * gas_limit
+    else:
+        priority_fee = priority_fee_per_gas * (gas_used - discount)
 
     # Finalization burn log proves coinbase received priority fee before log
     finalization_balance: int | None = funding_amount + priority_fee
@@ -896,9 +936,6 @@ def test_selfdestruct_finalization_after_priority_fee(
         )
 
     expected_logs.append(burn_log(created_address, finalization_balance))
-    gas_limit = 500_000
-    if fork.is_eip_enabled(8037):
-        gas_limit = 2_000_000
 
     tx = Transaction(
         sender=sender,
