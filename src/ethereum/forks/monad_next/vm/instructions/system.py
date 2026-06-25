@@ -35,6 +35,8 @@ from ...vm.eoa_delegation import access_delegation
 from .. import (
     Evm,
     Message,
+    emit_burn_log,
+    emit_transfer_log,
     incorporate_child_on_error,
     incorporate_child_on_success,
 )
@@ -583,6 +585,15 @@ def selfdestruct(evm: Evm) -> None:
         beneficiary,
         originator_balance,
     )
+
+    # EIP-7708: Emit transfer or burn log for the beneficiary transfer
+    if (
+        originator in evm.message.tx_env.state.created_accounts
+        and beneficiary == originator
+    ):
+        emit_burn_log(evm, originator, originator_balance)
+    elif beneficiary != originator:
+        emit_transfer_log(evm, originator, beneficiary, originator_balance)
 
     # register account for deletion only if it was created
     # in the same transaction
