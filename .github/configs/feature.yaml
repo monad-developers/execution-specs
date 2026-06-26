@@ -9,3 +9,7 @@ monad:
   # (triggered by tarball output) fails to proceed on no tests processed
   # in 1st phase (exit code 5)
   fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_NEXT --chain-id=143 -k "not invalid_header"
+
+monad_amsterdam:
+  evm-type: eels
+  fill-params: --suppress-no-test-exit-code -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header" tests/amsterdam/eip7708_eth_transfer_logs tests/amsterdam/eip7843_slotnum tests/amsterdam/eip8024_dupn_swapn_exchange
