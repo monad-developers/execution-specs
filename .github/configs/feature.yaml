@@ -14,3 +14,7 @@ monad_runloop:
   evm-type: eels
   # Like `monad`, but `--monad-runloop` and eestnet chain id `30143`
   fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=30143 --monad-runloop -k "not invalid_header"
+
+monad_amsterdam:
+  evm-type: eels
+  fill-params: --suppress-no-test-exit-code -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header" tests/amsterdam/eip7708_eth_transfer_logs tests/amsterdam/eip7843_slotnum tests/amsterdam/eip8024_dupn_swapn_exchange
