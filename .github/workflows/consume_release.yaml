@@ -13,7 +13,7 @@ on:
       harness_ref:
         description: "monad-eest-rust-harness ref (branch/tag/SHA)"
         required: false
-        default: "execute-with-eestnet-mip8"
+        default: "execute-with-eestnet"
       monad_bft_repo:
         description: "Override monad-bft from this owner/repo (e.g. category-labs/monad-bft); empty = keep the harness's pinned commit"
         required: false
@@ -37,7 +37,7 @@ on:
   # TEMP: run on push to this branch to exercise the workflow before
   # workflow_dispatch is available on the default branch. Revert this commit.
   push:
-    branches: [execute-with-eestnet-mip8]
+    branches: [execute-with-eestnet]
 
 permissions:
   contents: write # TEMP: write is needed to see/download the draft release in this repo
@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: monad-exp/monad-eest-rust-harness
-          ref: ${{ inputs.harness_ref || 'execute-with-eestnet-mip8' }} # TEMP fallback for push
+          ref: ${{ inputs.harness_ref || 'execute-with-eestnet' }} # TEMP fallback for push
           path: monad-eest-rust-harness
           submodules: recursive
           fetch-depth: 0
@@ -108,11 +108,16 @@ jobs:
           token: ${{ secrets.MONAD_STACK_TOKEN }}
 
       - name: Log pinned stack
+        id: stack
         working-directory: monad-eest-rust-harness
         shell: bash
         run: |
-          echo "monad-bft:       $(git -C monad-bft rev-parse HEAD)"
-          echo "monad-execution: $(git -C monad-bft/monad-execution rev-parse HEAD)"
+          bft=$(git -C monad-bft rev-parse HEAD)
+          exec=$(git -C monad-bft/monad-execution rev-parse HEAD)
+          echo "monad-bft:       $bft"
+          echo "monad-execution: $exec"
+          echo "bft=$bft" >> "$GITHUB_OUTPUT"
+          echo "exec=$exec" >> "$GITHUB_OUTPUT"
 
       - name: Build the monad-builder image
         working-directory: monad-eest-rust-harness
@@ -157,6 +162,8 @@ jobs:
           FILTER: ${{ inputs.filter || 'mip8_pageified_storage and test_fork_transition' }}
         run: |
           set -o pipefail
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "filter=${FILTER:-(none)}" >> "$GITHUB_OUTPUT"
           FILTER_ARG=()
           if [ -n "$FILTER" ]; then
             FILTER_ARG=(-k "$FILTER")
@@ -164,40 +171,37 @@ jobs:
           uv run consume direct \
             --input "$RELEASE" \
             --bin "$GITHUB_WORKSPACE/monad-eest-rust-harness/bin/eest-runner" \
-            "${FILTER_ARG[@]}" \
-            --html report.html | tee consume.log
+            "${FILTER_ARG[@]}" | tee consume.log
 
       - name: Summary
         if: always()
         shell: bash
+        env:
+          RELEASE: ${{ steps.consume.outputs.release }}
+          FILTER: ${{ steps.consume.outputs.filter }}
+          HARNESS_REF: ${{ inputs.harness_ref || 'execute-with-eestnet' }}
+          BFT_SHA: ${{ steps.stack.outputs.bft }}
+          EXEC_SHA: ${{ steps.stack.outputs.exec }}
         run: |
           {
-            echo "## consume \`${{ inputs.release }}\`"
+            echo "## consume \`${RELEASE:-(unknown)}\`"
             echo ""
             echo "| input | value |"
             echo "|---|---|"
-            echo "| harness_ref | \`${{ inputs.harness_ref }}\` |"
-            echo "| monad_bft_ref | \`${{ inputs.monad_bft_ref || 'pinned' }}\` |"
-            echo "| monad_execution_ref | \`${{ inputs.monad_execution_ref || 'pinned' }}\` |"
-            echo "| filter | \`${{ inputs.filter || '(none)' }}\` |"
+            echo "| harness_ref | \`${HARNESS_REF}\` |"
+            echo "| monad-bft | \`${BFT_SHA:-(unknown)}\` |"
+            echo "| monad-execution | \`${EXEC_SHA:-(unknown)}\` |"
+            echo "| filter | \`${FILTER:-(none)}\` |"
             echo ""
             echo '```'
-            grep -E "= .*(passed|failed|error|skipped).*in " consume.log | tail -1 || echo "no result line"
+            cat consume.log 2>/dev/null || echo "(no consume.log produced)"
             echo '```'
-            if grep -qE "^FAILED" consume.log; then
-              echo "### Failures"
-              echo '```'
-              grep -E "^FAILED" consume.log | sed -E 's/ - .*//' | sort -u | head -200
-              echo '```'
-            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload report + log
+      - name: Upload log
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: consume-report
-          path: |
-            report.html
-            consume.log
+          path: consume.log
           if-no-files-found: warn
