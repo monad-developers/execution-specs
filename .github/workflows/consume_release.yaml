@@ -171,7 +171,7 @@ jobs:
           uv run consume direct \
             --input "$RELEASE" \
             --bin "$GITHUB_WORKSPACE/monad-eest-rust-harness/bin/eest-runner" \
-            "${FILTER_ARG[@]}" | tee consume.log
+            "${FILTER_ARG[@]}" -v | tee consume.log
 
       - name: Summary
         if: always()
