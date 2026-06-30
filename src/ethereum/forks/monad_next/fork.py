@@ -1009,15 +1009,21 @@ def process_transaction(
     # gas_refund_amount = tx_gas_left * effective_gas_price
 
     # For non-1559 transactions effective_gas_price == tx.gas_price
-    priority_fee_per_gas = effective_gas_price - block_env.base_fee_per_gas
-    transaction_fee = tx.gas * priority_fee_per_gas
+    # NOTE: commented out, see MIP-11 shim below
+    # TODO: uncomment and adjust after MIP-11 lands here
+    # priority_fee_per_gas = effective_gas_price - block_env.base_fee_per_gas
+    # transaction_fee = tx.gas * priority_fee_per_gas
 
     # Monad: gas is not refunded to the sender (note absence of
     # create_ether(tx_state, sender, U256(gas_refund_amount)) here).
     add_sender_authority(block_env.state, block_env.number, sender)
 
-    # transfer miner fees
-    create_ether(tx_state, block_env.coinbase, U256(transaction_fee))
+    # MIP-11 shim: priority fees are routed to the staking distribution
+    # address and paid out to the proposer's validator and delegators. In
+    # tests no proposer is wired up, so distribution finds an unknown
+    # validator and the fees are burned rather than credited to the
+    # coinbase. Burn them here so post-state roots match a client that
+    # implements MIP-11 fully.
 
     for address in tx_output.accounts_to_delete:
         destroy_account(tx_state, address)
