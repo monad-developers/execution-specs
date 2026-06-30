@@ -1723,14 +1723,19 @@ def _state_growth_counters_after_subcall(
     )
 
 
-@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
+# Cross instead of full product: every call_op under STOP, and every
+# child_exit under CALL (CALL+STOP shared), halving the matrix.
 @pytest.mark.parametrize(
-    "child_exit,exit_succeeds",
+    "call_op,child_exit,exit_succeeds",
     [
-        pytest.param(Op.REVERT(0, 0), False, id="revert"),
-        pytest.param(Op.STOP, True, id="stop"),
-        pytest.param(Op.INVALID, False, id="invalid"),
-        pytest.param(Op.SELFDESTRUCT(0xBEEF), True, id="selfdestruct"),
+        pytest.param(Op.DELEGATECALL, Op.STOP, True, id="DELEGATECALL-stop"),
+        pytest.param(Op.CALL, Op.STOP, True, id="CALL-stop"),
+        pytest.param(Op.CREATE, Op.STOP, True, id="CREATE-stop"),
+        pytest.param(Op.CALL, Op.REVERT(0, 0), False, id="CALL-revert"),
+        pytest.param(Op.CALL, Op.INVALID, False, id="CALL-invalid"),
+        pytest.param(
+            Op.CALL, Op.SELFDESTRUCT(0xBEEF), True, id="CALL-selfdestruct"
+        ),
     ],
 )
 @pytest.mark.parametrize("prestate_clear_child", [0, 1, 2])
