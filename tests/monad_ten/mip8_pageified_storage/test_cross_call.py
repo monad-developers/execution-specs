@@ -1473,8 +1473,24 @@ def _state_growth_counters_inside_subcall(
 
     overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
     measure_offset = Spec.SLOTS_PER_PAGE
+    # The prefix lays down 4 stacking slot sequences; the farthest slot
+    # it touches is the sum along the longest path: both prestate runs
+    # plus the deeper of parent-clear vs the parent-growth/child chain.
+    # Sweep exactly that far to keep the cost proportional to slots
+    # touched rather than measuring a whole page.
+    measured_slots = (
+        prestate_clear_parent
+        + prestate_clear_child
+        + max(
+            state_clear_parent,
+            state_growth_parent + max(state_growth_child, state_clear_child),
+        )
+    )
+    # The sweep stays within page 0 and stores its outputs from
+    # measure_offset (one page up), so it must not exceed a page.
+    assert measured_slots <= Spec.SLOTS_PER_PAGE
     expected_storage: dict[int, int] = {}
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         cost = simulate_sstore(page, i, 1, fork)
         child_code += CodeGasMeasure(
             code=Op.SSTORE(i, 1),
@@ -1485,7 +1501,7 @@ def _state_growth_counters_inside_subcall(
         )
         expected_storage[measure_offset + i] = cost
     child_code += Op.RETURN(0, 0) if call_op == Op.CREATE else Op.STOP
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         expected_storage[i] = 1
 
     tx_data: bytes = b""
@@ -1690,18 +1706,34 @@ def _state_growth_counters_after_subcall(
     overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
     measure_offset = Spec.SLOTS_PER_PAGE
     measure_code = Bytecode()
+    # The prefix lays down 4 stacking slot sequences; the farthest slot
+    # it touches is the sum along the longest path: both prestate runs
+    # plus the deeper of parent-clear vs the parent-growth/child chain.
+    # Sweep exactly that far to keep the cost proportional to slots
+    # touched rather than measuring a whole page.
+    measured_slots = (
+        prestate_clear_parent
+        + prestate_clear_child
+        + max(
+            state_clear_parent,
+            state_growth_parent + max(state_growth_child, state_clear_child),
+        )
+    )
+    # The sweep stays within page 0 and stores its outputs from
+    # measure_offset (one page up), so it must not exceed a page.
+    assert measured_slots <= Spec.SLOTS_PER_PAGE
     expected_storage: dict[int, int] = {}
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         cost = simulate_sstore(page, i, 1, fork)
         measure_code += CodeGasMeasure(
             code=Op.SSTORE(i, 1),
             overhead_cost=overhead,
             extra_stack_items=0,
             sstore_key=measure_offset + i,
-            stop=(i == Spec.SLOTS_PER_PAGE - 1),
+            stop=(i == measured_slots - 1),
         )
         expected_storage[measure_offset + i] = cost
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         expected_storage[i] = 1
 
     parent_address = pre.deploy_contract(
