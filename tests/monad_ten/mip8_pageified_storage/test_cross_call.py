@@ -1409,14 +1409,7 @@ def test_selfdestruct_preserves_warming(
     )
 
 
-@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
-@pytest.mark.parametrize("prestate_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_child", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_parent", [0, 1, 32])
-def test_state_growth_counters_inside_subcall(
+def _state_growth_counters_inside_subcall(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -1543,22 +1536,68 @@ def test_state_growth_counters_inside_subcall(
 
 
 @pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
-@pytest.mark.parametrize(
-    "child_exit,exit_succeeds",
-    [
-        pytest.param(Op.REVERT(0, 0), False, id="revert"),
-        pytest.param(Op.STOP, True, id="stop"),
-        pytest.param(Op.INVALID, False, id="invalid"),
-        pytest.param(Op.SELFDESTRUCT(0xBEEF), True, id="selfdestruct"),
-    ],
-)
-@pytest.mark.parametrize("prestate_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_child", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_parent", [0, 1, 32])
-def test_state_growth_counters_after_subcall(
+@pytest.mark.parametrize("prestate_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_child", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_parent", [0, 1, 2])
+def test_state_growth_counters_inside_subcall(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    state_growth_parent: int,
+    state_clear_parent: int,
+    state_growth_child: int,
+    state_clear_child: int,
+    prestate_clear_parent: int,
+    prestate_clear_child: int,
+    call_op: Op,
+) -> None:
+    """
+    Small-value combinatorics for state costs in a CALLed/DELEGATECALLed
+    child: slot counts stay well within a single page.
+    """
+    _state_growth_counters_inside_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent,
+        state_clear_parent,
+        state_growth_child,
+        state_clear_child,
+        prestate_clear_parent,
+        prestate_clear_child,
+        call_op,
+    )
+
+
+@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
+def test_state_growth_counters_inside_subcall_full_page(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    call_op: Op,
+) -> None:
+    """
+    Full-page coverage: the four 32-slot sequences fill an entire 128-slot
+    page, exercising the growth/clear counters at the page boundary.
+    """
+    _state_growth_counters_inside_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent=32,
+        state_clear_parent=32,
+        state_growth_child=32,
+        state_clear_child=32,
+        prestate_clear_parent=32,
+        prestate_clear_child=32,
+        call_op=call_op,
+    )
+
+
+def _state_growth_counters_after_subcall(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -1681,4 +1720,92 @@ def test_state_growth_counters_after_subcall(
         pre=pre,
         post={parent_address: Account(storage=expected_storage)},
         tx=tx,
+    )
+
+
+@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
+@pytest.mark.parametrize(
+    "child_exit,exit_succeeds",
+    [
+        pytest.param(Op.REVERT(0, 0), False, id="revert"),
+        pytest.param(Op.STOP, True, id="stop"),
+        pytest.param(Op.INVALID, False, id="invalid"),
+        pytest.param(Op.SELFDESTRUCT(0xBEEF), True, id="selfdestruct"),
+    ],
+)
+@pytest.mark.parametrize("prestate_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_child", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_parent", [0, 1, 2])
+def test_state_growth_counters_after_subcall(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    state_growth_parent: int,
+    state_clear_parent: int,
+    state_growth_child: int,
+    state_clear_child: int,
+    prestate_clear_parent: int,
+    prestate_clear_child: int,
+    child_exit: Op,
+    exit_succeeds: bool,
+    call_op: Op,
+) -> None:
+    """
+    Small-value combinatorics for state costs in the parent after a
+    subcall: slot counts stay well within a single page.
+    """
+    _state_growth_counters_after_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent,
+        state_clear_parent,
+        state_growth_child,
+        state_clear_child,
+        prestate_clear_parent,
+        prestate_clear_child,
+        child_exit,
+        exit_succeeds,
+        call_op,
+    )
+
+
+@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
+@pytest.mark.parametrize(
+    "child_exit,exit_succeeds",
+    [
+        pytest.param(Op.REVERT(0, 0), False, id="revert"),
+        pytest.param(Op.STOP, True, id="stop"),
+        pytest.param(Op.INVALID, False, id="invalid"),
+        pytest.param(Op.SELFDESTRUCT(0xBEEF), True, id="selfdestruct"),
+    ],
+)
+def test_state_growth_counters_after_subcall_full_page(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    child_exit: Op,
+    exit_succeeds: bool,
+    call_op: Op,
+) -> None:
+    """
+    Full-page coverage: the four 32-slot sequences fill an entire 128-slot
+    page, exercising the growth/clear counters at the page boundary.
+    """
+    _state_growth_counters_after_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent=32,
+        state_clear_parent=32,
+        state_growth_child=32,
+        state_clear_child=32,
+        prestate_clear_parent=32,
+        prestate_clear_child=32,
+        child_exit=child_exit,
+        exit_succeeds=exit_succeeds,
+        call_op=call_op,
     )
