@@ -18,7 +18,7 @@ from execution_testing import (
     Op,
     Transaction,
 )
-from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks import MONAD_EIGHT, MONAD_NEXT
 from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.helpers import compute_create_address
 from execution_testing.tools.tools_code.generators import Initcode
@@ -1152,7 +1152,8 @@ def test_credit_with_transaction_fee(
     gas_price = 10
     base_fee_per_gas = 7
     priority_gas_price = gas_price - base_fee_per_gas
-    reward = gas_limit * priority_gas_price
+    # MIP-11 burns priority fees rather than crediting the coinbase.
+    reward = 0 if fork >= MONAD_NEXT else gas_limit * priority_gas_price
 
     tx_1 = Transaction(
         gas_limit=gas_limit,
