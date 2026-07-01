@@ -1105,8 +1105,17 @@ def process_staking_system_transaction(
     gas), always succeed, increment the sender nonce, and mint their
     value rather than transferring it. The staking precompile dispatches
     the syscall by selector (see ``_syscall_reward``).
+
+    System transactions declare no gas: a nonzero gas limit or gas price
+    is a block error, matching the client's system-transaction rules.
     """
     sender = SYSTEM_SENDER
+
+    if not isinstance(tx, LegacyTransaction):
+        raise InvalidBlock("system transaction must be legacy")
+    if tx.gas != Uint(0) or tx.gas_price != Uint(0):
+        raise InvalidBlock("system transaction gas non zero")
+
     increment_nonce(tx_state, sender)
 
     assert not isinstance(tx.to, Bytes0), "system transaction must have a to"

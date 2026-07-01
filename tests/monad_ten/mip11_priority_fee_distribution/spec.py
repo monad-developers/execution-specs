@@ -111,12 +111,13 @@ def reward_tx(
     Return a reward-syscall system transaction naming ``author``.
 
     Signed by the public system key so its sender recovers to
-    ``SYSTEM_SENDER``; pays no gas (``gas_price=0``).
+    ``SYSTEM_SENDER``. System transactions declare no gas, so both the
+    gas limit and price are zero.
     """
     return Transaction(
         ty=0,
         nonce=nonce,
-        gas_limit=200_000,
+        gas_limit=0,
         gas_price=0,
         to=STAKING_PRECOMPILE,
         value=value,
