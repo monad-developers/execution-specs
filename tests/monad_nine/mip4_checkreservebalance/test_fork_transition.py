@@ -32,10 +32,14 @@ def test_fork_transition(
     """
     Test reserve balance precompile availability at fork transition.
 
-    Before the fork, the precompile doesn't exist, so CALL returns
-    empty output (RETURNDATASIZE == 0). After the fork, the precompile
+    Before the MONAD_NINE, the precompile doesn't exist, so CALL returns
+    empty output (RETURNDATASIZE == 0). After, the precompile
     returns a 32-byte result (RETURNDATASIZE == 32).
     """
+    precompile_before = (
+        Spec.RESERVE_BALANCE_PRECOMPILE
+        in fork.transitions_from().precompiles()
+    )
     sender = pre.fund_eoa()
 
     callee_code = (
@@ -103,14 +107,14 @@ def test_fork_transition(
         post={
             caller_address: Account(
                 storage={
-                    14_999: 1,  # Call succeeds (precompile just returns empty)
+                    14_999: 1,  # Call succeeds
                     15_000: 1,  # Call succeeds on fork transition block
                     15_001: 1,  # Call continues to succeed after transition
                 }
             ),
             callee_address: Account(
                 storage={
-                    14_999: 0,  # Precompile not available, RETURNDATASIZE==0
+                    14_999: 1 if precompile_before else 0,
                     15_000: 1,  # Precompile available, RETURNDATASIZE==32
                     15_001: 1,  # Precompile continues to work
                 }
