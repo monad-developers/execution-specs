@@ -498,6 +498,9 @@ class T8N(Load):
                 block_env.state, block_env.number
             )
 
+        if self.fork.has_execute_block_prelude:
+            self.fork.execute_block_prelude(block_env)
+
         if self.fork.has_compute_requests_hash:
             self.fork.process_unchecked_system_transaction(
                 block_env=block_env,
@@ -555,6 +558,9 @@ class T8N(Load):
 
         if self.fork.has_compute_requests_hash:
             self.fork.process_general_purpose_requests(block_env, block_output)
+
+        if self.fork.has_distribute_priority_fees:
+            self.fork.distribute_priority_fees(block_env)
 
         if self.fork.has_hash_block_access_list:
             block_output.block_access_list = self.fork.build_block_access_list(
