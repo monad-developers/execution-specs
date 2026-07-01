@@ -1409,14 +1409,7 @@ def test_selfdestruct_preserves_warming(
     )
 
 
-@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
-@pytest.mark.parametrize("prestate_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_child", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_parent", [0, 1, 32])
-def test_state_growth_counters_inside_subcall(
+def _state_growth_counters_inside_subcall(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -1480,8 +1473,24 @@ def test_state_growth_counters_inside_subcall(
 
     overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
     measure_offset = Spec.SLOTS_PER_PAGE
+    # The prefix lays down 4 stacking slot sequences; the farthest slot
+    # it touches is the sum along the longest path: both prestate runs
+    # plus the deeper of parent-clear vs the parent-growth/child chain.
+    # Sweep exactly that far to keep the cost proportional to slots
+    # touched rather than measuring a whole page.
+    measured_slots = (
+        prestate_clear_parent
+        + prestate_clear_child
+        + max(
+            state_clear_parent,
+            state_growth_parent + max(state_growth_child, state_clear_child),
+        )
+    )
+    # The sweep stays within page 0 and stores its outputs from
+    # measure_offset (one page up), so it must not exceed a page.
+    assert measured_slots <= Spec.SLOTS_PER_PAGE
     expected_storage: dict[int, int] = {}
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         cost = simulate_sstore(page, i, 1, fork)
         child_code += CodeGasMeasure(
             code=Op.SSTORE(i, 1),
@@ -1492,7 +1501,7 @@ def test_state_growth_counters_inside_subcall(
         )
         expected_storage[measure_offset + i] = cost
     child_code += Op.RETURN(0, 0) if call_op == Op.CREATE else Op.STOP
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         expected_storage[i] = 1
 
     tx_data: bytes = b""
@@ -1543,22 +1552,68 @@ def test_state_growth_counters_inside_subcall(
 
 
 @pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
-@pytest.mark.parametrize(
-    "child_exit,exit_succeeds",
-    [
-        pytest.param(Op.REVERT(0, 0), False, id="revert"),
-        pytest.param(Op.STOP, True, id="stop"),
-        pytest.param(Op.INVALID, False, id="invalid"),
-        pytest.param(Op.SELFDESTRUCT(0xBEEF), True, id="selfdestruct"),
-    ],
-)
-@pytest.mark.parametrize("prestate_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_child", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_child", [0, 1, 32])
-@pytest.mark.parametrize("state_clear_parent", [0, 1, 32])
-@pytest.mark.parametrize("state_growth_parent", [0, 1, 32])
-def test_state_growth_counters_after_subcall(
+@pytest.mark.parametrize("prestate_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_child", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_parent", [0, 1, 2])
+def test_state_growth_counters_inside_subcall(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    state_growth_parent: int,
+    state_clear_parent: int,
+    state_growth_child: int,
+    state_clear_child: int,
+    prestate_clear_parent: int,
+    prestate_clear_child: int,
+    call_op: Op,
+) -> None:
+    """
+    Small-value combinatorics for state costs in a CALLed/DELEGATECALLed
+    child: slot counts stay well within a single page.
+    """
+    _state_growth_counters_inside_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent,
+        state_clear_parent,
+        state_growth_child,
+        state_clear_child,
+        prestate_clear_parent,
+        prestate_clear_child,
+        call_op,
+    )
+
+
+@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
+def test_state_growth_counters_inside_subcall_full_page(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    call_op: Op,
+) -> None:
+    """
+    Full-page coverage: the four 32-slot sequences fill an entire 128-slot
+    page, exercising the growth/clear counters at the page boundary.
+    """
+    _state_growth_counters_inside_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent=32,
+        state_clear_parent=32,
+        state_growth_child=32,
+        state_clear_child=32,
+        prestate_clear_parent=32,
+        prestate_clear_child=32,
+        call_op=call_op,
+    )
+
+
+def _state_growth_counters_after_subcall(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
@@ -1651,18 +1706,34 @@ def test_state_growth_counters_after_subcall(
     overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
     measure_offset = Spec.SLOTS_PER_PAGE
     measure_code = Bytecode()
+    # The prefix lays down 4 stacking slot sequences; the farthest slot
+    # it touches is the sum along the longest path: both prestate runs
+    # plus the deeper of parent-clear vs the parent-growth/child chain.
+    # Sweep exactly that far to keep the cost proportional to slots
+    # touched rather than measuring a whole page.
+    measured_slots = (
+        prestate_clear_parent
+        + prestate_clear_child
+        + max(
+            state_clear_parent,
+            state_growth_parent + max(state_growth_child, state_clear_child),
+        )
+    )
+    # The sweep stays within page 0 and stores its outputs from
+    # measure_offset (one page up), so it must not exceed a page.
+    assert measured_slots <= Spec.SLOTS_PER_PAGE
     expected_storage: dict[int, int] = {}
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         cost = simulate_sstore(page, i, 1, fork)
         measure_code += CodeGasMeasure(
             code=Op.SSTORE(i, 1),
             overhead_cost=overhead,
             extra_stack_items=0,
             sstore_key=measure_offset + i,
-            stop=(i == Spec.SLOTS_PER_PAGE - 1),
+            stop=(i == measured_slots - 1),
         )
         expected_storage[measure_offset + i] = cost
-    for i in range(Spec.SLOTS_PER_PAGE):
+    for i in range(measured_slots):
         expected_storage[i] = 1
 
     parent_address = pre.deploy_contract(
@@ -1681,4 +1752,97 @@ def test_state_growth_counters_after_subcall(
         pre=pre,
         post={parent_address: Account(storage=expected_storage)},
         tx=tx,
+    )
+
+
+# Cross instead of full product: every call_op under STOP, and every
+# child_exit under CALL (CALL+STOP shared), halving the matrix.
+@pytest.mark.parametrize(
+    "call_op,child_exit,exit_succeeds",
+    [
+        pytest.param(Op.DELEGATECALL, Op.STOP, True, id="DELEGATECALL-stop"),
+        pytest.param(Op.CALL, Op.STOP, True, id="CALL-stop"),
+        pytest.param(Op.CREATE, Op.STOP, True, id="CREATE-stop"),
+        pytest.param(Op.CALL, Op.REVERT(0, 0), False, id="CALL-revert"),
+        pytest.param(Op.CALL, Op.INVALID, False, id="CALL-invalid"),
+        pytest.param(
+            Op.CALL, Op.SELFDESTRUCT(0xBEEF), True, id="CALL-selfdestruct"
+        ),
+    ],
+)
+@pytest.mark.parametrize("prestate_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("prestate_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_child", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_child", [0, 1, 2])
+@pytest.mark.parametrize("state_clear_parent", [0, 1, 2])
+@pytest.mark.parametrize("state_growth_parent", [0, 1, 2])
+def test_state_growth_counters_after_subcall(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    state_growth_parent: int,
+    state_clear_parent: int,
+    state_growth_child: int,
+    state_clear_child: int,
+    prestate_clear_parent: int,
+    prestate_clear_child: int,
+    child_exit: Op,
+    exit_succeeds: bool,
+    call_op: Op,
+) -> None:
+    """
+    Small-value combinatorics for state costs in the parent after a
+    subcall: slot counts stay well within a single page.
+    """
+    _state_growth_counters_after_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent,
+        state_clear_parent,
+        state_growth_child,
+        state_clear_child,
+        prestate_clear_parent,
+        prestate_clear_child,
+        child_exit,
+        exit_succeeds,
+        call_op,
+    )
+
+
+@pytest.mark.parametrize("call_op", [Op.DELEGATECALL, Op.CALL, Op.CREATE])
+@pytest.mark.parametrize(
+    "child_exit,exit_succeeds",
+    [
+        pytest.param(Op.REVERT(0, 0), False, id="revert"),
+        pytest.param(Op.STOP, True, id="stop"),
+        pytest.param(Op.INVALID, False, id="invalid"),
+        pytest.param(Op.SELFDESTRUCT(0xBEEF), True, id="selfdestruct"),
+    ],
+)
+def test_state_growth_counters_after_subcall_full_page(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    child_exit: Op,
+    exit_succeeds: bool,
+    call_op: Op,
+) -> None:
+    """
+    Full-page coverage: the four 32-slot sequences fill an entire 128-slot
+    page, exercising the growth/clear counters at the page boundary.
+    """
+    _state_growth_counters_after_subcall(
+        state_test,
+        pre,
+        fork,
+        state_growth_parent=32,
+        state_clear_parent=32,
+        state_growth_child=32,
+        state_clear_child=32,
+        prestate_clear_parent=32,
+        prestate_clear_child=32,
+        child_exit=child_exit,
+        exit_succeeds=exit_succeeds,
+        call_op=call_op,
     )
