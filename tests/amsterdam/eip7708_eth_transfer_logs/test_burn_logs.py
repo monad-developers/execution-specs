@@ -30,7 +30,7 @@ from execution_testing import (
 from execution_testing import (
     Macros as Om,
 )
-from execution_testing.forks import MONAD_EIGHT
+from execution_testing.forks import MONAD_NEXT
 
 from .spec import burn_log, ref_spec_7708, transfer_log
 
@@ -789,9 +789,15 @@ def test_selfdestruct_finalization_after_priority_fee(
     finalization burn log includes the priority fee, proving finalization
     happens after fee payment per EIP-7708.
 
+    On MIP-11 forks priority fees are burned rather than credited to the
+    coinbase, so the coinbase's finalization balance is only whatever was
+    sent to it after selfdestruct (nothing extra from the fee).
+
     funded_after_selfdestruct:
-    - if True: payer sends ETH, finalization = funding + priority_fee
-    - if False: no payer, finalization = priority_fee only
+    - if True: payer sends ETH; finalization = funding (+ priority_fee
+      pre-MIP-11)
+    - if False: no payer; finalization = priority_fee (zero on MIP-11, so
+      no burn log)
     """
     genesis_base_fee = 7
     env = Environment(base_fee_per_gas=genesis_base_fee)
@@ -906,15 +912,16 @@ def test_selfdestruct_finalization_after_priority_fee(
     if fork.is_eip_enabled(8037):
         gas_limit = 2_000_000
 
-    if fork >= MONAD_EIGHT:
-        # Monad charges the miner fee on the full gas limit (gas is not
-        # refunded to the sender), so the coinbase receives the priority
-        # fee on tx.gas rather than on the gas actually used.
-        priority_fee = priority_fee_per_gas * gas_limit
+    if fork >= MONAD_NEXT:
+        # MIP-11 burns priority fees instead of crediting the coinbase, so
+        # the self-destructed coinbase receives no priority fee. Its
+        # finalization balance is only whatever was sent to it afterwards.
+        priority_fee = 0
     else:
         priority_fee = priority_fee_per_gas * (gas_used - discount)
 
-    # Finalization burn log proves coinbase received priority fee before log
+    # Finalization burn of the coinbase's post-selfdestruct balance (any
+    # funding plus the priority fee credited to it) happens after fees.
     finalization_balance: int | None = funding_amount + priority_fee
 
     expected_logs = [
@@ -935,7 +942,10 @@ def test_selfdestruct_finalization_after_priority_fee(
             "Test needs update: recompute exact gas usage with 8037"
         )
 
-    expected_logs.append(burn_log(created_address, finalization_balance))
+    # With MIP-11 (no priority fee) and no funding, the coinbase holds
+    # nothing at finalization, so no burn log is emitted for it.
+    if finalization_balance:
+        expected_logs.append(burn_log(created_address, finalization_balance))
 
     tx = Transaction(
         sender=sender,
