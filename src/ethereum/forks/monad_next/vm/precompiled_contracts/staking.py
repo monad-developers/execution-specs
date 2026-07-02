@@ -13,10 +13,13 @@ Getter functions return constant stub values.
 Setter functions are stubs that respect interface rules.
 """
 
+from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U256, Uint
 
+from ethereum.crypto.hash import Hash32
 from ethereum.state import Address
 
+from ...blocks import Log
 from ...state_tracker import (
     TransactionState,
     create_ether,
@@ -165,20 +168,59 @@ def _add_slot(tx_state: TransactionState, key: int, delta: int) -> None:
     _set_slot(tx_state, key, _slot(tx_state, key) + delta)
 
 
+def read_epoch(tx_state: TransactionState) -> int:
+    """Return the current staking epoch."""
+    return _slot(tx_state, KEY_EPOCH) >> 192
+
+
+# keccak256("ValidatorRewarded(uint64,address,uint256,uint64)").
+#
+# The staking API documents this event only for ``syscallReward``.
+# Emitting it on the MIP-11 distribution path (with the distribution
+# account as ``from``) is documented in neither MIP-11 nor the staking
+# API; it is reproduced here because distribution and the reward syscall
+# share the pool-crediting path, which the client instruments with this
+# event.
+VALIDATOR_REWARDED_TOPIC = Hash32(
+    bytes.fromhex(
+        "3a420a01486b6b28d6ae89c51f5c3bde3e0e74eecbb646a0c481ccba3aae3754"
+    )
+)
+
+
+def _validator_rewarded_log(
+    tx_state: TransactionState, val_id: int, from_addr: Address, amount: int
+) -> Log:
+    """Build the ValidatorRewarded log for a pool reward."""
+    return Log(
+        address=STAKING_ADDRESS,
+        topics=(
+            VALIDATOR_REWARDED_TOPIC,
+            Hash32(val_id.to_bytes(32, "big")),
+            Hash32(bytes(12) + bytes(from_addr)),
+        ),
+        data=Bytes(
+            amount.to_bytes(32, "big")
+            + read_epoch(tx_state).to_bytes(32, "big")
+        ),
+    )
+
+
 def staking_distribute(
     tx_state: TransactionState,
     val_id: int,
+    from_addr: Address,
     amount: int,
     active_stake: int,
-) -> None:
+) -> Log:
     """
     Distribute ``amount`` to a validator pool (MIP-11
     ``staking_contract.distribute(val_id)``).
 
-    Storage-only: bump ``accumulated_reward_per_token`` by ``amount *
-    UNIT_BIAS // active_stake`` and ``unclaimed_rewards`` by ``amount``.
-    The matching balance transfer is done by the caller (the spec's
-    ``{msg.value}``).
+    Bump ``accumulated_reward_per_token`` by ``amount * UNIT_BIAS //
+    active_stake`` and ``unclaimed_rewards`` by ``amount``, and return
+    the ValidatorRewarded log. The matching balance transfer is done by
+    the caller (the spec's ``{msg.value}``).
     """
     base = _val_execution_base(val_id)
     _add_slot(
@@ -187,6 +229,7 @@ def staking_distribute(
         amount * UNIT_BIAS // active_stake,
     )
     _add_slot(tx_state, base + VE_UNCLAIMED_REWARDS, amount)
+    return _validator_rewarded_log(tx_state, val_id, from_addr, amount)
 
 
 def apply_commission_to_auth_account(
@@ -259,7 +302,9 @@ def distribute_priority_fees(tx_state: TransactionState) -> None:
     The spec models this as a method on the fee5 account called by the
     system at end of block ("no transaction can call it"); it is a direct
     end-of-block call, and the logic lives here because fee5 has no code.
-    Step numbers follow the spec pseudocode.
+    The client emits a ValidatorRewarded event here to its event stream
+    but never into a receipt, so it has no effect on state or the header
+    bloom and is dropped. Step numbers follow the spec pseudocode.
     """
     # 1. Load balance and clear it for the block.
     total_balance = int(
@@ -305,19 +350,30 @@ def distribute_priority_fees(tx_state: TransactionState) -> None:
     if distribute_amount < DUST_THRESHOLD:
         return
 
-    # 6. Distribute the remainder to the validator pool.
+    # 6. Distribute the remainder to the validator pool. The returned log
+    #    is dropped (see the docstring); only the pool credit matters.
     create_ether(tx_state, STAKING_ADDRESS, U256(distribute_amount))
-    staking_distribute(tx_state, val_id, distribute_amount, active_stake)
+    staking_distribute(
+        tx_state,
+        val_id,
+        FEE_DISTRIBUTION_ADDRESS,
+        distribute_amount,
+        active_stake,
+    )
 
 
 def _syscall_reward(evm: Evm) -> None:
     """
     Handle the reward syscall.
 
-    Set ``proposer_val_id`` for the block and, for a nonzero msg.value,
-    mint it and distribute it to the proposer pool (commission to the
-    auth delegator, remainder to the pool) the same way
-    ``distribute_priority_fees`` does.
+    Mint the reward into the pool, credit commission to the auth
+    delegator, and credit the remainder to the proposer pool the same way
+    ``distribute_priority_fees`` does, then set ``proposer_val_id``. The
+    reward may be zero (proposer set with no block reward); the credits
+    are then no-ops, but ValidatorRewarded is emitted unconditionally to
+    match the client. This log lands in the syscall tx's receipt and thus
+    the block bloom, since the reward syscall is a transaction (unlike the
+    end-of-block ``distribute_priority_fees``).
     """
     tx_state = evm.message.tx_env.state
     data = evm.message.data
@@ -333,20 +389,23 @@ def _syscall_reward(evm: Evm) -> None:
         raise RevertInMonadPrecompile
 
     raw_reward = int(evm.message.value)
-    if raw_reward > 0:
-        # The reward is newly minted into the staking pool.
-        create_ether(tx_state, STAKING_ADDRESS, U256(raw_reward))
-        commission_rate = read_consensus_commission(tx_state, val_id)
-        commission_amount = raw_reward * commission_rate // MON
-        apply_commission_to_auth_account(
-            tx_state,
-            val_id,
-            read_auth_address(tx_state, val_id),
-            commission_amount,
-        )
-        staking_distribute(
-            tx_state, val_id, raw_reward - commission_amount, active_stake
-        )
+    create_ether(tx_state, STAKING_ADDRESS, U256(raw_reward))
+    commission_rate = read_consensus_commission(tx_state, val_id)
+    commission_amount = raw_reward * commission_rate // MON
+    apply_commission_to_auth_account(
+        tx_state,
+        val_id,
+        read_auth_address(tx_state, val_id),
+        commission_amount,
+    )
+    log = staking_distribute(
+        tx_state,
+        val_id,
+        SYSTEM_SENDER,
+        raw_reward - commission_amount,
+        active_stake,
+    )
+    evm.logs = evm.logs + (log,)
 
     write_proposer_val_id(tx_state, val_id)
 

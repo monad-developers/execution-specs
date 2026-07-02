@@ -876,7 +876,10 @@ def distribute_priority_fees(block_env: vm.BlockEnvironment) -> None:
 
     Direct end-of-block call into the staking distribution logic. The
     distribution is not a transaction; it credits the proposer pool and
-    empties the distribution account.
+    empties the distribution account. The client emits a ValidatorRewarded
+    log here to its event stream, but never into a receipt, so it stays
+    out of the header bloom (``compute_bloom`` runs over receipts only);
+    the log is therefore not surfaced to the block's logs.
     """
     dist_state = TransactionState(parent=block_env.state)
     staking.distribute_priority_fees(dist_state)
