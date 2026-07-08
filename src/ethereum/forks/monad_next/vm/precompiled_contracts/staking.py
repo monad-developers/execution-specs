@@ -263,9 +263,6 @@ def distribute_priority_fees(tx_state: TransactionState) -> None:
     The spec models this as a method on the fee5 account called by the
     system at end of block ("no transaction can call it"); it is a direct
     end-of-block call, and the logic lives here because fee5 has no code.
-    The client emits a ValidatorRewarded event here to its event stream
-    but never into a receipt, so it has no effect on state or the header
-    bloom and is dropped. Step numbers follow the spec pseudocode.
     """
     # 1. Load balance and clear it for the block.
     total_balance = int(
@@ -331,10 +328,7 @@ def _syscall_reward(evm: Evm) -> None:
     delegator, and credit the remainder to the proposer pool the same way
     ``distribute_priority_fees`` does, then set ``proposer_val_id``. The
     reward may be zero (proposer set with no block reward); the credits
-    are then no-ops, but ValidatorRewarded is emitted unconditionally to
-    match the client. This log lands in the syscall tx's receipt and thus
-    the block bloom, since the reward syscall is a transaction (unlike the
-    end-of-block ``distribute_priority_fees``).
+    are then no-ops, but ValidatorRewarded is emitted unconditionally.
     """
     tx_state = evm.message.tx_env.state
     data = evm.message.data

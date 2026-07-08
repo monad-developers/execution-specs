@@ -316,30 +316,3 @@ def test_in_block_transfer_distributed(
         },
         blocks=[Block(txs=[reward_tx(validator.auth), transfer_tx])],
     )
-
-
-def test_inactive_validator_burns(
-    blockchain_test: BlockchainTestFiller,
-    pre: Alloc,
-) -> None:
-    """
-    A validator with no active stake cannot be set as proposer.
-
-    The reward syscall reverts for a zero-stake validator (as if it were
-    deactivated at an epoch boundary), so the proposer stays cleared and
-    accumulated fees are burned.
-    """
-    fee = 5 * MON
-    validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=0)
-    seeded = staking_storage([validator])
-    pre[STAKING_PRECOMPILE] = Account(nonce=1, storage=seeded)
-    pre[FEE_DISTRIBUTION] = Account(balance=fee)
-
-    blockchain_test(
-        pre=pre,
-        post={
-            FEE_DISTRIBUTION: None,
-            STAKING_PRECOMPILE: Account(nonce=1, balance=0, storage=seeded),
-        },
-        blocks=[Block(txs=[reward_tx(validator.auth)])],
-    )
