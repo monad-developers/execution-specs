@@ -10,7 +10,6 @@ transaction routes differently on each side of the boundary.
 import pytest
 from execution_testing import (
     Account,
-    Address,
     Alloc,
     Block,
     BlockchainTestFiller,
@@ -27,9 +26,6 @@ from .spec import (
     reward_tx,
     staking_storage,
 )
-
-# Explicit block fee recipient, set on each block below.
-COINBASE = Address(0xC0FFEE)
 
 pytestmark = [pytest.mark.pre_alloc_mutable]
 
@@ -48,6 +44,7 @@ def test_priority_fee_routing_across_fork(
     fee5 and distributes it to the pool, crediting the coinbase nothing.
     """
     fee = 2 * MON
+    coinbase = pre.nonexistent_account()
     validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=MON)
     pre[STAKING_PRECOMPILE] = Account(
         nonce=1, storage=staking_storage([validator])
@@ -55,12 +52,12 @@ def test_priority_fee_routing_across_fork(
 
     pre_fork = Block(
         timestamp=14_999,
-        fee_recipient=COINBASE,
+        fee_recipient=coinbase,
         txs=[make_fee_tx(pre, fee)],
     )
     post_fork = Block(
         timestamp=15_000,
-        fee_recipient=COINBASE,
+        fee_recipient=coinbase,
         txs=[reward_tx(validator.auth), make_fee_tx(pre, fee)],
     )
 
@@ -73,7 +70,7 @@ def test_priority_fee_routing_across_fork(
         pre=pre,
         post={
             # Only the pre-fork block paid the coinbase.
-            COINBASE: Account(balance=fee),
+            coinbase: Account(balance=fee),
             FEE_DISTRIBUTION: None,
             STAKING_PRECOMPILE: Account(
                 nonce=1, balance=dist.staking_balance, storage=storage
