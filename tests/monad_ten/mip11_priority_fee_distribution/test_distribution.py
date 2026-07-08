@@ -15,10 +15,13 @@ from execution_testing import (
     Alloc,
     Block,
     BlockchainTestFiller,
+    Op,
+    Transaction,
 )
 
-from .helpers import make_fee_txs
+from .helpers import FEE_TX_GAS, make_fee_txs
 from .spec import (
+    BASE_FEE,
     DUST_THRESHOLD,
     FEE_DISTRIBUTION,
     KEY_PROPOSER_VAL_ID,
@@ -167,4 +170,106 @@ def test_priority_fee_from_gas(
             ),
         },
         blocks=[Block(txs=txs)],
+    )
+
+
+@pytest.mark.parametrize("reverted", [False, True])
+def test_reverted_fee_distributed(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    reverted: bool,
+) -> None:
+    """
+    A reverted transaction's priority fee is distributed like a
+    successful one: the full gas limit is charged either way, so the same
+    fee accrues and the pool receives the same reward.
+    """
+    fee = 6 * MON
+    validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=MON)
+    pre[STAKING_PRECOMPILE] = Account(
+        nonce=1, storage=staking_storage([validator])
+    )
+
+    target = pre.deploy_contract(Op.REVERT(0, 0) if reverted else Op.STOP)
+    priority = fee // FEE_TX_GAS
+    fee_tx = Transaction(
+        gas_limit=FEE_TX_GAS,
+        max_fee_per_gas=BASE_FEE + priority,
+        max_priority_fee_per_gas=priority,
+        to=target,
+        sender=pre.fund_eoa(FEE_TX_GAS * (BASE_FEE + priority) + 11 * MON),
+    )
+
+    blockchain_test(
+        pre=pre,
+        post={
+            FEE_DISTRIBUTION: None,
+            STAKING_PRECOMPILE: _staking_post_account(
+                validator, fee, proposer=1
+            ),
+        },
+        blocks=[Block(txs=[reward_tx(validator.auth), fee_tx])],
+    )
+
+
+def test_in_block_transfer_distributed(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+) -> None:
+    """
+    A plain value transfer into fee5 during the block is distributed to
+    the proposer pool: distribution forwards the account's whole balance,
+    not only accumulated priority fees.
+    """
+    transfer = 5 * MON
+    validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=MON)
+    pre[STAKING_PRECOMPILE] = Account(
+        nonce=1, storage=staking_storage([validator])
+    )
+
+    transfer_tx = Transaction(
+        gas_limit=100_000,
+        max_fee_per_gas=BASE_FEE,
+        max_priority_fee_per_gas=0,
+        to=FEE_DISTRIBUTION,
+        value=transfer,
+        sender=pre.fund_eoa(transfer + 11 * MON),
+    )
+
+    blockchain_test(
+        pre=pre,
+        post={
+            FEE_DISTRIBUTION: None,
+            STAKING_PRECOMPILE: _staking_post_account(
+                validator, transfer, proposer=1
+            ),
+        },
+        blocks=[Block(txs=[reward_tx(validator.auth), transfer_tx])],
+    )
+
+
+def test_inactive_validator_burns(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+) -> None:
+    """
+    A validator with no active stake cannot be set as proposer.
+
+    The reward syscall reverts for a zero-stake validator (as if it were
+    deactivated at an epoch boundary), so the proposer stays cleared and
+    accumulated fees are burned.
+    """
+    fee = 5 * MON
+    validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=0)
+    seeded = staking_storage([validator])
+    pre[STAKING_PRECOMPILE] = Account(nonce=1, storage=seeded)
+    pre[FEE_DISTRIBUTION] = Account(balance=fee)
+
+    blockchain_test(
+        pre=pre,
+        post={
+            FEE_DISTRIBUTION: None,
+            STAKING_PRECOMPILE: Account(nonce=1, balance=0, storage=seeded),
+        },
+        blocks=[Block(txs=[reward_tx(validator.auth)])],
     )

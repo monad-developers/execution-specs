@@ -6,10 +6,13 @@ from execution_testing import (
     Alloc,
     Block,
     BlockchainTestFiller,
+    Op,
+    Transaction,
 )
 
 from .helpers import make_fee_tx
 from .spec import (
+    BASE_FEE,
     FEE_DISTRIBUTION,
     KEY_PROPOSER_VAL_ID,
     MON,
@@ -68,4 +71,53 @@ def test_two_blocks(
             ),
         },
         blocks=blocks,
+    )
+
+
+def _observer_tx(pre: Alloc, reader: object, slot: int) -> Transaction:
+    """Record ``BALANCE(fee5)`` at ``slot``; adds no fee (zero tip)."""
+    return Transaction(
+        gas_limit=100_000,
+        max_fee_per_gas=BASE_FEE,
+        max_priority_fee_per_gas=0,
+        to=reader,
+        data=slot.to_bytes(32, "big"),
+        sender=pre.fund_eoa(),
+    )
+
+
+def test_fee5_accrues_per_tx_and_resets(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+) -> None:
+    """
+    fee5 grows by each tx's priority fee and opens the next block empty.
+
+    Zero-tip observer transactions read the running balance: after one
+    fee it holds that fee, after a second it holds their sum, and the
+    first read of the following block sees zero.
+    """
+    fee1 = 2 * MON
+    fee2 = 3 * MON
+    reader = pre.deploy_contract(
+        Op.SSTORE(Op.CALLDATALOAD(0), Op.BALANCE(FEE_DISTRIBUTION))
+    )
+
+    block1 = Block(
+        txs=[
+            make_fee_tx(pre, fee1),
+            _observer_tx(pre, reader, 1),
+            make_fee_tx(pre, fee2),
+            _observer_tx(pre, reader, 2),
+        ]
+    )
+    block2 = Block(txs=[_observer_tx(pre, reader, 3)])
+
+    blockchain_test(
+        pre=pre,
+        post={
+            reader: Account(storage={1: fee1, 2: fee1 + fee2, 3: 0}),
+            FEE_DISTRIBUTION: None,
+        },
+        blocks=[block1, block2],
     )
