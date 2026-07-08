@@ -3,19 +3,24 @@ MIP-11 distribution account behaves as an ordinary account.
 
 The fee5 address is not a precompile: it can be called, sent value,
 introspected, selfdestructed to, and used as a 7702 delegation target
-like any other account. The end-of-block distribution empties whatever
-balance it holds (burned here, since no validator is registered).
+like any other account, and it is cold on first access (not pre-warmed
+like a precompile or the coinbase). The end-of-block distribution
+empties whatever balance it holds (burned here, since no validator is
+registered).
 """
 
 import pytest
 from execution_testing import (
+    AccessList,
     Account,
     Alloc,
     Block,
     BlockchainTestFiller,
+    CodeGasMeasure,
     Op,
     Transaction,
 )
+from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.receipt_types import TransactionReceipt
 
 from .spec import EMPTY_CODE_HASH, FEE_DISTRIBUTION, MON
@@ -30,6 +35,7 @@ slot_hash = 0x2
 slot_balance = 0x3
 slot_copy = 0x4
 slot_success = 0x5
+slot_gas = 0x1
 
 
 @pytest.mark.parametrize("funded", [False, True])
@@ -153,5 +159,52 @@ def test_fee5_as_delegation_target(
     blockchain_test(
         pre=pre,
         post={contract: Account(storage={slot_success: 1})},
+        blocks=[Block(txs=[tx])],
+    )
+
+
+@pytest.mark.parametrize("access_listed", [False, True])
+def test_fee5_access_warmth(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    access_listed: bool,
+) -> None:
+    """
+    fee5 is cold by default and warms via an access-list entry.
+
+    A single ``BALANCE(fee5)`` is metered: it costs the cold access price
+    when fee5 starts cold, or the warm price when pre-warmed by an
+    access-list entry.
+    """
+    contract = pre.deploy_contract(
+        CodeGasMeasure(
+            code=Op.BALANCE(FEE_DISTRIBUTION),
+            extra_stack_items=1,
+            sstore_key=slot_gas,
+        )
+    )
+
+    expected = Op.BALANCE(
+        FEE_DISTRIBUTION, address_warm=access_listed
+    ).gas_cost(fork)
+
+    access_list = (
+        [AccessList(address=FEE_DISTRIBUTION, storage_keys=[])]
+        if access_listed
+        else []
+    )
+
+    tx = Transaction(
+        ty=1,
+        gas_limit=200_000,
+        to=contract,
+        sender=pre.fund_eoa(),
+        access_list=access_list,
+    )
+
+    blockchain_test(
+        pre=pre,
+        post={contract: Account(storage={slot_gas: expected})},
         blocks=[Block(txs=[tx])],
     )
