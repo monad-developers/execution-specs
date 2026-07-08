@@ -120,19 +120,28 @@ def test_commission_credited_to_auth(
     )
 
 
+@pytest.mark.parametrize("coinbase_is_validator", [False, True])
 def test_no_proposer_burns(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
+    coinbase_is_validator: bool,
 ) -> None:
     """
-    Without a reward syscall the proposer is cleared, so accumulated fees
-    are burned and the validator pool is untouched.
+    Without a reward syscall the proposer stays cleared, so fees burn.
+
+    Distribution keys off the reward-syscall proposer, not the block
+    coinbase: it burns even when the coinbase is the validator's own
+    address (which a coinbase-based resolution would have credited).
     """
     fee = 5 * MON
     validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=MON)
     seeded = staking_storage([validator])
     pre[STAKING_PRECOMPILE] = Account(nonce=1, storage=seeded)
     pre[FEE_DISTRIBUTION] = Account(balance=fee)
+
+    coinbase = (
+        validator.auth if coinbase_is_validator else pre.nonexistent_account()
+    )
 
     blockchain_test(
         pre=pre,
@@ -141,7 +150,7 @@ def test_no_proposer_burns(
             # Prelude clears the proposer; storage otherwise unchanged.
             STAKING_PRECOMPILE: Account(nonce=1, balance=0, storage=seeded),
         },
-        blocks=[Block(txs=[])],
+        blocks=[Block(fee_recipient=coinbase, txs=[])],
     )
 
 
