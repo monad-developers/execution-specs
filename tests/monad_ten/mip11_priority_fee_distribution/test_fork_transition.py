@@ -28,8 +28,8 @@ from .spec import (
     staking_storage,
 )
 
-# Default block coinbase used by the test framework.
-COINBASE = Address(0x2ADC25665018AA1FE0E6BC666DAC8FC2697FF9BA)
+# Explicit block fee recipient, set on each block below.
+COINBASE = Address(0xC0FFEE)
 
 pytestmark = [pytest.mark.pre_alloc_mutable]
 
@@ -53,9 +53,14 @@ def test_priority_fee_routing_across_fork(
         nonce=1, storage=staking_storage([validator])
     )
 
-    pre_fork = Block(timestamp=14_999, txs=[make_fee_tx(pre, fee)])
+    pre_fork = Block(
+        timestamp=14_999,
+        fee_recipient=COINBASE,
+        txs=[make_fee_tx(pre, fee)],
+    )
     post_fork = Block(
         timestamp=15_000,
+        fee_recipient=COINBASE,
         txs=[reward_tx(validator.auth), make_fee_tx(pre, fee)],
     )
 

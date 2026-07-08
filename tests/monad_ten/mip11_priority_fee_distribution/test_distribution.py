@@ -12,9 +12,11 @@ Spec: https://mips.monad.xyz/MIPs/MIP-11
 import pytest
 from execution_testing import (
     Account,
+    Address,
     Alloc,
     Block,
     BlockchainTestFiller,
+    Bytecode,
     Op,
     Transaction,
 )
@@ -173,16 +175,21 @@ def test_priority_fee_from_gas(
     )
 
 
-@pytest.mark.parametrize("reverted", [False, True])
+@pytest.mark.parametrize(
+    "halt",
+    [Op.STOP, pytest.param(Op.REVERT(0, 0), id="revert"), Op.INVALID],
+)
 def test_reverted_fee_distributed(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
-    reverted: bool,
+    halt: Bytecode,
 ) -> None:
     """
-    A reverted transaction's priority fee is distributed like a
-    successful one: the full gas limit is charged either way, so the same
-    fee accrues and the pool receives the same reward.
+    A transaction's priority fee is distributed regardless of outcome.
+
+    The full gas limit is charged whether the call halts, reverts, or
+    hits an invalid opcode, so the same fee accrues and the pool receives
+    the same reward.
     """
     fee = 6 * MON
     validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=MON)
@@ -190,7 +197,7 @@ def test_reverted_fee_distributed(
         nonce=1, storage=staking_storage([validator])
     )
 
-    target = pre.deploy_contract(Op.REVERT(0, 0) if reverted else Op.STOP)
+    target = pre.deploy_contract(halt)
     priority = fee // FEE_TX_GAS
     fee_tx = Transaction(
         gas_limit=FEE_TX_GAS,
@@ -206,6 +213,69 @@ def test_reverted_fee_distributed(
             FEE_DISTRIBUTION: None,
             STAKING_PRECOMPILE: _staking_post_account(
                 validator, fee, proposer=1
+            ),
+        },
+        blocks=[Block(txs=[reward_tx(validator.auth), fee_tx])],
+    )
+
+
+# MIP-4 reserve balance: an account's ending balance may not drop below
+# this except via a qualifying emptying transaction.
+RESERVE_BALANCE = 10 * MON
+
+
+@pytest.mark.parametrize("violated", [False, True])
+def test_reserve_violation_fee_distributed(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    violated: bool,
+) -> None:
+    """
+    A transaction reverting on a reserve-balance violation still pays its
+    priority fee, so the pool receives the same reward as on success.
+
+    The sender is delegated, so it never qualifies for the
+    emptying-transaction exception. It sends value on top of gas: at the
+    reserve the spend dips below it and the transaction reverts; funded
+    above the reserve it succeeds. The priority fee accrues either way.
+    """
+    fee = 4 * MON
+    value = MON
+    validator = Validator(val_id=1, auth=pre.fund_eoa(0), stake=MON)
+    pre[STAKING_PRECOMPILE] = Account(
+        nonce=1, storage=staking_storage([validator])
+    )
+
+    slot = 0x1
+    target = pre.deploy_contract(Op.SSTORE(slot, 1))
+    priority = fee // FEE_TX_GAS
+    gas_cost = FEE_TX_GAS * (BASE_FEE + priority)
+    balance = (
+        RESERVE_BALANCE
+        if violated
+        else RESERVE_BALANCE + gas_cost + value + MON
+    )
+    fee_tx = Transaction(
+        gas_limit=FEE_TX_GAS,
+        max_fee_per_gas=BASE_FEE + priority,
+        max_priority_fee_per_gas=priority,
+        to=target,
+        value=value,
+        sender=pre.fund_eoa(balance, delegation=Address(0x0111)),
+    )
+
+    blockchain_test(
+        pre=pre,
+        post={
+            FEE_DISTRIBUTION: None,
+            STAKING_PRECOMPILE: _staking_post_account(
+                validator, fee, proposer=1
+            ),
+            # The value transfers and marker persist only on success.
+            target: (
+                Account(balance=0, storage={})
+                if violated
+                else Account(balance=value, storage={slot: 1})
             ),
         },
         blocks=[Block(txs=[reward_tx(validator.auth), fee_tx])],
