@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import AbstractSet, Dict, Final, List, Optional, Tuple, final
 
 from ethereum_rlp import rlp
-from ethereum_types.bytes import Bytes, Bytes32
+from ethereum_types.bytes import Bytes, Bytes0, Bytes32
 from ethereum_types.numeric import U64, U256, Uint
 
 from ethereum.crypto.hash import Hash32, keccak256
@@ -68,6 +68,7 @@ from .requests import (
 from .state_tracker import (
     BlockState,
     TransactionState,
+    account_exists,
     add_sender_authority,
     create_ether,
     destroy_account,
@@ -104,6 +105,11 @@ from .vm.gas import (
     calculate_total_blob_gas,
 )
 from .vm.interpreter import MessageCallOutput, process_message_call
+from .vm.precompiled_contracts import STAKING_ADDRESS, staking
+from .vm.precompiled_contracts.staking import (
+    FEE_DISTRIBUTION_ADDRESS,
+    SYSTEM_SENDER,
+)
 
 BASE_FEE_MAX_CHANGE_DENOMINATOR = Uint(8)
 ELASTICITY_MULTIPLIER = Uint(2)
@@ -821,6 +827,8 @@ def apply_body(
     block_output = vm.BlockOutput()
     forget_senders_authorities(block_env.state, block_env.number)
 
+    execute_block_prelude(block_env)
+
     process_unchecked_system_transaction(
         block_env=block_env,
         target_address=BEACON_ROOTS_ADDRESS,
@@ -843,7 +851,39 @@ def apply_body(
         block_output=block_output,
     )
 
+    distribute_priority_fees(block_env)
+
     return block_output
+
+
+def execute_block_prelude(block_env: vm.BlockEnvironment) -> None:
+    """
+    Clear the proposer validator id at the start of the block (MIP-11).
+
+    The proposer is re-established only by a reward syscall transaction;
+    absent one, end-of-block distribution finds no proposer and burns
+    the accumulated balance.
+    """
+    prelude_state = TransactionState(parent=block_env.state)
+    if account_exists(prelude_state, STAKING_ADDRESS):
+        staking.clear_proposer_val_id(prelude_state)
+        incorporate_tx_into_block(prelude_state)
+
+
+def distribute_priority_fees(block_env: vm.BlockEnvironment) -> None:
+    """
+    Distribute the priority fees accumulated this block (MIP-11).
+
+    Direct end-of-block call into the staking distribution logic. The
+    distribution is not a transaction; it credits the proposer pool and
+    empties the distribution account. The client emits a ValidatorRewarded
+    log here to its event stream, but never into a receipt, so it stays
+    out of the header bloom (``compute_bloom`` runs over receipts only);
+    the log is therefore not surfaced to the block's logs.
+    """
+    dist_state = TransactionState(parent=block_env.state)
+    staking.distribute_priority_fees(dist_state)
+    incorporate_tx_into_block(dist_state)
 
 
 def process_general_purpose_requests(
@@ -928,6 +968,14 @@ def process_transaction(
         rlp.encode(index),
         encode_transaction(tx),
     )
+
+    # Staking syscalls are block transactions signed by the system sender.
+    # They pay no gas and mint their value; route them to the system path.
+    if recover_sender(block_env.chain_id, tx) == SYSTEM_SENDER:
+        process_staking_system_transaction(
+            block_env, block_output, tx, index, tx_state
+        )
+        return
 
     intrinsic_gas, calldata_floor_gas_cost = validate_transaction(tx)
 
@@ -1016,8 +1064,10 @@ def process_transaction(
     # create_ether(tx_state, sender, U256(gas_refund_amount)) here).
     add_sender_authority(block_env.state, block_env.number, sender)
 
-    # transfer miner fees
-    create_ether(tx_state, block_env.coinbase, U256(transaction_fee))
+    # MIP-11: priority fees are credited to the distribution account
+    # instead of the block beneficiary; an end-of-block syscall later
+    # distributes them to the leader's delegators.
+    create_ether(tx_state, FEE_DISTRIBUTION_ADDRESS, U256(transaction_fee))
 
     for address in tx_output.accounts_to_delete:
         destroy_account(tx_state, address)
@@ -1039,6 +1089,85 @@ def process_transaction(
         receipt,
     )
 
+    block_output.block_logs += tx_output.logs
+
+    incorporate_tx_into_block(tx_state)
+
+
+def process_staking_system_transaction(
+    block_env: vm.BlockEnvironment,
+    block_output: vm.BlockOutput,
+    tx: Transaction,
+    index: Uint,
+    tx_state: TransactionState,
+) -> None:
+    """
+    Execute a staking syscall transaction from the system sender.
+
+    Unlike user transactions these pay no gas (they consume no block
+    gas), always succeed, increment the sender nonce, and mint their
+    value rather than transferring it. The staking precompile dispatches
+    the syscall by selector (see ``_syscall_reward``).
+
+    System transactions declare no gas: a nonzero gas limit or gas price
+    is a block error, matching the client's system-transaction rules.
+    """
+    sender = SYSTEM_SENDER
+
+    if not isinstance(tx, LegacyTransaction):
+        raise InvalidBlock("system transaction must be legacy")
+    if tx.gas != Uint(0) or tx.gas_price != Uint(0):
+        raise InvalidBlock("system transaction gas non zero")
+
+    increment_nonce(tx_state, sender)
+
+    assert not isinstance(tx.to, Bytes0), "system transaction must have a to"
+    target = tx.to
+
+    tx_env = vm.TransactionEnvironment(
+        origin=sender,
+        gas_price=block_env.base_fee_per_gas,
+        gas=SYSTEM_TRANSACTION_GAS,
+        tx_gas_limit=SYSTEM_TRANSACTION_GAS,
+        access_list_addresses=set(),
+        access_list_storage_keys=set(),
+        state=tx_state,
+        blob_versioned_hashes=(),
+        authorizations=(),
+        index_in_block=index,
+        tx_hash=get_transaction_hash(encode_transaction(tx)),
+    )
+
+    message = Message(
+        block_env=block_env,
+        tx_env=tx_env,
+        caller=sender,
+        target=target,
+        gas=SYSTEM_TRANSACTION_GAS,
+        value=tx.value,
+        data=tx.data,
+        code=get_code(tx_state, get_account(tx_state, target).code_hash),
+        depth=Uint(0),
+        current_target=target,
+        code_address=target,
+        should_transfer_value=False,
+        is_static=False,
+        accessed_addresses=set(),
+        accessed_storage_keys=set(),
+        disable_precompiles=False,
+        parent_evm=None,
+        disable_create_opcodes=False,
+    )
+
+    tx_output = process_message_call(message)
+
+    # System transactions consume no block gas.
+    receipt = make_receipt(
+        tx, tx_output.error, block_output.block_gas_used, tx_output.logs
+    )
+    receipt_key = rlp.encode(Uint(index))
+    block_output.receipt_keys += (receipt_key,)
+    trie_set(block_output.receipts_trie, receipt_key, receipt)
     block_output.block_logs += tx_output.logs
 
     incorporate_tx_into_block(tx_state)

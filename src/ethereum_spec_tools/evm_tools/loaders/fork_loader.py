@@ -243,6 +243,26 @@ class ForkLoad:
         return hasattr(module, "compute_requests_hash")
 
     @property
+    def distribute_priority_fees(self) -> Any:
+        """distribute_priority_fees function of the fork (MIP-11)."""
+        return self._module("fork").distribute_priority_fees
+
+    @property
+    def has_distribute_priority_fees(self) -> bool:
+        """Check if the fork distributes priority fees at end of block."""
+        return hasattr(self._module("fork"), "distribute_priority_fees")
+
+    @property
+    def execute_block_prelude(self) -> Any:
+        """execute_block_prelude function of the fork (MIP-11)."""
+        return self._module("fork").execute_block_prelude
+
+    @property
+    def has_execute_block_prelude(self) -> bool:
+        """Check if the fork runs a block prelude (clears the proposer)."""
+        return hasattr(self._module("fork"), "execute_block_prelude")
+
+    @property
     def Bloom(self) -> Any:
         """Bloom class of the fork."""
         return self._module("fork_types").Bloom
