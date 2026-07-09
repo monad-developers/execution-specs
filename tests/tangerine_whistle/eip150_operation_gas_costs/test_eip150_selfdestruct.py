@@ -577,6 +577,13 @@ def test_selfdestruct_state_access_boundary(
     ],
 )
 @pytest.mark.valid_from("TangerineWhistle")
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Precompile target state on Monad differs from test "
+        "assumptions; precompile addresses overlap Monad system "
+        "contracts."
+    )
+)
 def test_selfdestruct_to_precompile(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -686,6 +693,13 @@ def test_selfdestruct_to_precompile(
     ],
 )
 @pytest.mark.valid_from("TangerineWhistle")
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Precompile target state on Monad differs from test "
+        "assumptions; precompile addresses overlap Monad system "
+        "contracts."
+    )
+)
 def test_selfdestruct_to_precompile_state_access_boundary(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -789,6 +803,12 @@ def test_selfdestruct_to_precompile_state_access_boundary(
     ids=["no_balance", "has_balance"],
 )
 @pytest.mark.valid_from("Cancun")
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="System contract state on Monad differs from test "
+        "assumptions; Monad does not deploy Ethereum system contracts."
+    )
+)
 def test_selfdestruct_to_system_contract(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,

@@ -43,6 +43,12 @@ def test_chainid(
         chain_id=chain_id,
         to=contract_address,
     )
+    # Reset gas-price fields so the execute-remote framework can set them
+    # based on the live network's base fee (fixture defaults are too low
+    # for Monad).
+    tx.model_fields_set.discard("max_fee_per_gas")
+    tx.model_fields_set.discard("max_priority_fee_per_gas")
+    tx.model_fields_set.discard("gas_price")
 
     post = {
         contract_address: Account(storage={1: chain_id}),

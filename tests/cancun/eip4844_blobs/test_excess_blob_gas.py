@@ -52,6 +52,10 @@ from .spec import Spec, SpecHelpers, ref_spec_4844
 REFERENCE_SPEC_GIT_PATH = ref_spec_4844.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4844.version
 
+pytestmark = pytest.mark.execute(
+    pytest.mark.skip(reason="Monad does not support EIP-4844 blobs")
+)
+
 # All tests run from Cancun fork
 pytestmark = pytest.mark.valid_from("Cancun")
 

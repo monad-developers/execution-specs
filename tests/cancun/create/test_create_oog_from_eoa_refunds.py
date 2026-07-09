@@ -218,8 +218,28 @@ def build_init_code(
     "oog_scenario",
     [
         pytest.param(OogScenario.NO_OOG, id="no_oog"),
-        pytest.param(OogScenario.OOG_CODE_DEPOSIT, id="oog_code_deposit"),
-        pytest.param(OogScenario.OOG_INVALID, id="oog_invalid_opcode"),
+        pytest.param(
+            OogScenario.OOG_CODE_DEPOSIT,
+            id="oog_code_deposit",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="OOG post-state asserts sender balance==0, "
+                    "which pins initial balance to gas_limit*gas_price; "
+                    "Monad's live base fee makes this unsatisfiable."
+                )
+            ),
+        ),
+        pytest.param(
+            OogScenario.OOG_INVALID,
+            id="oog_invalid_opcode",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="OOG post-state asserts sender balance==0, "
+                    "which pins initial balance to gas_limit*gas_price; "
+                    "Monad's live base fee makes this unsatisfiable."
+                )
+            ),
+        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -262,7 +282,14 @@ def test_create_oog_from_eoa_refunds(
            the CREATE failed and all state changes were reverted
     """
     helpers = deploy_helper_contracts(pre)
-    sender = pre.fund_eoa(amount=4_000_000)
+    # OOG scenarios assert sender balance==0, so the balance must equal
+    # gas_limit*gas_price exactly (fill uses gas_price=10). NO_OOG only
+    # checks sender nonce, so it can be over-funded to afford the tx at
+    # execute remote's live gas prices (OOG scenarios are skipped there).
+    if oog_scenario == OogScenario.NO_OOG:
+        sender = pre.fund_eoa(amount=10**18)
+    else:
+        sender = pre.fund_eoa(amount=4_000_000)
     init_code = build_init_code(refund_type, oog_scenario, helpers)
     created_address = compute_create_address(address=sender, nonce=0)
 

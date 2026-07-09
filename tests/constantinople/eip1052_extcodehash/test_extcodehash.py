@@ -564,6 +564,12 @@ def test_extcodehash_dynamic_account_overwrite(
     pr=["https://github.com/ethereum/execution-specs/pull/2302"],
 )
 @pytest.mark.with_all_precompiles
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Monad system contracts at precompile-adjacent addresses "
+        "have code; test assumes empty code at those slots."
+    )
+)
 def test_extcodehash_precompile(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -685,6 +691,12 @@ def test_extcodehash_new_account(
 @pytest.mark.parametrize(
     "opcode",
     [Op.CALL, Op.CALLCODE, Op.DELEGATECALL, Op.STATICCALL],
+)
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Deploys arbitrary non-opcode bytecode; execute mode's "
+        "deploy_contract rejects raw bytes (fill accepts them)."
+    )
 )
 def test_extcodehash_via_call(
     state_test: StateTestFiller,
@@ -924,6 +936,12 @@ def test_extcodehash_changed_account(
 )
 @pytest.mark.parametrize("code_byte", [0x00, 0xFE], ids=["stop", "invalid"])
 @pytest.mark.parametrize("size_delta", [0, 1], ids=["max", "max_minus_1"])
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Deploys arbitrary non-opcode bytecode; execute mode's "
+        "deploy_contract rejects raw bytes (fill accepts them)."
+    )
+)
 def test_extcodehash_max_code_size(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -973,6 +991,12 @@ def test_extcodehash_max_code_size(
 @pytest.mark.parametrize(
     "create_opcode",
     [pytest.param(None, id="create_tx"), Op.CREATE, Op.CREATE2],
+)
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Deploys arbitrary non-opcode bytecode; execute mode's "
+        "deploy_contract rejects raw bytes (fill accepts them)."
+    )
 )
 def test_extcodehash_in_init_code(
     state_test: StateTestFiller,
@@ -1138,9 +1162,35 @@ def test_extcodehash_self_in_init(
 @pytest.mark.parametrize(
     "target_type",
     [
-        "precompile",
-        "precompile_with_balance",
-        "contract",
+        pytest.param(
+            "precompile",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Monad precompile/system-contract state at low "
+                    "addresses differs from the empty-precompile "
+                    "assumption."
+                )
+            ),
+        ),
+        pytest.param(
+            "precompile_with_balance",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Monad precompile/system-contract state at low "
+                    "addresses differs from the empty-precompile "
+                    "assumption."
+                )
+            ),
+        ),
+        pytest.param(
+            "contract",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Deploys arbitrary non-opcode bytecode; execute "
+                    "mode's deploy_contract rejects raw bytes."
+                )
+            ),
+        ),
         "eoa",
         "nonexistent",
     ],

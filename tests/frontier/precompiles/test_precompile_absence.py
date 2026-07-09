@@ -29,6 +29,12 @@ RETURNDATASIZE_OFFSET = 0x10000000000000000  # Must be greater than UPPER_BOUND
 # range where Monad precompiles are put
 @pytest.mark.parametrize("monad_range", [True, False])
 @pytest.mark.valid_from("Byzantium")
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Storage canary creates initcode prefix > 255 bytes "
+        "(framework limit) for the 257-slot canary preamble."
+    )
+)
 def test_precompile_absence(
     state_test: StateTestFiller,
     pre: Alloc,

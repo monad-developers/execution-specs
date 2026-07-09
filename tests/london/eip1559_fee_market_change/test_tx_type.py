@@ -41,6 +41,12 @@ def tx_validity(fork: Fork) -> Generator[ParameterSet, None, None]:
     pr=["https://github.com/ethereum/execution-specs/pull/1754"],
 )
 @pytest.mark.parametrize_by_fork("valid", tx_validity)
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="max_priority_fee_per_gas=1 wei is below Monad base fee; "
+        "tx never gets included and framework times out."
+    )
+)
 def test_eip1559_tx_validity(
     state_test: StateTestFiller,
     fork: Fork,

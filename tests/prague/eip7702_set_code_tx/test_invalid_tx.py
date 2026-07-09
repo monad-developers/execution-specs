@@ -29,7 +29,16 @@ from .spec import Spec, ref_spec_7702
 REFERENCE_SPEC_GIT_PATH = ref_spec_7702.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7702.version
 
-pytestmark = [pytest.mark.valid_from("Prague"), pytest.mark.exception_test]
+pytestmark = [
+    pytest.mark.valid_from("Prague"),
+    pytest.mark.exception_test,
+    pytest.mark.execute(
+        pytest.mark.skip(
+            reason="Invalid-tx validation requires fill-mode tx-rejection "
+            "flow; live chains do not produce the expected exceptions."
+        )
+    ),
+]
 
 auth_account_start_balance = 0
 

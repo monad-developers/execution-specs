@@ -3,6 +3,15 @@
 import pytest
 from execution_testing import Fork
 
+
+def pytest_ignore_collect(collection_path, config):
+    """Skip BLS precompile tests on execute remote (slow helpers + Monad
+    doesn't implement EIP-2537 precompiles)."""
+    if config.getoption("--rpc-endpoint", default=None):
+        return True
+    return None
+
+
 from ...common.precompile_fixtures import (
     call_contract_address,  # noqa: F401
     call_contract_code,  # noqa: F401

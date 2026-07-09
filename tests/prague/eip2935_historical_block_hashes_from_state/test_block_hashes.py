@@ -23,6 +23,15 @@ REFERENCE_SPEC_GIT_PATH = ref_spec_2935.git_path
 REFERENCE_SPEC_VERSION = ref_spec_2935.version
 
 
+pytestmark = pytest.mark.execute(
+    pytest.mark.skip(
+        reason="EIP-2935 block hash history depends on test-controlled "
+        "block sequencing and BLOCKHASH context not reproducible on a "
+        "long-running live chain."
+    )
+)
+
+
 def generate_block_check_code(
     check_block_number: int,
     current_block_number: int,

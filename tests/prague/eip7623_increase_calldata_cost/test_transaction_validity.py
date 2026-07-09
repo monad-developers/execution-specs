@@ -325,6 +325,12 @@ def test_transaction_validity_type_3(
         pytest.param(
             [Address(i + 1) for i in range(10)],
             id="multiple_authorizations",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Monad enforces a smaller auth list length "
+                    "limit than 10"
+                )
+            ),
         ),
     ],
     indirect=True,

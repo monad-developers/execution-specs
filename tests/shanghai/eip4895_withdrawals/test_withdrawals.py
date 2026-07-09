@@ -29,7 +29,15 @@ from .spec import ref_spec_4895
 REFERENCE_SPEC_GIT_PATH = ref_spec_4895.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4895.version
 
-pytestmark = pytest.mark.valid_from("Shanghai")
+pytestmark = [
+    pytest.mark.valid_from("Shanghai"),
+    pytest.mark.execute(
+        pytest.mark.skip(
+            reason="Beacon withdrawals are not test-controllable on live "
+            "chains; Monad's withdrawal mechanism differs."
+        )
+    ),
+]
 
 ONE_GWEI = 10**9
 

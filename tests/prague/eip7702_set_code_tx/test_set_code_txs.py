@@ -560,6 +560,12 @@ def test_set_code_to_self_destruct(
 
 
 @pytest.mark.with_all_create_opcodes
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="gas_limit=10M at Monad live gas price exceeds seed "
+        "account balance."
+    )
+)
 def test_creating_tx_to_contract_creator(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2066,6 +2072,9 @@ def test_set_code_to_self_destructing_account_deployed_in_same_tx(
 
 
 @pytest.mark.xdist_group(name="bigmem")
+@pytest.mark.execute(
+    pytest.mark.skip(reason="Auth list length exceeds Monad's enforced limit.")
+)
 def test_set_code_multiple_first_valid_authorization_tuples_same_signer(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2117,6 +2126,9 @@ def test_set_code_multiple_first_valid_authorization_tuples_same_signer(
 
 
 @pytest.mark.xdist_group(name="bigmem")
+@pytest.mark.execute(
+    pytest.mark.skip(reason="Auth list length exceeds Monad's enforced limit.")
+)
 def test_set_code_multiple_valid_authorization_tuples_same_signer_increasing_nonce(  # noqa: E501
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2169,6 +2181,9 @@ def test_set_code_multiple_valid_authorization_tuples_same_signer_increasing_non
 
 
 @pytest.mark.xdist_group(name="bigmem")
+@pytest.mark.execute(
+    pytest.mark.skip(reason="Auth list length exceeds Monad's enforced limit.")
+)
 def test_set_code_multiple_valid_authorization_tuples_same_signer_increasing_nonce_self_sponsored(  # noqa: E501
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2221,6 +2236,9 @@ def test_set_code_multiple_valid_authorization_tuples_same_signer_increasing_non
     )
 
 
+@pytest.mark.execute(
+    pytest.mark.skip(reason="Auth list length exceeds Monad's enforced limit.")
+)
 def test_set_code_multiple_valid_authorization_tuples_first_invalid_same_signer(  # noqa: E501
     state_test: StateTestFiller,
     pre: Alloc,
@@ -2472,6 +2490,13 @@ def test_set_code_using_valid_synthetic_signatures(
     ],
 )
 @pytest.mark.json_loader
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Invalid auth signature produces a tx that some live "
+        "chains return in non-RLP-compliant form; pydantic validation "
+        "fails on the response."
+    )
+)
 def test_valid_tx_invalid_auth_signature(
     state_test: StateTestFiller,
     pre: Alloc,
@@ -3041,6 +3066,12 @@ def deposit_contract_initial_storage() -> Storage:
     )
 )
 @pytest.mark.with_all_system_contracts
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="System contracts at fixed Ethereum addresses are not "
+        "deployed on Monad."
+    )
+)
 def test_set_code_to_system_contract(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

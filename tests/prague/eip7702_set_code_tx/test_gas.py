@@ -613,6 +613,13 @@ def gas_test_parameter_args(
                 "authorizations_count": multiple_authorizations_count,
             },
             id="multiple_invalid_nonce_authorizations_self_sponsored_multiple_signers",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="Self-sponsored multi-signer auths create EOAs "
+                    "that never send a tx; execute remote cannot defer "
+                    "their balance."
+                )
+            ),
         ),
         pytest.param(
             {
@@ -688,6 +695,13 @@ def gas_test_parameter_args(
                 "authority_type": AddressType.EOA,
             },
             id="single_valid_authorization_eoa_authority",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="EOA authority is a fund_eoa fixture EOA that "
+                    "does not send a tx; execute remote can't resolve "
+                    "its deferred balance."
+                )
+            ),
         ),
         pytest.param(
             {
@@ -702,6 +716,13 @@ def gas_test_parameter_args(
                 "authorizations_count": multiple_authorizations_count,
             },
             id="multiple_valid_authorizations_eoa_authority",
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="EOA authority is a fund_eoa fixture EOA that "
+                    "does not send a tx; execute remote can't resolve "
+                    "its deferred balance."
+                )
+            ),
         ),
         pytest.param(
             {
@@ -808,6 +829,12 @@ def gas_test_parameter_args(
                     "authorizations_count": many_authorizations_count,
                 },
                 id="many_valid_authorizations_single_signer",
+                marks=pytest.mark.execute(
+                    pytest.mark.skip(
+                        reason="many_authorizations_count exceeds Monad's "
+                        "auth list length limit."
+                    )
+                ),
             ),
             pytest.param(
                 {
@@ -815,6 +842,13 @@ def gas_test_parameter_args(
                     "authorizations_count": many_authorizations_count,
                 },
                 id="many_valid_authorizations_multiple_signers",
+                marks=pytest.mark.execute(
+                    pytest.mark.skip(
+                        reason="Many signers create EOAs that don't send "
+                        "txs; execute remote can't resolve deferred "
+                        "balance."
+                    )
+                ),
             ),
             pytest.param(
                 {
@@ -825,6 +859,12 @@ def gas_test_parameter_args(
                     "authorizations_count": many_authorizations_count,
                 },
                 id="first_valid_then_many_duplicate_authorizations",
+                marks=pytest.mark.execute(
+                    pytest.mark.skip(
+                        reason="many_authorizations_count exceeds Monad's "
+                        "auth list length limit."
+                    )
+                ),
             ),
         ]
     return extend_with_defaults(

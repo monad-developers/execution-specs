@@ -77,8 +77,41 @@ def target_address(
             return identity
 
 
-@pytest.mark.parametrize("target_account_type", TargetAccountType)
-@pytest.mark.parametrize("delegate", [True, False])
+@pytest.mark.parametrize(
+    "target_account_type",
+    [
+        pytest.param(
+            t,
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="EOA/EMPTY target fund_eoa fixture EOA does "
+                    "not send a tx; execute remote can't resolve its "
+                    "deferred balance."
+                )
+            )
+            if t in (TargetAccountType.EMPTY, TargetAccountType.EOA)
+            else (),
+        )
+        for t in TargetAccountType
+    ],
+)
+@pytest.mark.parametrize(
+    "delegate",
+    [
+        pytest.param(
+            True,
+            marks=pytest.mark.execute(
+                pytest.mark.skip(
+                    reason="`delegate=True` reassigns target_address to a "
+                    "new EOA wrapping the original; the original target "
+                    "EOA fixture EOA never sends a tx so execute remote "
+                    "cannot resolve its deferred balance."
+                )
+            ),
+        ),
+        False,
+    ],
+)
 @pytest.mark.parametrize("sender_delegated", [True, False])
 @pytest.mark.parametrize("call_from_initcode", [True, False])
 def test_delegate_call_targets(

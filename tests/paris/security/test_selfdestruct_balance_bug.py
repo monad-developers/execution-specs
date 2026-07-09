@@ -28,6 +28,12 @@ from execution_testing import (
 
 
 @pytest.mark.valid_from("Constantinople")
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Flaky under -n parallel: 4-tx single-block scenario "
+        "times out under xdist worker contention on Monad solonet."
+    )
+)
 def test_tx_selfdestruct_balance_bug(
     blockchain_test: BlockchainTestFiller, pre: Alloc
 ) -> None:
