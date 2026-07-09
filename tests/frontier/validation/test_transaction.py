@@ -13,6 +13,16 @@ from execution_testing.specs.blockchain import (
 from execution_testing.test_types.block_types import Environment
 from execution_testing.test_types.transaction_types import TransactionDefaults
 
+# Tx validation tests require fill-mode block/header overrides and
+# expected-exception flow; not runnable against a live chain.
+pytestmark = [
+    pytest.mark.execute(
+        pytest.mark.skip(
+            reason="Tx validation tests rely on fill-mode chain control."
+        )
+    ),
+]
+
 
 @pytest.mark.exception_test
 @pytest.mark.json_loader

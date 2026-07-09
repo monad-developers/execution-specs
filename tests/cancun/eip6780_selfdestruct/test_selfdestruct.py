@@ -904,6 +904,12 @@ def test_selfdestruct_pre_existing(
 @pytest.mark.parametrize("selfdestruct_contract_initial_balance", [0, 1])
 @pytest.mark.parametrize("call_times", [1, 10])
 @pytest.mark.valid_from("Shanghai")
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Multiple cross-sender txs in one block; Monad block "
+        "builder may reorder them, breaking the assumed sequence."
+    )
+)
 def test_selfdestruct_created_same_block_different_tx(
     blockchain_test: BlockchainTestFiller,
     eip_enabled: bool,

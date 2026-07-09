@@ -33,6 +33,12 @@ from execution_testing.forks import London
 @pytest.mark.valid_from("Frontier")
 @pytest.mark.with_all_create_opcodes
 @pytest.mark.json_loader
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Post-state batch RPC for 256+ created accounts exceeds "
+        "solonet's batch response size; not a test logic issue."
+    )
+)
 def test_create_one_byte(
     state_test: StateTestFiller,
     fork: Fork,

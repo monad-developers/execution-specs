@@ -41,6 +41,15 @@ REFERENCE_SPEC_GIT_PATH = ref_spec_4788.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4788.version
 
 
+pytestmark = pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Beacon root tests require test-controlled "
+        "parent_beacon_block_root per block; live chain supplies "
+        "its own."
+    )
+)
+
+
 def count_factory(start: int, step: int = 1) -> Callable[[], Iterator[int]]:
     """
     Create a factory that returns fresh count iterators to avoid state
@@ -399,12 +408,6 @@ def test_beacon_root_selfdestruct(
 )
 @pytest.mark.parametrize("block_count", [10])  # All tests use 10 blocks
 @pytest.mark.valid_from("Cancun")
-@pytest.mark.execute(
-    pytest.mark.skip(
-        reason="Requires test-controlled parent_beacon_block_root and "
-        "timestamp per block; live chains supply these themselves."
-    )
-)
 def test_multi_block_beacon_root_timestamp_calls(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

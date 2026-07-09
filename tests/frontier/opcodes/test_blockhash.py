@@ -23,6 +23,12 @@ from execution_testing.forks.helpers import Fork
     ],
 )
 @pytest.mark.slow()
+@pytest.mark.execute(
+    pytest.mark.skip(
+        reason="Depends on test_tx being at low block height so "
+        "BLOCKHASH(0) returns genesis; live chains run far past block 0."
+    )
+)
 def test_genesis_hash_available(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

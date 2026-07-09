@@ -30,6 +30,7 @@ def test_call_large_offset_mstore(
     when it shouldn't.
     """
     sender = pre.fund_eoa()
+    call_target = pre.nonexistent_account()
 
     mem_offset = 128  # arbitrary number
 
@@ -38,7 +39,9 @@ def test_call_large_offset_mstore(
     mstore_push_cost = (Op.PUSH1(0) * len(Op.MSTORE.kwargs)).gas_cost(fork)
 
     call_measure = CodeGasMeasure(
-        code=Op.CALL(gas=0, ret_offset=mem_offset, ret_size=0),
+        code=Op.CALL(
+            gas=0, address=call_target, ret_offset=mem_offset, ret_size=0
+        ),
         overhead_cost=call_push_cost,
         extra_stack_items=1,  # Because CALL pushes 1 item to the stack
         sstore_key=0,
@@ -97,6 +100,7 @@ def test_call_memory_expands_on_early_revert(
     executing a CALL, but not when an early revert happens.
     """
     sender = pre.fund_eoa()
+    call_target = pre.nonexistent_account()
 
     # arbitrary number, greater than memory size to trigger an expansion
     ret_size = 128
@@ -107,7 +111,7 @@ def test_call_memory_expands_on_early_revert(
 
     call_measure = CodeGasMeasure(
         # CALL with value
-        code=Op.CALL(gas=0, value=100, ret_size=ret_size),
+        code=Op.CALL(gas=0, address=call_target, value=100, ret_size=ret_size),
         overhead_cost=call_push_cost,
         # Because CALL pushes 1 item to the stack
         extra_stack_items=1,
@@ -183,6 +187,7 @@ def test_call_large_args_offset_size_zero(
     Since the size is zero, the large offset should not cause a revert.
     """
     sender = pre.fund_eoa()
+    call_target = pre.nonexistent_account()
 
     very_large_offset = 2**100
 
@@ -190,7 +195,12 @@ def test_call_large_args_offset_size_zero(
     push_cost = (Op.PUSH1(0) * len(call_opcode.kwargs)).gas_cost(fork)
 
     call_measure = CodeGasMeasure(
-        code=call_opcode(gas=0, args_offset=very_large_offset, args_size=0),
+        code=call_opcode(
+            gas=0,
+            address=call_target,
+            args_offset=very_large_offset,
+            args_size=0,
+        ),
         overhead_cost=push_cost,
         extra_stack_items=1,  # Because xCALL pushes 1 item to the stack
         sstore_key=0,
