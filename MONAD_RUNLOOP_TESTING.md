@@ -64,6 +64,50 @@ uv run consume direct --input ../fixtures_eestnet \
   across ~14 threads), so budget ~5 vCPUs per worker (`-n N` needs
   roughly `5 * N` cores).
 
+## MIP-8 perf-regression tests
+
+`tests/monad_ten/mip8_pageified_storage/test_perf_regression.py` fills
+SLOAD/SSTORE workloads at both forks and times block execution on the
+runloop to compare MONAD_NINE (slot-encoded) vs MONAD_NEXT (page-encoded).
+
+
+### Setup
+
+```sh
+sudo tee /etc/sysctl.d/99-benchmark.conf >/dev/null <<'EOF'
+kernel.randomize_va_space = 0
+kernel.perf_event_paranoid = 1
+vm.nr_hugepages = 3072
+EOF
+sudo sysctl --system
+sudo cpupower idle-set -D 1
+```
+
+### Filling & running
+
+```sh
+MIP8_PERF_REPEATS=5 uv run fill --clean -m blockchain_test \
+    tests/monad_ten/mip8_pageified_storage/test_perf_regression.py \
+    --from MONAD_NINE --until MONAD_NEXT --chain-id 30143 --monad-runloop \
+    --output ../fixtures_eestnet -n auto
+
+uv run consume direct --input ../fixtures_eestnet \
+    --bin ../monad-eest-rust-harness/bin/eest-runner \
+    --timing-report-dir ../timing
+```
+
+- Each block is stamped to 200M gas; the same workload is sized to fit
+  both forks (no gas assertions — post-state is the oracle).
+- `MIP8_PERF_REPEATS=N` (default 1) emits N page-disjoint copies of each
+  workload as successive blocks → N cold timing samples per fixture.
+- `MIP8_PERF_BLOCK_GAS=N` shrinks the block for a quick smoke fill.
+- Consume writes both `timing_consume.md` and `.csv` by default
+  (`--timing-report {both,md,csv,none}`, `--timing-report-dir DIR`): one
+  row per (test, params, fork) — the `min` over the repeat blocks (drops
+  the warmup block) — with MONAD_NINE, MONAD_NEXT, then a Δ% row.
+- Run consume on a quiet host for stable timings; the numbers are noisy
+  under contention.
+
 ## Behavior and known limits
 
 - Fixtures containing expected-invalid blocks are skipped: the ledger

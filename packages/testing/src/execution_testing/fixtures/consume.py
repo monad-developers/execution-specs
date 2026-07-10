@@ -3,7 +3,15 @@
 import datetime
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Annotated, Any, Iterator, List, Optional, TextIO
+from typing import (
+    Annotated,
+    Any,
+    Iterator,
+    List,
+    Optional,
+    TextIO,
+    TypedDict,
+)
 
 from pydantic import BaseModel, BeforeValidator, RootModel
 
@@ -32,6 +40,24 @@ a hash read back from one is padded to its full width instead of rejected.
 """
 
 
+class BlockExecutionTiming(TypedDict):
+    """
+    Per-block execution timing a consumer may optionally report.
+
+    All durations are in microseconds. Consumers that can measure block
+    processing (e.g. the monad runloop) return these so `consume` can emit
+    a performance table; consumers that cannot simply return ``None``.
+    """
+
+    block: int
+    tx_count: int
+    gas: int
+    tx_exec_us: int
+    state_root_us: int
+    commit_us: int
+    total_us: int
+
+
 class FixtureConsumer(ABC):
     """Abstract class for verifying Ethereum test fixtures."""
 
@@ -51,10 +77,13 @@ class FixtureConsumer(ABC):
         fixture_path: Path,
         fixture_name: str | None = None,
         debug_output_path: Path | None = None,
-    ) -> None:
+    ) -> Optional[List[BlockExecutionTiming]]:
         """
         Test the client with the specified fixture using its direct consumer
         interface.
+
+        Optionally return per-block execution timing for a performance
+        report; consumers that do not measure timing return ``None``.
         """
         raise NotImplementedError(
             "The `consume_fixture()` function is not supported by this tool."
