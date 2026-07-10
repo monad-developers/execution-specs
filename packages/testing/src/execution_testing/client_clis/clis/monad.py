@@ -21,9 +21,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import ijson  # type: ignore[import-untyped]
 import pytest
 
 from execution_testing.fixtures import BlockchainFixture, FixtureFormat
+from execution_testing.fixtures.consume import BlockExecutionTiming
 from execution_testing.test_types import Transaction
 
 from ..fixture_consumer_tool import FixtureConsumerTool
@@ -59,6 +61,21 @@ def _set_pdeathsig() -> None:
     """
     if _LIBC is not None:
         _LIBC.prctl(1, signal.SIGTERM)
+
+
+def _load_fixture(
+    fixture_path: Path, fixture_name: Optional[str]
+) -> Dict[str, Any]:
+    """
+    Load a single fixture from a (possibly multi-fixture) JSON file.
+
+    ijson for low-memory footprint.
+    """
+    with open(fixture_path, "rb") as f:
+        for name, fixture in ijson.kvitems(f, ""):
+            if fixture_name is None or name == fixture_name:
+                return fixture
+    raise KeyError(f"fixture {fixture_name!r} not found in {fixture_path}")
 
 
 def _hex32(value: str) -> str:
@@ -156,6 +173,49 @@ def _compare_account(
                 f"{hex(actual_value)}"
             )
     return mismatches
+
+
+def _exec_block_row(line: str) -> Optional[BlockExecutionTiming]:
+    """Parse one `__exec_block` log line, or None if malformed."""
+    body = line.split("__exec_block", 1)[1]
+    fields: Dict[str, str] = {}
+    for part in body.split(","):
+        key, sep, value = part.partition("=")
+        if sep:
+            fields[key.strip()] = value.strip()
+
+    def us(key: str) -> int:
+        return int(fields[key].replace("µs", "").strip())
+
+    try:
+        return BlockExecutionTiming(
+            block=int(fields["bl"]),
+            tx_count=int(fields["tx"]),
+            gas=int(fields["gas"]),
+            tx_exec_us=us("txe"),
+            state_root_us=us("sr"),
+            commit_us=us("cmt"),
+            total_us=us("tot"),
+        )
+    except (KeyError, ValueError):
+        return None
+
+
+def _parse_block_timings(stdout: str) -> List[BlockExecutionTiming]:
+    """
+    Extract per-block timing from the runloop's `__exec_block` log lines.
+
+    The production runloop logs one such line per block, e.g.:
+    `__exec_block,bl=1,...,tx=1,...,sr=5192µs,txe=14241µs,cmt=879µs,
+    tot=21153µs,...,gas=10000000,...`. Fields carry leading padding and a
+    `µs` suffix on durations. Missing/malformed lines are skipped.
+    """
+    rows = [
+        _exec_block_row(line)
+        for line in stdout.splitlines()
+        if "__exec_block" in line
+    ]
+    return [row for row in rows if row is not None]
 
 
 class MonadFixtureConsumer(
@@ -297,16 +357,11 @@ class MonadFixtureConsumer(
         fixture_path: Path,
         fixture_name: Optional[str] = None,
         debug_output_path: Optional[Path] = None,
-    ) -> None:
+    ) -> Optional[List[BlockExecutionTiming]]:
         """Execute a blockchain fixture on the monad runloop and verify."""
         assert fixture_format == BlockchainFixture
 
-        with open(fixture_path) as f:
-            fixtures = json.load(f)
-        if fixture_name is None:
-            assert len(fixtures) == 1, "fixture_name required"
-            fixture_name = next(iter(fixtures))
-        fixture = fixtures[fixture_name]
+        fixture = _load_fixture(fixture_path, fixture_name)
 
         network = fixture["network"]
         assert network in FORK_REVISION_SCHEDULES, (
@@ -360,6 +415,7 @@ class MonadFixtureConsumer(
                 )
 
             output = json.loads(output_path.read_text())
+            block_timings = _parse_block_timings(stdout)
 
         actual_post = {
             address.lower(): account
@@ -392,3 +448,5 @@ class MonadFixtureConsumer(
                 "post-state mismatch on the monad runloop:\n"
                 + "\n".join(mismatches)
             )
+
+        return block_timings or None
