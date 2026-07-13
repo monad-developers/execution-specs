@@ -116,10 +116,10 @@ def _mwu_p(a: list[int], b: list[int]) -> float:
     return erfc(max(0.0, (d - 0.5) / sigma) / sqrt(2))
 
 
-def _op_phrase(op: str, k: int, layout: str | None) -> str:
+def _op_phrase(op: str, k: int) -> str:
     """Describe what one block-filling tx does for a storage op."""
-    place = f"{layout} pages" if layout else "pages"
-    page = f"{layout} page" if layout else "page"
+    place = "pages"
+    page = "page"
     occ = f", {k} slot{'' if k == 1 else 's'} occupied per page"
     phrases = {
         "sload_cold_hit": f"cold-SLOAD one occupied slot on many {place}{occ}",
@@ -149,22 +149,21 @@ def _op_phrase(op: str, k: int, layout: str | None) -> str:
 def describe(test: str, params: str) -> str:
     """One-sentence account of what a case's block transactions do."""
     if test == "page_ops":
-        op, kpart, layout = params.split("-")
+        op, kpart = params.split("-")
         k = int(kpart.removeprefix("k"))
-        return f"block-filling transactions {_op_phrase(op, k, layout)}"
+        return f"block-filling transactions {_op_phrase(op, k)}"
     if test == "block_shape":
         op, kpart, shape = params.split("-")
         k = int(kpart.removeprefix("k"))
         who = "a few big" if shape == "few_big" else "many small (~300)"
-        return f"{who} transactions each {_op_phrase(op, k, None)}"
+        return f"{who} transactions each {_op_phrase(op, k)}"
     if test == "page_spread":
         m = params.split("_")[0].removeprefix("m")
         n = int(params.split("_")[1].removeprefix("n"))
-        layout = params.split("_")[2]
         target = f"{n} contract" + ("" if n == 1 else "s")
         return (
             f"transactions SSTORE 0->1 into {m} fresh slots spread across "
-            f"{target} ({layout} pages)"
+            f"{target}"
         )
     if test == "tx_halt":
         mode = params.removeprefix("mode_")
@@ -185,12 +184,12 @@ def describe(test: str, params: str) -> str:
     if test == "random_sload":
         slots = params.split("-")[0].removeprefix("slots")
         k = int(params.split("-")[1].removeprefix("k"))
-        page = "a 1-element" if k == 1 else "an empty"
-        noun = "slot" if slots == "1" else "slots"
+        page = "1-element" if k == 1 else "empty"
+        noun = "page" if slots == "1" else "pages"
         return (
-            f"cold-SLOAD {slots} pseudorandom {noun} (each on {page} page) "
-            "in a pseudorandom cycle, from a pool of contracts called in a "
-            "pseudorandom cycle"
+            f"cold-SLOAD {slots} distinct {page} {noun} (random "
+            "access), "
+            "from a pool of contracts spread across the block"
         )
     if test == "bad_block_serial":
         return (
@@ -200,7 +199,8 @@ def describe(test: str, params: str) -> str:
     if test == "bad_block_chained":
         return (
             "each SLOAD returns the next SLOAD's slot (SLOAD(SLOAD(...))), "
-            "a data-dependent chain that serialises the reads within a tx"
+            "a data-dependent pointer chase over distinct pages that "
+            "serialises the reads within a tx"
         )
     return f"{test} {params}"
 

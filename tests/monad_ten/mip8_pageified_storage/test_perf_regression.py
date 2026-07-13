@@ -97,9 +97,6 @@ REPEATS = int(os.environ.get("MIP8_PERF_REPEATS", "1"))
 # the whole fixture's genesis).
 PRE_SLOT_CAP = 65_536
 
-# Non-unit stride (in page indices) for the "scattered" layout.
-SCATTERED_STRIDE = 1009
-
 # Gas of one While control step (JUMPDEST + JUMPI + counter compare);
 # a small over-estimate keeps sizing on the safe side (no OOG).
 WHILE_CONTROL_GAS = 40
@@ -215,20 +212,14 @@ def test_compute_loop(
 # --- shared bytecode + sizing helpers ---------------------------------
 
 
-def _stride(layout: str) -> int:
-    """Return the page-index stride for a layout name."""
-    return 1 if layout == "contiguous" else SCATTERED_STRIDE
+def _page_index() -> Bytecode:
+    """Bytecode: base + i (base at M_BASE, i at M_COUNTER)."""
+    return Op.ADD(Op.MLOAD(M_BASE), Op.MLOAD(M_COUNTER))
 
 
-def _page_index(stride: int) -> Bytecode:
-    """Bytecode: base + i*stride (base at M_BASE, i at M_COUNTER)."""
-    i = Op.MLOAD(M_COUNTER)
-    return Op.ADD(Op.MLOAD(M_BASE), Op.MUL(i, stride))
-
-
-def _slot(stride: int, offset: int | Bytecode) -> Bytecode:
+def _slot(offset: int | Bytecode) -> Bytecode:
     """Bytecode: (page_index << 7) + offset."""
-    return Op.ADD(offset, Op.SHL(7, _page_index(stride)))
+    return Op.ADD(offset, Op.SHL(7, _page_index()))
 
 
 def _read_accum(slot: Bytecode | int, *, warm: bool) -> Bytecode:
@@ -268,41 +259,35 @@ def _sstore(
     )
 
 
-def _body(op: StorageOp, k: int, stride: int) -> Bytecode:
+def _body(op: StorageOp, k: int) -> Bytecode:
     """Assemble the per-iteration loop body for an operation."""
     inc = Op.MSTORE(M_COUNTER, Op.ADD(Op.MLOAD(M_COUNTER), 1))
     if op is StorageOp.SLOAD_COLD_HIT:
-        return _read_accum(_slot(stride, 0), warm=False) + inc
+        return _read_accum(_slot(0), warm=False) + inc
     if op is StorageOp.SLOAD_COLD_MISS:
-        return _read_accum(_slot(stride, SLOTS_PER_PAGE - 1), warm=False) + inc
+        return _read_accum(_slot(SLOTS_PER_PAGE - 1), warm=False) + inc
     if op is StorageOp.SLOAD_WARM_REPEAT:
         # The slot is passed in calldata (M_BASE) so each block re-reads a
         # distinct slot; cold on the first iteration, warm thereafter.
         return _read_accum(Op.MLOAD(M_BASE), warm=True) + inc
     if op is StorageOp.SLOAD_SWEEP:
-        code = Op.MSTORE(M_PAGE, Op.SHL(7, _page_index(stride)))
+        code = Op.MSTORE(M_PAGE, Op.SHL(7, _page_index()))
         for j in range(k):
             code += _read_accum(Op.ADD(Op.MLOAD(M_PAGE), j), warm=False)
         return code + inc
     if op is StorageOp.SSTORE_FRESH:
         return (
-            _sstore(
-                _slot(stride, 0), 1, original=0, current=0, new=1, growth=0
-            )
-            + inc
+            _sstore(_slot(0), 1, original=0, current=0, new=1, growth=0) + inc
         )
     if op is StorageOp.SSTORE_NOOP:
         return (
-            _sstore(
-                _slot(stride, 0), 1, original=1, current=1, new=1, growth=0
-            )
-            + inc
+            _sstore(_slot(0), 1, original=1, current=1, new=1, growth=0) + inc
         )
     if op is StorageOp.SSTORE_GROW:
         offset = Op.ADD(k, Op.MLOAD(M_LOCAL))
         return (
             _sstore(
-                _slot(stride, offset),
+                _slot(offset),
                 1,
                 original=0,
                 current=0,
@@ -316,9 +301,7 @@ def _body(op: StorageOp, k: int, stride: int) -> Bytecode:
         # is a genuine value change on the still-occupied slot 0.
         value = Op.ADD(2, Op.MLOAD(M_LOCAL))
         return (
-            _sstore(
-                _slot(stride, 0), value, original=1, current=1, new=2, growth=0
-            )
+            _sstore(_slot(0), value, original=1, current=1, new=2, growth=0)
             + inc
         )
     if op is StorageOp.SSTORE_CLEAR_KEEP:
@@ -327,7 +310,7 @@ def _body(op: StorageOp, k: int, stride: int) -> Bytecode:
         offset = Op.MLOAD(M_LOCAL)
         return (
             _sstore(
-                _slot(stride, offset),
+                _slot(offset),
                 0,
                 original=1,
                 current=1,
@@ -338,13 +321,10 @@ def _body(op: StorageOp, k: int, stride: int) -> Bytecode:
         )
     if op is StorageOp.SSTORE_CLEAR_EMPTY:
         return (
-            _sstore(
-                _slot(stride, 0), 0, original=1, current=1, new=0, growth=0
-            )
-            + inc
+            _sstore(_slot(0), 0, original=1, current=1, new=0, growth=0) + inc
         )
     if op is StorageOp.SLOAD_EMPTY_PAGE:
-        return _read_accum(_slot(stride, 0), warm=False) + inc
+        return _read_accum(_slot(0), warm=False) + inc
     raise ValueError(f"unknown op {op}")
 
 
@@ -353,7 +333,7 @@ def _is_read(op: StorageOp) -> bool:
     return op.value.startswith("sload")
 
 
-def _contract(op: StorageOp, k: int, stride: int) -> Bytecode:
+def _contract(op: StorageOp, k: int) -> Bytecode:
     """
     Build the workload contract (fixed size, independent of REPEATS).
 
@@ -370,7 +350,7 @@ def _contract(op: StorageOp, k: int, stride: int) -> Bytecode:
         + Op.MSTORE(M_COUNTER, 0)
     )
     loop = While(
-        body=_body(op, k, stride),
+        body=_body(op, k),
         condition=Op.LT(Op.MLOAD(M_COUNTER), Op.MLOAD(M_COUNT)),
     )
     markers = Op.SSTORE(
@@ -398,25 +378,23 @@ def _calldata(
     )
 
 
-def _per_iter_gas(op: StorageOp, k: int, stride: int) -> int:
+def _per_iter_gas(op: StorageOp, k: int) -> int:
     """Gas for one loop iteration, sized to the costlier of both forks."""
-    body = _body(op, k, stride)
+    body = _body(op, k)
     per_op = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_NEXT))
     return per_op + WHILE_CONTROL_GAS
 
 
-def _iterations(op: StorageOp, k: int, stride: int, budget: int) -> int:
+def _iterations(op: StorageOp, k: int, budget: int) -> int:
     """Loop iterations that fit `budget` gas, leaving tx headroom."""
-    return max(1, (budget - TX_RESERVE) // _per_iter_gas(op, k, stride))
+    return max(1, (budget - TX_RESERVE) // _per_iter_gas(op, k))
 
 
-def _occupied_prestate(
-    domain: int, stride: int, pages: int, k: int
-) -> StorageDict:
+def _occupied_prestate(domain: int, pages: int, k: int) -> StorageDict:
     """Pre-populate `pages` pages (from `domain`) with `k` slots each."""
     storage: StorageDict = {}
     for i in range(pages):
-        base_slot = (domain + i * stride) << 7
+        base_slot = (domain + i) << 7
         for j in range(k):
             storage[base_slot + j] = 1
     return storage
@@ -428,56 +406,41 @@ def _repeat_domains(repeat: int) -> Tuple[int, int, int]:
     return READ_DOMAIN + shift, FRESH_DOMAIN + shift, WARM_BASE + repeat
 
 
-# --- dimensions 1, 2, 3, 6: op x occupancy x layout -------------------
+# --- dimensions 1, 2, 3, 6: op x occupancy -----------------------------
 
-# (op, layout, page-occupancy k values). Contiguous and scattered are
-# listed separately so their k coverage can diverge later (scattered
-# fills are far more expensive); for now both share the same k lists.
-# cold_miss/grow keep a zero slot free (k < SLOTS_PER_PAGE, and grow
-# writes k..k+FULL_BLOCK_TXS-1). clear_keep needs k > FULL_BLOCK_TXS so a
-# page still has slots after the block clears offsets 0..FULL_BLOCK_TXS-1.
-# clear_empty uses single-slot pages (k=1) that vanish when cleared;
-# empty_page reads never-set pages (k=0).
-_PAGE_OP_LAYOUT_KS = [
-    (StorageOp.SLOAD_COLD_HIT, "contiguous", [1, 16, 128]),
-    (StorageOp.SLOAD_COLD_MISS, "contiguous", [1, 16, 64]),
-    (StorageOp.SLOAD_SWEEP, "contiguous", [2, 16, 128]),
-    (StorageOp.SSTORE_NOOP, "contiguous", [1, 16, 128]),
-    (StorageOp.SSTORE_GROW, "contiguous", [1, 16, 64]),
-    (StorageOp.SSTORE_UPDATE, "contiguous", [1, 16, 128]),
-    (StorageOp.SSTORE_CLEAR_KEEP, "contiguous", [8, 16, 128]),
-    (StorageOp.SSTORE_CLEAR_EMPTY, "contiguous", [1]),
-    (StorageOp.SLOAD_EMPTY_PAGE, "contiguous", [0]),
-    (StorageOp.SLOAD_WARM_REPEAT, "contiguous", [1]),
-    (StorageOp.SSTORE_FRESH, "contiguous", [0]),
-    (StorageOp.SLOAD_COLD_HIT, "scattered", [1, 128]),
-    (StorageOp.SLOAD_COLD_MISS, "scattered", [1, 64]),
-    (StorageOp.SLOAD_SWEEP, "scattered", [2, 128]),
-    (StorageOp.SSTORE_NOOP, "scattered", [1, 128]),
-    (StorageOp.SSTORE_GROW, "scattered", [1, 64]),
-    (StorageOp.SSTORE_UPDATE, "scattered", [1, 128]),
-    (StorageOp.SSTORE_CLEAR_KEEP, "scattered", [8, 128]),
-    (StorageOp.SSTORE_CLEAR_EMPTY, "scattered", [1]),
-    (StorageOp.SLOAD_EMPTY_PAGE, "scattered", [0]),
-    (StorageOp.SLOAD_WARM_REPEAT, "scattered", [1]),
-    (StorageOp.SSTORE_FRESH, "scattered", [0]),
+# (op, page-occupancy k values). cold_miss/grow keep a zero slot free
+# (k < SLOTS_PER_PAGE, and grow writes k..k+FULL_BLOCK_TXS-1). clear_keep
+# needs k > FULL_BLOCK_TXS so a page still has slots after the block
+# clears offsets 0..FULL_BLOCK_TXS-1. clear_empty uses single-slot pages
+# (k=1) that vanish when cleared; empty_page reads never-set pages (k=0).
+_PAGE_OP_KS = [
+    (StorageOp.SLOAD_COLD_HIT, [1, 16, 128]),
+    (StorageOp.SLOAD_COLD_MISS, [1, 16, 64]),
+    (StorageOp.SLOAD_SWEEP, [2, 16, 128]),
+    (StorageOp.SSTORE_NOOP, [1, 16, 128]),
+    (StorageOp.SSTORE_GROW, [1, 16, 64]),
+    (StorageOp.SSTORE_UPDATE, [1, 16, 128]),
+    (StorageOp.SSTORE_CLEAR_KEEP, [8, 16, 128]),
+    (StorageOp.SSTORE_CLEAR_EMPTY, [1]),
+    (StorageOp.SLOAD_EMPTY_PAGE, [0]),
+    (StorageOp.SLOAD_WARM_REPEAT, [1]),
+    (StorageOp.SSTORE_FRESH, [0]),
 ]
 
 _PAGE_OP_PARAMS = [
-    pytest.param(op, k, layout, id=f"{op.value}-k{k}-{layout}")
-    for op, layout, ks in _PAGE_OP_LAYOUT_KS
+    pytest.param(op, k, id=f"{op.value}-k{k}")
+    for op, ks in _PAGE_OP_KS
     for k in ks
 ]
 
 
-@pytest.mark.parametrize("op, k, layout", _PAGE_OP_PARAMS)
+@pytest.mark.parametrize("op, k", _PAGE_OP_PARAMS)
 @pytest.mark.valid_from("MONAD_NINE")
 def test_page_ops(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     op: StorageOp,
     k: int,
-    layout: str,
 ) -> None:
     """
     Fill a block with one storage-op pattern over `pages` pages.
@@ -493,9 +456,8 @@ def test_page_ops(
     bound and run below 200M by design. With REPEATS > 1 each repeat block
     is offset to a fresh page range.
     """
-    stride = _stride(layout)
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
-    pages = _iterations(op, k, stride, budget)
+    pages = _iterations(op, k, budget)
 
     per_tx_pages = op is StorageOp.SSTORE_CLEAR_EMPTY
     occupied = op not in (
@@ -517,11 +479,11 @@ def test_page_ops(
             prestate[warm_slot] = 1
         elif per_tx_pages:
             for t in range(FULL_BLOCK_TXS):
-                dom = fresh_dom + t * pages * stride
-                prestate.update(_occupied_prestate(dom, stride, pages, 1))
+                dom = fresh_dom + t * pages
+                prestate.update(_occupied_prestate(dom, pages, 1))
         elif occupied:
-            prestate.update(_occupied_prestate(read_dom, stride, pages, k))
-    contract = pre.deploy_contract(_contract(op, k, stride), storage=prestate)
+            prestate.update(_occupied_prestate(read_dom, pages, k))
+    contract = pre.deploy_contract(_contract(op, k), storage=prestate)
 
     blocks = []
     expected: StorageDict = dict(prestate)
@@ -531,7 +493,7 @@ def test_page_ops(
         txs = []
         for t in range(FULL_BLOCK_TXS):
             if op in (StorageOp.SSTORE_FRESH, StorageOp.SSTORE_CLEAR_EMPTY):
-                base = fresh_dom + t * pages * stride
+                base = fresh_dom + t * pages
             elif op is StorageOp.SLOAD_WARM_REPEAT:
                 base = warm_slot
             else:
@@ -563,26 +525,26 @@ def test_page_ops(
 
         if op is StorageOp.SSTORE_GROW:
             for i in range(pages):
-                base_slot = (read_dom + i * stride) << 7
+                base_slot = (read_dom + i) << 7
                 for t in range(FULL_BLOCK_TXS):
                     expected[base_slot + (k + t)] = 1
         elif op is StorageOp.SSTORE_FRESH:
             for j in range(FULL_BLOCK_TXS * pages):
-                expected[(fresh_dom + j * stride) << 7] = 1
+                expected[(fresh_dom + j) << 7] = 1
         elif op is StorageOp.SSTORE_UPDATE:
             # Slot 0 is written once per tx (1->2->...); it ends at
             # 1 + FULL_BLOCK_TXS. Other occupied slots stay 1.
             for i in range(pages):
-                expected[(read_dom + i * stride) << 7] = 1 + FULL_BLOCK_TXS
+                expected[(read_dom + i) << 7] = 1 + FULL_BLOCK_TXS
         elif op is StorageOp.SSTORE_CLEAR_KEEP:
             for i in range(pages):
-                base_slot = (read_dom + i * stride) << 7
+                base_slot = (read_dom + i) << 7
                 for t in range(FULL_BLOCK_TXS):
                     expected[base_slot + t] = 0
         elif op is StorageOp.SSTORE_CLEAR_EMPTY:
             for t in range(FULL_BLOCK_TXS):
                 for i in range(pages):
-                    expected[(fresh_dom + (t * pages + i) * stride) << 7] = 0
+                    expected[(fresh_dom + (t * pages + i)) << 7] = 0
 
         blocks.append(Block(txs=txs))
 
@@ -597,32 +559,29 @@ def test_page_ops(
 # --- dimension 4: m pages spread across n contracts -------------------
 
 _SPREAD_PARAMS = [
-    pytest.param(m, n, layout, id=f"m{m}_n{n}_{layout}")
-    for m, n, layout in [
-        (1, 1, "contiguous"),
-        (4, 1, "contiguous"),
-        (16, 1, "contiguous"),
-        (64, 1, "contiguous"),
-        (256, 1, "contiguous"),
-        (1024, 1, "contiguous"),
-        (4096, 1, "contiguous"),
-        (4096, 8, "contiguous"),
-        (4096, 64, "contiguous"),
-        (4096, 512, "contiguous"),
-        (4096, 1, "scattered"),
-        (4096, 512, "scattered"),
+    pytest.param(m, n, id=f"m{m}_n{n}")
+    for m, n in [
+        (1, 1),
+        (4, 1),
+        (16, 1),
+        (64, 1),
+        (256, 1),
+        (1024, 1),
+        (4096, 1),
+        (4096, 8),
+        (4096, 64),
+        (4096, 512),
     ]
 ]
 
 
-@pytest.mark.parametrize("m, n, layout", _SPREAD_PARAMS)
+@pytest.mark.parametrize("m, n", _SPREAD_PARAMS)
 @pytest.mark.valid_from("MONAD_NINE")
 def test_page_spread(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
     m: int,
     n: int,
-    layout: str,
 ) -> None:
     """
     Fresh-write `m` distinct pages spread evenly over `n` contracts.
@@ -633,14 +592,13 @@ def test_page_spread(
     txs). Isolates the effect of write distribution across accounts. Each
     repeat block writes a fresh page range.
     """
-    stride = _stride(layout)
-    per_iter = _per_iter_gas(StorageOp.SSTORE_FRESH, 0, stride)
+    per_iter = _per_iter_gas(StorageOp.SSTORE_FRESH, 0)
     max_per_tx = max(1, (TX_GAS_CAP - TX_RESERVE) // per_iter)
     pages_per_contract = m // n
 
     sender = pre.fund_eoa()
     contracts: List[Address] = [
-        pre.deploy_contract(_contract(StorageOp.SSTORE_FRESH, 0, stride))
+        pre.deploy_contract(_contract(StorageOp.SSTORE_FRESH, 0))
         for _ in range(n)
     ]
 
@@ -661,9 +619,7 @@ def test_page_spread(
                         gas_limit=count * per_iter + TX_RESERVE,
                         max_fee_per_gas=MAX_FEE_PER_GAS,
                         max_priority_fee_per_gas=0,
-                        data=_calldata(
-                            fresh_dom + done * stride, count, global_idx, 0
-                        ),
+                        data=_calldata(fresh_dom + done, count, global_idx, 0),
                     )
                 )
                 contract_storage[contract][MARKER_BASE + global_idx] = (
@@ -672,7 +628,7 @@ def test_page_spread(
                 global_idx += 1
                 done += count
             for j in range(pages_per_contract):
-                slot = (fresh_dom + j * stride) << 7
+                slot = (fresh_dom + j) << 7
                 contract_storage[contract][slot] = 1
         blocks.append(Block(txs=txs))
 
@@ -713,7 +669,6 @@ def test_block_shape(
     pre-populated page pool (each tx a fresh cold pass); fresh writes give
     each tx a disjoint range. Each repeat block is offset to a fresh range.
     """
-    stride = 1
     if shape == "few_big":
         num_txs = FULL_BLOCK_TXS
     else:
@@ -722,7 +677,7 @@ def test_block_shape(
             max(1, BLOCK_GAS_TARGET // MANY_SMALL_MIN_TX_GAS),
         )
     budget = min(TX_GAS_CAP, BLOCK_GAS_TARGET // num_txs)
-    count = _iterations(op, k, stride, budget)
+    count = _iterations(op, k, budget)
 
     occupied = op is not StorageOp.SSTORE_FRESH
     if occupied:
@@ -733,8 +688,8 @@ def test_block_shape(
     for r in range(REPEATS):
         read_dom, _, _ = _repeat_domains(r)
         if occupied:
-            prestate.update(_occupied_prestate(read_dom, stride, count, k))
-    contract = pre.deploy_contract(_contract(op, k, stride), storage=prestate)
+            prestate.update(_occupied_prestate(read_dom, count, k))
+    contract = pre.deploy_contract(_contract(op, k), storage=prestate)
 
     blocks = []
     expected: StorageDict = dict(prestate)
@@ -743,7 +698,7 @@ def test_block_shape(
         read_dom, fresh_dom, _ = _repeat_domains(r)
         txs = []
         for t in range(num_txs):
-            base = read_dom if occupied else fresh_dom + t * count * stride
+            base = read_dom if occupied else fresh_dom + t * count
             txs.append(
                 Transaction(
                     to=contract,
@@ -760,7 +715,7 @@ def test_block_shape(
             global_idx += 1
         if op is StorageOp.SSTORE_FRESH:
             for j in range(num_txs * count):
-                expected[(fresh_dom + j * stride) << 7] = 1
+                expected[(fresh_dom + j) << 7] = 1
         blocks.append(Block(txs=txs))
 
     blockchain_test(
@@ -790,14 +745,11 @@ def test_tx_halt(
     strong post-state oracle for the mixed case. Each repeat block is
     offset to a fresh range.
     """
-    stride = 1
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
-    count = _iterations(StorageOp.SSTORE_FRESH, 0, stride, budget)
+    count = _iterations(StorageOp.SSTORE_FRESH, 0, budget)
 
     sender = pre.fund_eoa()
-    contract = pre.deploy_contract(
-        _contract(StorageOp.SSTORE_FRESH, 0, stride)
-    )
+    contract = pre.deploy_contract(_contract(StorageOp.SSTORE_FRESH, 0))
 
     blocks = []
     expected: StorageDict = {}
@@ -815,7 +767,7 @@ def test_tx_halt(
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
                     data=_calldata(
-                        fresh_dom + t * count * stride,
+                        fresh_dom + t * count,
                         count,
                         global_idx,
                         int(halt),
@@ -825,7 +777,7 @@ def test_tx_halt(
             )
             if not halt:
                 for i in range(count):
-                    page = fresh_dom + (t * count + i) * stride
+                    page = fresh_dom + (t * count + i)
                     expected[page << 7] = 1
                 expected[MARKER_BASE + global_idx] = value_code_worked
             global_idx += 1
@@ -841,29 +793,15 @@ def test_tx_halt(
 
 # --- random access + adversarial "bad block" cases -------------------
 #
-# Additive: the tests, params and StorageOp members above are unchanged,
-# so results stay comparable across versions. Slot keys are spread
-# pseudo-randomly over the low 2**200 of the slot space (a 256-bit odd
-# multiplier + a 200-bit mask), kept below MARKER_BASE so a random key
-# never collides with a marker/checksum witness.
 
-RAND_MULT = 0x9E3779B97F4A7C15F39CC0605CEDC8341082276BF3A27251F86C6A11D0C18E95
-RAND_MASK = (1 << 200) - 1
-RAND_IDX_STEP = 5  # odd: permutes the in-tx access order over the set
-RAND_CONTRACTS = 8  # pool of contracts, called in a pseudorandom cycle
-RAND_CONTRACT_STEP = 3  # coprime to RAND_CONTRACTS
-RAND_SEED_BASE = 1
-RAND_SEED_STRIDE = 1 << 10  # > max slots, so per-tx slot sets are disjoint
+RAND_CONTRACTS = 8  # pool of contracts, spread across the block's txs
+RAND_BASE = 1  # first page key of the read set
+RAND_STRIDE = 1 << 10  # > max slots, so per-tx page sets are disjoint
 M_CHAIN = 0xE0  # chained-sload current slot (memory scratch)
 SERIAL_BASE = 1 << 40
 SERIAL_REPEAT_STRIDE = 1 << 24  # >> per-tx slot count
 CHAIN_BASE = 1 << 30
 CHAIN_REPEAT_STRIDE = 1 << 20  # >> ring length
-
-
-def _rand_slot(seed: int, idx: int) -> int:
-    """Python mirror of the contract's pseudorandom slot key."""
-    return ((seed + idx) * RAND_MULT) & RAND_MASK
 
 
 def _size_count(body: Bytecode, budget: int) -> int:
@@ -873,9 +811,9 @@ def _size_count(body: Bytecode, budget: int) -> int:
 
 
 def _rand_sload_body(slots: int) -> Bytecode:
-    """One iteration: cold-SLOAD a pseudorandom slot from the set."""
-    idx = Op.AND(Op.MUL(Op.MLOAD(M_COUNTER), RAND_IDX_STEP), slots - 1)
-    slot = Op.AND(Op.MUL(Op.ADD(Op.MLOAD(M_BASE), idx), RAND_MULT), RAND_MASK)
+    """One iteration: cold-SLOAD one distinct page from the read set."""
+    idx = Op.AND(Op.MLOAD(M_COUNTER), slots - 1)
+    slot = Op.SHL(7, Op.ADD(Op.MLOAD(M_BASE), idx))
     read = Op.SLOAD(slot, key_warm=False, page_load_warm=False)
     return Op.MSTORE(
         M_CHECKSUM, Op.ADD(Op.MLOAD(M_CHECKSUM), read)
@@ -884,11 +822,11 @@ def _rand_sload_body(slots: int) -> Bytecode:
 
 def _rand_sload_contract(slots: int) -> Bytecode:
     """
-    SLOAD `slots` pseudorandom slots in a pseudorandom cycle, `count`
-    times, then write a success marker and the read checksum.
+    SLOAD `slots` distinct pages in a cycle, `count` times, then write a
+    success marker and the read checksum.
     """
     init = (
-        Op.MSTORE(M_BASE, Op.CALLDATALOAD(CD_BASE))  # seed
+        Op.MSTORE(M_BASE, Op.CALLDATALOAD(CD_BASE))  # base page key
         + Op.MSTORE(M_COUNT, Op.CALLDATALOAD(CD_COUNT))
         + Op.MSTORE(M_GLOBAL, Op.CALLDATALOAD(CD_GLOBAL))
         + Op.MSTORE(M_COUNTER, 0)
@@ -924,30 +862,29 @@ def test_random_sload(
     k: int,
 ) -> None:
     """
-    Cold-SLOAD a set of `slots` pseudorandom slots (spread over the slot
-    space) in a pseudorandom cycle, from a pool of contracts called in a
-    pseudorandom cycle. `k` is the page occupancy of each read slot: 1
-    (slot present, reads 1) or 0 (empty page, reads 0). Cycling a small
-    set means only the first pass is cold, so blocks are gas-underfull by
-    design; each repeat uses fresh seeds so its slots are disjoint.
+    Cold-SLOAD a set of `slots` distinct pages, from a pool of contracts
+    spread across the block's txs. `k` is the page occupancy of each read
+    page: 1 (slot present, reads 1) or 0 (empty page, reads 0). Cycling a
+    small set means only the first pass is cold, so blocks are
+    gas-underfull by design; each repeat uses a fresh page range.
     """
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
     count = _size_count(_rand_sload_body(slots), budget)
     code = _rand_sload_contract(slots)
     sender = pre.fund_eoa()
 
-    # Plan tx -> (contract index, seed) and per-contract genesis slots.
+    # Plan tx -> (contract index, base page key) and genesis slots.
     plan: List[Tuple[int, int]] = []
     genesis: List[StorageDict] = [{} for _ in range(RAND_CONTRACTS)]
     g = 0
     for _r in range(REPEATS):
         for _t in range(FULL_BLOCK_TXS):
-            ci = (g * RAND_CONTRACT_STEP) % RAND_CONTRACTS
-            seed = RAND_SEED_BASE + g * RAND_SEED_STRIDE
+            ci = g % RAND_CONTRACTS
+            base = RAND_BASE + g * RAND_STRIDE
             if k == 1:
                 for idx in range(slots):
-                    genesis[ci][_rand_slot(seed, idx)] = 1
-            plan.append((ci, seed))
+                    genesis[ci][(base + idx) << 7] = 1
+            plan.append((ci, base))
             g += 1
 
     contracts: List[Address] = [
@@ -963,7 +900,7 @@ def test_random_sload(
     for _r in range(REPEATS):
         txs = []
         for _t in range(FULL_BLOCK_TXS):
-            ci, seed = plan[g]
+            ci, base = plan[g]
             contract = contracts[ci]
             txs.append(
                 Transaction(
@@ -972,7 +909,7 @@ def test_random_sload(
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
-                    data=_calldata(seed, count, g, 0),
+                    data=_calldata(base, count, g, 0),
                 )
             )
             post[contract][MARKER_BASE + g] = value_code_worked
@@ -1062,9 +999,10 @@ def test_bad_block_chained(
 ) -> None:
     """
     Adversarial block with a data-dependent SLOAD chain: each SLOAD
-    returns the next SLOAD's slot (SLOAD(SLOAD(...(seed)))), following a
-    pre-built storage ring, so the reads serialise within a tx. Each
-    repeat uses a fresh ring.
+    returns the next SLOAD's slot (SLOAD(SLOAD(...(base)))), following a
+    pre-built ring of distinct pages, so the reads serialise within a tx
+    and each hop is a random disk position (pointer chase). Each repeat
+    uses a fresh ring.
     """
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
     sender = pre.fund_eoa()
@@ -1077,7 +1015,7 @@ def test_bad_block_chained(
     count = _size_count(body, budget)
 
     code = (
-        Op.MSTORE(M_BASE, Op.CALLDATALOAD(CD_BASE))  # seed slot
+        Op.MSTORE(M_BASE, Op.CALLDATALOAD(CD_BASE))  # base slot
         + Op.MSTORE(M_COUNT, Op.CALLDATALOAD(CD_COUNT))
         + Op.MSTORE(M_GLOBAL, Op.CALLDATALOAD(CD_GLOBAL))
         + Op.MSTORE(M_COUNTER, 0)
@@ -1094,7 +1032,7 @@ def test_bad_block_chained(
     rings: List[List[int]] = []
     for r in range(REPEATS):
         base = CHAIN_BASE + r * CHAIN_REPEAT_STRIDE
-        ring = [_rand_slot(base, j) for j in range(count)]
+        ring = [(base + j) << 7 for j in range(count)]
         for j in range(count):
             genesis[ring[j]] = ring[(j + 1) % count]
         rings.append(ring)
