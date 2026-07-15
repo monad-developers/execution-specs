@@ -137,18 +137,18 @@ jobs:
         run: sudo sysctl -w vm.nr_hugepages=3072
 
       - name: Consume release
-        id: consume
         shell: bash
+        env:
+          RELEASE: ${{ inputs.release }}
+          FILTER: ${{ inputs.filter }}
         run: |
           set -o pipefail
-          echo "release=${{ inputs.release }}" >> "$GITHUB_OUTPUT"
-          echo "filter=${{ inputs.filter || '(none)' }}" >> "$GITHUB_OUTPUT"
           FILTER_ARG=()
-          if [ -n "${{ inputs.filter }}" ]; then
-            FILTER_ARG=(-k "${{ inputs.filter }}")
+          if [ -n "$FILTER" ]; then
+            FILTER_ARG=(-k "$FILTER")
           fi
           uv run consume direct \
-            --input "${{ inputs.release }}" \
+            --input "$RELEASE" \
             --bin "$GITHUB_WORKSPACE/monad-eest-rust-harness/bin/eest-runner" \
             "${FILTER_ARG[@]}" -v | tee consume.log
 
@@ -156,8 +156,8 @@ jobs:
         if: always()
         shell: bash
         env:
-          RELEASE: ${{ steps.consume.outputs.release }}
-          FILTER: ${{ steps.consume.outputs.filter }}
+          RELEASE: ${{ inputs.release }}
+          FILTER: ${{ inputs.filter || '(none)' }}
           HARNESS_REF: ${{ inputs.harness_ref }}
           BFT_SHA: ${{ steps.stack.outputs.bft }}
           EXEC_SHA: ${{ steps.stack.outputs.exec }}
