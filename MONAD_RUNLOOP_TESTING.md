@@ -22,7 +22,7 @@ artifacts, ~6 GB RAM for hugepages.
 
 ```sh
 git clone --branch execute-with-eestnet \
-    https://github.com/monad-exp/monad-eest-rust-harness.git
+    git@github.com:monad-exp/monad-eest-rust-harness.git
 cd monad-eest-rust-harness
 git submodule update --init --recursive
 
