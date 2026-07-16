@@ -99,7 +99,8 @@ page counts:
 |--------------------|--------------|----------------------------|
 | sload_cold_hit     | {1,16,128}   | 3469; k=128: 512¹          |
 | sload_cold_miss    | {1,16,64}    | 3469; k=64: 1024¹          |
-| sload_sweep        | {2,16,128}   | k=2:1741 k=16:218 k=128:27 |
+| sload_sweep_k      | {2,16,128}   | k=2:1741 k=16:218 k=128:27 |
+| sload_sweep_page   | {0,1,64}     | 27                         |
 | sload_warm_repeat  | {1}          | 158,946 (iterations)       |
 | sload_empty_page   | {0}          | 3469                       |
 | sstore_fresh       | {0}          | 1009                       |
@@ -152,7 +153,7 @@ checksum = 0  →  the tail checksum SSTORE writes 0 (no state trace)
 
 Measures "page found, slot not found" lookups, P cold reads per tx.
 
-### Storage operation `sload_sweep`
+### Storage operation `sload_sweep_k`
 
 Block-filling transactions cold-read all occupied slots of each page.
 
@@ -170,6 +171,27 @@ checksum = P × k per tx
 
 Isolates intra-page locality: same number-ish of cold reads as
 `cold_hit`, but bunched k-per-page instead of 1-per-page.
+
+### Storage operation `sload_sweep_page`
+
+Block-filling transactions cold-read all 128 slot offsets of each page, hits and misses.
+
+Each loop iteration reads offsets 0..127 of one page whose first k
+slots are pre-populated: k hits plus 128−k misses. At k=0 the pages
+were never populated and every read is a whole-page miss.
+
+```
+tx 0..6, iteration i (page D + i):
+  offset:  0   ...  k-1 |  k   ...  127
+          R(0) ... R(k-1)| R(k) ... R(127)     128 cold reads
+           \_ k hits ___/ \_ 128-k misses _/
+
+per tx: P = 27 pages × 128 reads;  checksum = P × k
+(k=0: checksum 0 → the tail SSTORE writes 0, no state trace)
+```
+
+Fixed whole-page read volume with occupancy as the only variable —
+`sload_sweep_k` scales the read count with k instead.
 
 ### Storage operation `sload_warm_repeat`
 
