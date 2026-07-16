@@ -92,7 +92,10 @@ class ReleaseTag:
     @property
     def asset_name(self) -> str:
         """Get the asset name."""
-        return f"fixtures_{self.tag_name}.tar.gz"
+        # Monad release tags are `tests-<feature>@<version>`, but the asset
+        # is `fixtures_<feature>.tar.gz` (the release workflow strips the
+        # `tests-` prefix). Mirror that here so spec resolution finds it.
+        return f"fixtures_{self.tag_name.removeprefix('tests-')}.tar.gz"
 
 
 class Asset(BaseModel):
