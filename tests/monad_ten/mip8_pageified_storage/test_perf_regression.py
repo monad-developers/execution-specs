@@ -151,8 +151,10 @@ class StorageOp(StrEnum):
     """Cold SLOAD of an occupied slot (offset 0) on each page."""
     SLOAD_COLD_MISS = auto()
     """Cold SLOAD of an empty slot (offset 127) on an occupied page."""
-    SLOAD_SWEEP = auto()
-    """Cold-read every occupied slot of each page."""
+    SLOAD_SWEEP_K = auto()
+    """Cold-read every occupied slot (offsets 0..k-1) of each page."""
+    SLOAD_SWEEP_PAGE = auto()
+    """Cold-read all 128 slot offsets of each page, hits and misses."""
     SLOAD_WARM_REPEAT = auto()
     """One cold SLOAD of a slot, then repeated warm re-reads of it."""
     SSTORE_FRESH = auto()
@@ -276,9 +278,14 @@ def _body(op: StorageOp, k: int) -> Bytecode:
         # The slot is passed in calldata (M_BASE) so each block re-reads a
         # distinct slot; cold on the first iteration, warm thereafter.
         return _read_accum(Op.MLOAD(M_BASE), warm=True) + inc
-    if op is StorageOp.SLOAD_SWEEP:
+    if op is StorageOp.SLOAD_SWEEP_K:
         code = Op.MSTORE(M_PAGE, Op.SHL(7, _page_index()))
         for j in range(k):
+            code += _read_accum(Op.ADD(Op.MLOAD(M_PAGE), j), warm=False)
+        return code + inc
+    if op is StorageOp.SLOAD_SWEEP_PAGE:
+        code = Op.MSTORE(M_PAGE, Op.SHL(7, _page_index()))
+        for j in range(SLOTS_PER_PAGE):
             code += _read_accum(Op.ADD(Op.MLOAD(M_PAGE), j), warm=False)
         return code + inc
     if op is StorageOp.SSTORE_FRESH:
@@ -416,11 +423,14 @@ def _repeat_domains(repeat: int) -> Tuple[int, int, int]:
 # (k < SLOTS_PER_PAGE, and grow writes k..k+FULL_BLOCK_TXS-1). clear_keep
 # needs k > FULL_BLOCK_TXS so a page still has slots after the block
 # clears offsets 0..FULL_BLOCK_TXS-1. clear_empty uses single-slot pages
-# (k=1) that vanish when cleared; empty_page reads never-set pages (k=0).
+# (k=1) that vanish when cleared; empty_page reads never-set pages
+# (k=0). sweep_k reads only the k occupied slots; sweep_page reads all
+# 128 offsets — k hits + (128-k) misses, never-set pages at k=0.
 _PAGE_OP_KS = [
     (StorageOp.SLOAD_COLD_HIT, [1, 16, 128]),
     (StorageOp.SLOAD_COLD_MISS, [1, 16, 64]),
-    (StorageOp.SLOAD_SWEEP, [2, 16, 128]),
+    (StorageOp.SLOAD_SWEEP_K, [2, 16, 128]),
+    (StorageOp.SLOAD_SWEEP_PAGE, [0, 1, 64]),
     (StorageOp.SSTORE_NOOP, [1, 16, 128]),
     (StorageOp.SSTORE_GROW, [1, 16, 64]),
     (StorageOp.SSTORE_UPDATE, [1, 16, 128]),
@@ -514,7 +524,10 @@ def test_page_ops(
             )
             expected[MARKER_BASE + global_idx] = value_code_worked
             if _is_read(op):
-                if op is StorageOp.SLOAD_SWEEP:
+                if op in (
+                    StorageOp.SLOAD_SWEEP_K,
+                    StorageOp.SLOAD_SWEEP_PAGE,
+                ):
                     checksum = pages * k
                 elif op in (
                     StorageOp.SLOAD_COLD_MISS,
