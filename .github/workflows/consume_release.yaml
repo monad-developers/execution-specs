@@ -114,9 +114,11 @@ jobs:
           echo "harness:         $harness"
           echo "monad-bft:       $bft"
           echo "monad-execution: $exec"
-          echo "harness=$harness" >> "$GITHUB_OUTPUT"
-          echo "bft=$bft" >> "$GITHUB_OUTPUT"
-          echo "exec=$exec" >> "$GITHUB_OUTPUT"
+          {
+            echo "harness=$harness"
+            echo "bft=$bft"
+            echo "exec=$exec"
+          } >> "$GITHUB_OUTPUT"
 
       # The monad-builder image is a fixed toolchain built from a bare
       # Dockerfile (no build context), and it is needed both by build.sh
