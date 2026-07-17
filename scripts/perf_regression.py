@@ -3,16 +3,18 @@
 Build a NINE-vs-NEXT significance table from perf timing runs.
 
 Reads the `timing_consume.csv` produced by `consume direct
---timing-report-dir` for several identical runs (one dir each) and, per
+--timing-report` for several identical runs (one dir each) and, per
 (test, params) case, reports each measure's mean +/- sd over the runs for
 both forks, the two-sided Mann-Whitney U p-value comparing the forks,
-and (for measures significant at p <= 0.10) the NINE->NEXT average
-change. A trailing list describes each significant case's transactions.
+and (for significant measures) the NINE->NEXT average change.
 
-Usage: perf_disjoint_table.py [--html OUT.html] [DIR ...]
-       (default dirs: ../timing_[0-9]*)
-Emits GitHub-flavored Markdown to stdout; with --html also writes a
-standalone HTML rendering whose table spans the full window width.
+Usage: perf_regression.py [--md OUT.md] [--html OUT.html]
+       [--now TS --repo SHA --harness SHA --monad-bft SHA --monad SHA]
+       [DIR ...]  (default dirs: ../timing_[0-9]*)
+Writes GitHub-flavored Markdown to --md (or stdout if omitted); when
+--now is given, prefixes a provenance header. With
+--html also writes a standalone HTML rendering whose table spans the
+full window width.
 """
 
 from __future__ import annotations
@@ -26,13 +28,20 @@ from math import comb, erfc, sqrt
 from pathlib import Path
 from statistics import mean, stdev
 
-METRICS = ["tx_exec_us", "state_root_us", "commit_us", "total_us"]
+METRICS = ["tx_exec_us", "commit_us", "total_us"]
 FORKS = ["MONAD_NINE", "MONAD_NEXT"]
-ALPHA = 0.10  # a measure is significant at this Mann-Whitney U p-value
+ALPHA = 0.01  # a measure is significant at this Mann-Whitney U p-value
 
 UP = "🔴⬆️"  # significant measures all rise NINE->NEXT (NEXT slower)
 DOWN = "🟢⬇️"  # significant measures all fall NINE->NEXT (NEXT faster)
 MIXED = "⚠️"  # significant measures move both up and down
+
+# Per-case workload descriptions live here; pinned to the execution-specs
+# sha of the run when known, else the repo's default branch (HEAD).
+DIAGRAMS_URL = (
+    "https://github.com/monad-developers/execution-specs/blob/"
+    "{ref}/MIP8_PERF_TESTS_DIAGRAMS.md"
+)
 
 
 def _direction(chgs: list[int]) -> str:
@@ -49,7 +58,12 @@ def _direction(chgs: list[int]) -> str:
 
 
 def parse(report: Path) -> dict:
-    """Map (test, params, fork) -> {metric: value} from one csv report."""
+    """
+    Map (test, params, fork) -> {metric: value} from one csv report.
+
+    The csv holds one row per block (raw, unaggregated); each metric is
+    reduced to the minimum across a case's blocks.
+    """
     rows: dict = {}
     with report.open(newline="") as f:
         for row in csv.DictReader(f):
@@ -60,7 +74,12 @@ def parse(report: Path) -> dict:
             except (ValueError, TypeError):
                 continue
             test = row["test"].split("::")[-1].removeprefix("test_")
-            rows[(test, row["params"], row["fork"])] = mv
+            key = (test, row["params"], row["fork"])
+            prev = rows.get(key)
+            if prev is None:
+                rows[key] = mv
+            else:
+                rows[key] = {m: min(prev[m], mv[m]) for m in METRICS}
     return rows
 
 
@@ -116,97 +135,8 @@ def _mwu_p(a: list[int], b: list[int]) -> float:
     return erfc(max(0.0, (d - 0.5) / sigma) / sqrt(2))
 
 
-def _op_phrase(op: str, k: int) -> str:
-    """Describe what one block-filling tx does for a storage op."""
-    place = "pages"
-    page = "page"
-    occ = f", {k} slot{'' if k == 1 else 's'} occupied per page"
-    phrases = {
-        "sload_cold_hit": f"cold-SLOAD one occupied slot on many {place}{occ}",
-        "sload_cold_miss": f"cold-SLOAD an empty slot on many occupied "
-        f"{place}{occ}",
-        "sload_sweep": f"cold-read all {k} occupied slots of each {page}",
-        "sload_warm_repeat": f"cold-SLOAD a slot of each {page} then "
-        f"warm-re-read it repeatedly",
-        "sstore_fresh": f"SSTORE 0->1 into previously-unoccupied slots on "
-        f"many {place}",
-        "sstore_noop": f"SSTORE 1->1 (value unchanged) on occupied "
-        f"{place}{occ}",
-        "sstore_grow": f"SSTORE 0->1 into a new empty slot of occupied "
-        f"{place}{occ}",
-        "sstore_update": f"SSTORE 1->2 (nonzero value change) on occupied "
-        f"{place}{occ}",
-        "sstore_clear_keep": f"SSTORE 1->0 clearing one slot of occupied "
-        f"{place}{occ}, leaving the page populated",
-        "sstore_clear_empty": f"SSTORE 1->0 clearing the only slot of "
-        f"single-slot {place}, removing the page",
-        "sload_empty_page": f"cold-SLOAD a slot on never-populated, empty "
-        f"{place}",
-    }
-    return phrases.get(op, op)
-
-
-def describe(test: str, params: str) -> str:
-    """One-sentence account of what a case's block transactions do."""
-    if test == "page_ops":
-        op, kpart = params.split("-")
-        k = int(kpart.removeprefix("k"))
-        return f"block-filling transactions {_op_phrase(op, k)}"
-    if test == "block_shape":
-        op, kpart, shape = params.split("-")
-        k = int(kpart.removeprefix("k"))
-        who = "a few big" if shape == "few_big" else "many small (~300)"
-        return f"{who} transactions each {_op_phrase(op, k)}"
-    if test == "page_spread":
-        m = params.split("_")[0].removeprefix("m")
-        n = int(params.split("_")[1].removeprefix("n"))
-        target = f"{n} contract" + ("" if n == 1 else "s")
-        return (
-            f"transactions SSTORE 0->1 into {m} fresh slots spread across "
-            f"{target}"
-        )
-    if test == "tx_halt":
-        mode = params.removeprefix("mode_")
-        if mode == "success":
-            return (
-                "seven transactions each SSTORE 0->1 into fresh slots and "
-                "succeed"
-            )
-        if mode == "halt":
-            return (
-                "seven transactions SSTORE 0->1 into fresh slots then hit "
-                "INVALID, reverting all writes"
-            )
-        return (
-            "seven transactions alternate between SSTORE-and-succeed and "
-            "SSTORE-then-INVALID (halted writes reverted)"
-        )
-    if test == "random_sload":
-        slots = params.split("-")[0].removeprefix("slots")
-        k = int(params.split("-")[1].removeprefix("k"))
-        page = "1-element" if k == 1 else "empty"
-        noun = "page" if slots == "1" else "pages"
-        return (
-            f"cold-SLOAD {slots} distinct {page} {noun} (random "
-            "access), "
-            "from a pool of contracts spread across the block"
-        )
-    if test == "bad_block_serial":
-        return (
-            "every tx SLOAD+SSTORE-increments the same slot sequence, "
-            "forcing serial execution across the block"
-        )
-    if test == "bad_block_chained":
-        return (
-            "each SLOAD returns the next SLOAD's slot (SLOAD(SLOAD(...))), "
-            "a data-dependent pointer chase over distinct pages that "
-            "serialises the reads within a tx"
-        )
-    return f"{test} {params}"
-
-
 def build(runs: list[dict]) -> list[str]:
-    """Return the markdown lines for the table plus case descriptions."""
+    """Return the markdown lines for the significance table."""
     cases: dict = {}
     for run in runs:
         for (test, params, fork), mv in run.items():
@@ -230,7 +160,6 @@ def build(runs: list[dict]) -> list[str]:
         "| " + " | ".join("---" for _ in header) + " |",
     ]
 
-    sig_cases = []
     for test, params in sorted(cases):
         forks = cases[(test, params)]
         if not all(f in forks for f in FORKS):
@@ -249,26 +178,16 @@ def build(runs: list[dict]) -> list[str]:
                 deltas.append(f"{m} {chg:+d}%")
                 chgs.append(chg)
             cells += [ncell, xcell, _pfmt(p)]
-        emoji = _direction(chgs) if chgs else "-"
-        cells.append(emoji)
+        cells.append(_direction(chgs) if chgs else "-")
         cells.append(", ".join(deltas) if deltas else "-")
         lines.append("| " + " | ".join(cells) + " |")
-        if chgs:
-            sig_cases.append((test, params, emoji))
 
     lines += [
         "",
         "p (MWU) is the two-sided Mann–Whitney U p-value comparing the "
         f"NINE and NEXT run samples for that measure; significant at "
         f"p ≤ {ALPHA}.",
-        "",
-        "Significant cases — what the block's transactions do:",
-        "",
     ]
-    for test, params, emoji in sig_cases:
-        lines.append(
-            f"- **{test} {params}**: {describe(test, params)}. {emoji}"
-        )
     return lines
 
 
@@ -370,16 +289,53 @@ def md_to_html(md: str) -> str:
     return HTML_TEMPLATE.replace("__BODY__", "\n".join(blocks))
 
 
+def _take_opt(argv: list[str], name: str) -> str | None:
+    """Pop `--name VALUE` out of argv, returning VALUE (or None)."""
+    if name not in argv:
+        return None
+    idx = argv.index(name)
+    if idx + 1 >= len(argv):
+        sys.exit(f"{name} requires a value")
+    value = argv[idx + 1]
+    del argv[idx : idx + 2]
+    return value
+
+
+def _provenance(now: str, shas: list[str | None]) -> str:
+    """Markdown header: descriptions link, cycle time, and repo shas."""
+    repos = [
+        "execution-specs",
+        "monad-eest-rust-harness",
+        "monad-bft",
+        "monad",
+    ]
+    ref = DIAGRAMS_URL.format(ref=shas[0] or "HEAD")
+    lines = [
+        f"Test-case descriptions: {ref}",
+        "",
+        f"Cycle {now}",
+        "",
+        "| repo | sha |",
+        "| --- | --- |",
+    ]
+    lines += [
+        f"| {r} | {s or '?'} |" for r, s in zip(repos, shas, strict=True)
+    ]
+    return "\n".join(lines)
+
+
 def main() -> None:
-    """Parse the run dirs, print markdown, optionally write HTML."""
+    """Parse the run dirs and write the markdown/HTML report."""
     argv = list(sys.argv[1:])
-    html_path = None
-    if "--html" in argv:
-        idx = argv.index("--html")
-        if idx + 1 >= len(argv):
-            sys.exit("--html requires a path")
-        html_path = argv[idx + 1]
-        del argv[idx : idx + 2]
+    md_path = _take_opt(argv, "--md")
+    html_path = _take_opt(argv, "--html")
+    now = _take_opt(argv, "--now")
+    shas = [
+        _take_opt(argv, "--repo"),
+        _take_opt(argv, "--harness"),
+        _take_opt(argv, "--monad-bft"),
+        _take_opt(argv, "--monad"),
+    ]
     dirs = argv or sorted(
         glob.glob("../timing_[0-9]*"),
         key=lambda p: int(p.rsplit("_", 1)[-1]),
@@ -392,9 +348,14 @@ def main() -> None:
     if len(runs) < 2:
         sys.exit("need >=2 runs with timing_consume.csv")
     md = "\n".join(build(runs))
-    print(md)
+    if now:
+        md = f"{_provenance(now, shas)}\n\n{md}"
     if html_path:
         Path(html_path).write_text(md_to_html(md), encoding="utf-8")
+    if md_path:
+        Path(md_path).write_text(md + "\n", encoding="utf-8")
+    else:
+        print(md)
 
 
 if __name__ == "__main__":

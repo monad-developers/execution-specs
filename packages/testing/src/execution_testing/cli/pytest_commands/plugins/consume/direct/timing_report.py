@@ -1,13 +1,13 @@
 """
-Emit per-block execution timing collected during `consume direct` as
-Markdown and/or CSV artifacts alongside the HTML report.
+Emit per-block execution timing collected during `consume direct` as a
+CSV artifact alongside the HTML report.
 
 The consumer (e.g. the monad runloop) returns per-block timing from
 `consume_fixture`; `test_via_direct.test_fixture` stashes it on the test's
 `user_properties` under `TIMING_PROPERTY`. This plugin writes one part file
 per test *in the process that ran it* (so it never depends on xdist
 forwarding `user_properties` to the controller), then the controller
-aggregates every part into a single table at session end.
+collects every part into a single raw per-block CSV at session end.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ import csv
 import io
 import json
 import uuid
-from itertools import groupby
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Tuple
 
@@ -26,12 +25,13 @@ import pytest
 # ``{"id": <fixture id>, "blocks": [BlockExecutionTiming, ...]}``.
 TIMING_PROPERTY = "consume_block_timing"
 
-# Column key -> header. Metrics are the per-fixture minimum across blocks
-# (repeat samples); the warmup block is naturally discarded by the min.
+# Column key -> header. One row per block carrying the raw per-block
+# measurements.
 _COLUMNS: List[Tuple[str, str]] = [
     ("test", "test"),
     ("params", "params"),
     ("fork", "fork"),
+    ("block", "block"),
     ("tx_count", "tx"),
     ("gas", "gas"),
     ("tx_exec_us", "tx_exec_us"),
@@ -40,12 +40,9 @@ _COLUMNS: List[Tuple[str, str]] = [
     ("total_us", "total_us"),
 ]
 
-# Numeric metric columns a Δ% row is computed for.
-_METRIC_KEYS = ("tx_exec_us", "state_root_us", "commit_us", "total_us")
-
-# Fork ordering (oldest first) so a Δ% row compares the newer fork against
-# the older baseline; unknown forks sort after, alphabetically.
-_FORK_ORDER = ["MONAD_EIGHT", "MONAD_NINE", "MONAD_NEXT", "MONAD_TEN"]
+# Fork ordering (oldest first) so CSV rows group forks in release order;
+# unknown forks sort after, alphabetically.
+_FORK_ORDER = ["MONAD_EIGHT", "MONAD_NINE", "MONAD_NEXT"]
 
 # Fixture-id suffixes identifying the fixture format, not a real parameter.
 _FORMAT_TAGS = {
@@ -63,72 +60,17 @@ def _fork_rank(fork: str) -> Tuple[int, str]:
     return len(_FORK_ORDER), fork
 
 
-def _delta_row(base: Dict[str, Any], comp: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a percent-change row comparing `comp` against `base`."""
-
-    def pct(b: Any, c: Any) -> str:
-        if not isinstance(b, (int, float)) or b == 0:
-            return "n/a"
-        return f"{(c - b) / b * 100:+.1f}%"
-
-    row: Dict[str, Any] = {
-        "test": "",
-        "params": "",
-        "fork": f"Δ% {comp['fork']}/{base['fork']}",
-        "tx_count": "",
-        "gas": "",
-    }
-    for key in _METRIC_KEYS:
-        row[key] = pct(base[key], comp[key])
-    return row
-
-
-def _aggregate(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
-    """
-    Reduce per-block rows to one row per (test, params, fork).
-
-    Each metric becomes the minimum across the fixture's blocks — repeat
-    samples on disjoint pages — which discards the warmup block. Returns
-    the aggregated rows and the largest block count seen (repeat count).
-    """
-    groups: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
-    order: List[Tuple[str, str, str]] = []
-    for row in rows:
-        key = (row["test"], row["params"], row["fork"])
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(row)
-
-    aggregated: List[Dict[str, Any]] = []
-    max_blocks = 1
-    for key in order:
-        members = groups[key]
-        max_blocks = max(max_blocks, len(members))
-        row = dict(members[0])
-        for metric in _METRIC_KEYS:
-            row[metric] = min(m[metric] for m in members)
-        aggregated.append(row)
-    return aggregated, max_blocks
-
-
-def _ordered_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Order rows by (test, params) then fork, and append a Δ% row after each
-    pair of forks sharing a (test, params) group.
-    """
-
-    def group_key(row: Dict[str, Any]) -> Tuple[str, str]:
-        return row["test"], row["params"]
-
-    rows.sort(key=lambda r: (*group_key(r), _fork_rank(r["fork"])))
-    ordered: List[Dict[str, Any]] = []
-    for _, group in groupby(rows, key=group_key):
-        members = list(group)
-        ordered.extend(members)
-        if len(members) == 2:
-            ordered.append(_delta_row(members[0], members[1]))
-    return ordered
+def _sorted_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Order rows by (test, params, fork) then block for readability."""
+    rows.sort(
+        key=lambda r: (
+            r["test"],
+            r["params"],
+            _fork_rank(r["fork"]),
+            r["block"],
+        )
+    )
+    return rows
 
 
 def _split_fixture_id(fixture_id: str) -> Tuple[str, str, str]:
@@ -169,22 +111,6 @@ def _rows_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
-def _render_markdown(rows: List[Dict[str, Any]]) -> str:
-    """Render rows as a GitHub-flavored Markdown table."""
-    headers = [header for _, header in _COLUMNS]
-    lines = [
-        "| " + " | ".join(headers) + " |",
-        "| " + " | ".join("---" for _ in headers) + " |",
-    ]
-    for row in rows:
-        lines.append(
-            "| "
-            + " | ".join(str(row.get(key, "")) for key, _ in _COLUMNS)
-            + " |"
-        )
-    return "\n".join(lines) + "\n"
-
-
 def _render_csv(rows: List[Dict[str, Any]]) -> str:
     """Render rows as CSV."""
     buffer = io.StringIO()
@@ -196,13 +122,11 @@ def _render_csv(rows: List[Dict[str, Any]]) -> str:
 
 
 class TimingReportPlugin:
-    """Collect per-test timing parts and write the aggregated report."""
+    """Collect per-test timing parts and write the raw per-block CSV."""
 
-    def __init__(self, config: pytest.Config, fmt: str):  # noqa: D107
+    def __init__(self, config: pytest.Config):  # noqa: D107
         self.config = config
-        self.fmt = fmt
         self.written: List[Path] = []
-        self.repeats = 1
 
     def _output_dir(self) -> Path:
         """
@@ -257,7 +181,7 @@ class TimingReportPlugin:
         session: pytest.Session,
         exitstatus: int,  # noqa: ARG002
     ) -> None:
-        """Aggregate all part files into the report (controller only)."""
+        """Collect all part files into the CSV report (controller only)."""
         if hasattr(session.config, "workerinput"):
             return  # xdist worker: parts already written by makereport
         parts_dir = self._parts_dir()
@@ -268,19 +192,13 @@ class TimingReportPlugin:
             rows.extend(_rows_from_payload(json.loads(part.read_text())))
         if not rows:
             return
-        aggregated, self.repeats = _aggregate(rows)
-        rows = _ordered_rows(aggregated)
+        rows = _sorted_rows(rows)
 
         output_dir = self._output_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
-        if self.fmt in ("both", "md"):
-            path = output_dir / "timing_consume.md"
-            path.write_text(_render_markdown(rows))
-            self.written.append(path)
-        if self.fmt in ("both", "csv"):
-            path = output_dir / "timing_consume.csv"
-            path.write_text(_render_csv(rows))
-            self.written.append(path)
+        path = output_dir / "timing_consume.csv"
+        path.write_text(_render_csv(rows))
+        self.written.append(path)
 
         for part in parts_dir.glob("*.json"):
             part.unlink()
@@ -296,10 +214,8 @@ class TimingReportPlugin:
         if not self.written:
             return
         terminalreporter.write_sep("=", "block execution timing report")
-        if self.repeats > 1:
-            terminalreporter.write_line(
-                f"metrics are the min over {self.repeats} repeat block(s) "
-                "per fixture"
-            )
+        terminalreporter.write_line(
+            "raw per-block timings; aggregate across blocks downstream"
+        )
         for path in self.written:
             terminalreporter.write_line(f"timing report written to: {path}")

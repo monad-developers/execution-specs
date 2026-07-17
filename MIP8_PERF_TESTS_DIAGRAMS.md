@@ -1,6 +1,6 @@
-# MIP-8 perf-regression tests: per-family block diagrams
+# MIP-8 perf-regression tests: block diagrams
 
-What each test-case family in
+What each test case in
 `tests/monad_ten/mip8_pageified_storage/test_perf_regression.py` actually
 does at the SLOAD/SSTORE level inside one block. Numbers (pages per tx,
 per-iteration gas) are computed with the module's own sizing helpers at
@@ -71,7 +71,7 @@ cold copy. Diagrams below show the `r = 0` block.
 
 ## `test_compute_loop`
 
-No parameters, one family. The storage-free baseline: one block, one
+No parameters. The storage-free baseline: one block, one
 10M-gas tx running a stack-arithmetic `WhileGas` loop.
 
 ```
@@ -89,10 +89,11 @@ execution overhead from any MIP-8 effect.
 
 ---
 
-## `test_page_ops` — one family per storage op
+## `test_page_ops`
 
-Family = one `StorageOp`; within a family, `k` (page occupancy) varies.
-All variants use the 7-tx full block above. Per-tx page counts:
+One section per storage operation (`StorageOp`); within each, `k` (page
+occupancy) varies. All variants use the 7-tx full block above. Per-tx
+page counts:
 
 | op                 | k values     | P pages/tx                 |
 |--------------------|--------------|----------------------------|
@@ -112,7 +113,9 @@ All variants use the 7-tx full block above. Per-tx page counts:
 (`P = 65,536 / k`); those blocks do less than 200M of real work by
 design — the pre-state, not gas, is the bound.
 
-### Family `sload_cold_hit`
+### Storage operation `sload_cold_hit`
+
+Block-filling transactions cold-SLOAD one occupied slot on many pages.
 
 Pre-state: pool of P pages at domain D, each with slots `0..k-1 = 1`.
 Every tx makes one cold pass over the whole pool, reading offset 0
@@ -130,7 +133,9 @@ each read returns 1  →  checksum = P per tx
 block total: 7 × P cold page reads of an existing, occupied slot
 ```
 
-### Family `sload_cold_miss`
+### Storage operation `sload_cold_miss`
+
+Block-filling transactions cold-SLOAD an empty slot on many occupied pages.
 
 Same shared pool as `cold_hit` (k ≤ 64 keeps the last slot empty), but
 each read targets offset 127 — the page exists, the slot is zero.
@@ -147,7 +152,9 @@ checksum = 0  →  the tail checksum SSTORE writes 0 (no state trace)
 
 Measures "page found, slot not found" lookups, P cold reads per tx.
 
-### Family `sload_sweep`
+### Storage operation `sload_sweep`
+
+Block-filling transactions cold-read all occupied slots of each page.
 
 Each loop iteration cold-reads **every occupied slot** of one page,
 offsets `0..k-1` in ascending order.
@@ -164,7 +171,9 @@ checksum = P × k per tx
 Isolates intra-page locality: same number-ish of cold reads as
 `cold_hit`, but bunched k-per-page instead of 1-per-page.
 
-### Family `sload_warm_repeat`
+### Storage operation `sload_warm_repeat`
+
+Block-filling transactions cold-SLOAD a slot of each page then warm-re-read it repeatedly.
 
 No page pool — a single pre-populated slot `W = 2^70` (value 1). The
 slot arrives via calldata and is read directly (not page-shifted).
@@ -183,7 +192,9 @@ checksum = 158,946 per tx;  block total ≈ 1.11M reads of one hot slot
 The warm-path baseline: page/slot caching should make fork choice
 irrelevant here.
 
-### Family `sload_empty_page`
+### Storage operation `sload_empty_page`
+
+Block-filling transactions cold-SLOAD a slot on never-populated, empty pages.
 
 Like `cold_hit` but with `k = 0`: the domain-D pages were **never
 populated**. Every read is a whole-page miss.
@@ -197,7 +208,9 @@ P = 3469 per tx; checksum = 0 (zero write in the tail, no state trace)
 
 Measures lookups that fall off the page index entirely.
 
-### Family `sstore_fresh`
+### Storage operation `sstore_fresh`
+
+Block-filling transactions SSTORE 0->1 into previously-unoccupied slots on many pages.
 
 No pre-state. Each tx gets its own disjoint range of never-touched
 pages and creates one slot on each: `W(0)=1`, a 0→1 write that brings
@@ -215,7 +228,9 @@ tx t, iteration i:  W(0)=1  on page F + t·P + i         state growth
 P = 1009  →  block creates 7 × 1009 = 7063 new pages
 ```
 
-### Family `sstore_noop`
+### Storage operation `sstore_noop`
+
+Block-filling transactions SSTORE 1->1 (value unchanged) on occupied pages.
 
 Shared occupied pool (like `cold_hit`); each tx rewrites slot 0 with
 its current value — 1→1, no state change ever.
@@ -229,7 +244,9 @@ post-state == pre-state (plus markers); P = 3432 (512 at k=128)
 
 Pays the write path without any page mutation.
 
-### Family `sstore_grow`
+### Storage operation `sstore_grow`
+
+Block-filling transactions SSTORE 0->1 into a new empty slot of occupied pages.
 
 Shared pool with offsets `0..k-1` occupied. Tx `t` writes offset
 `k + t` — a 0→1 on an **already-occupied** page (growth within a page,
@@ -246,7 +263,9 @@ page D + i, one column per tx:
 each tx: P = 1009 cold W(k+t)=1 writes, one per pool page
 ```
 
-### Family `sstore_update`
+### Storage operation `sstore_update`
+
+Block-filling transactions SSTORE 1->2 (nonzero value change) on occupied pages.
 
 Shared pool; every tx overwrites the occupied slot 0 with a fresh
 nonzero value `2 + t`, so each write is a genuine value change with no
@@ -260,7 +279,9 @@ page D + i, offset 0 over the block:
 each tx: P = 2563 cold writes (512 at k=128); slot 0 ends at 8
 ```
 
-### Family `sstore_clear_keep`
+### Storage operation `sstore_clear_keep`
+
+Block-filling transactions SSTORE 1->0 clearing one slot of occupied pages, leaving the page populated.
 
 Shared pool with `k > 7` occupied slots. Tx `t` clears offset `t`
 (1→0). Offsets `7..k-1` stay populated, so no page ever empties.
@@ -275,7 +296,9 @@ page D + i:
 each tx: P = 2565 cold W(t)=0 writes (512 at k=128)
 ```
 
-### Family `sstore_clear_empty`
+### Storage operation `sstore_clear_empty`
+
+Block-filling transactions SSTORE 1->0 clearing the only slot of single-slot pages, removing the page.
 
 The page-removal case. Pre-state gives **each tx its own** range of
 single-slot pages (offset 0 = 1). Clearing that slot leaves the page
@@ -297,7 +320,9 @@ P = 2565  →  block removes 7 × 2565 = 17,955 pages
 
 ---
 
-## `test_page_spread` — one family
+## `test_page_spread`
+
+Transactions SSTORE 0->1 into `m` fresh slots spread across `n` contracts.
 
 Op is fixed (`sstore_fresh`, the 0→1 page-creating write); the sweep is
 over **where** the writes land: `m` total pages spread evenly across
@@ -336,7 +361,9 @@ Variants: `m ∈ {1,4,16,64,256,1024,4096} × n=1` (total-size sweep),
 
 ---
 
-## `test_block_shape` — one family
+## `test_block_shape`
+
+A few big vs many small (~300) transactions, each cold-SLOAD one occupied slot or SSTORE 0->1 into fresh slots.
 
 Same total work packed as **7 big** txs vs **300 small** txs. Two
 workloads:
@@ -367,7 +394,9 @@ to loop work.
 
 ---
 
-## `test_tx_halt` — one family
+## `test_tx_halt`
+
+Seven transactions SSTORE 0->1 into fresh slots and either succeed, hit INVALID reverting all writes, or alternate.
 
 The `sstore_fresh` full block (7 txs × 1009 fresh pages, disjoint
 ranges), with a `halt` calldata flag per tx. A halting tx performs all
@@ -392,7 +421,9 @@ back.
 
 ---
 
-## `test_random_sload` — one family
+## `test_random_sload`
+
+Cold-SLOAD a set of distinct 1-element or empty pages (random access), from a pool of contracts spread across the block.
 
 Random file access: each read targets a **distinct page** (`slot =
 page_key << 7`), and the MPT hashes every page key (`keccak256`) to an
@@ -428,7 +459,9 @@ land in the storage of whichever contract the tx called.
 
 ---
 
-## `test_bad_block_serial` — one family
+## `test_bad_block_serial`
+
+Every tx SLOAD+SSTORE-increments the same slot sequence, forcing serial execution across the block.
 
 No parameters. The write-conflict adversarial block: all 7 txs
 read-then-increment the **same** contiguous slot range, so every tx
@@ -455,7 +488,9 @@ shared slot ends at 7, plus the 7 markers (no checksum tail here).
 
 ---
 
-## `test_bad_block_chained` — one family
+## `test_bad_block_chained`
+
+Each SLOAD returns the next SLOAD's slot (SLOAD(SLOAD(...))), a data-dependent pointer chase over distinct pages that serialises the reads within a tx.
 
 No parameters. The data-dependency adversarial block: the genesis
 storage holds a pre-built ring of 3482 **distinct pages** (keys

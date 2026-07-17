@@ -26,9 +26,12 @@ import pytest
 
 from execution_testing.fixtures import BlockchainFixture, FixtureFormat
 from execution_testing.fixtures.consume import BlockExecutionTiming
+from execution_testing.logging import get_logger
 from execution_testing.test_types import Transaction
 
 from ..fixture_consumer_tool import FixtureConsumerTool
+
+logger = get_logger(__name__)
 
 # Monad revision schedule per fixture `network`, as
 # (monad_revision, activation timestamp) pairs. Non-transition
@@ -69,7 +72,7 @@ def _load_fixture(
     """
     Load a single fixture from a (possibly multi-fixture) JSON file.
 
-    ijson for low-memory footprint.
+    ijson streams the file so memory use stays low on large fixtures.
     """
     with open(fixture_path, "rb") as f:
         for name, fixture in ijson.kvitems(f, ""):
@@ -175,8 +178,28 @@ def _compare_account(
     return mismatches
 
 
+# A runloop duration: a decimal number and a chrono unit suffix, with
+# optional whitespace.
+_DURATION_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ns|[µμu]s|ms|s)\s*$")
+_UNIT_US = {"ns": 1e-3, "us": 1.0, "ms": 1e3, "s": 1e6}
+
+
+def _duration_us(value: str) -> int:
+    """
+    Convert a duration like `5745us`, `5.7 ms` or `0.01s` to integer
+    microseconds; raise ValueError on any unrecognized format.
+    """
+    match = _DURATION_RE.match(value)
+    if match is None:
+        raise ValueError(f"unrecognized duration {value!r}")
+    number, unit = match.groups()
+    if unit in ("µs", "μs"):
+        unit = "us"
+    return round(float(number) * _UNIT_US[unit])
+
+
 def _exec_block_row(line: str) -> Optional[BlockExecutionTiming]:
-    """Parse one `__exec_block` log line, or None if malformed."""
+    """Parse one `__exec_block` log line, or None (logged) if malformed."""
     body = line.split("__exec_block", 1)[1]
     fields: Dict[str, str] = {}
     for part in body.split(","):
@@ -185,7 +208,7 @@ def _exec_block_row(line: str) -> Optional[BlockExecutionTiming]:
             fields[key.strip()] = value.strip()
 
     def us(key: str) -> int:
-        return int(fields[key].replace("µs", "").strip())
+        return _duration_us(fields[key])
 
     try:
         return BlockExecutionTiming(
@@ -197,7 +220,8 @@ def _exec_block_row(line: str) -> Optional[BlockExecutionTiming]:
             commit_us=us("cmt"),
             total_us=us("tot"),
         )
-    except (KeyError, ValueError):
+    except (KeyError, ValueError) as e:
+        logger.error(f"unparsable __exec_block line ({e!r}): {line.strip()}")
         return None
 
 
@@ -206,9 +230,10 @@ def _parse_block_timings(stdout: str) -> List[BlockExecutionTiming]:
     Extract per-block timing from the runloop's `__exec_block` log lines.
 
     The production runloop logs one such line per block, e.g.:
-    `__exec_block,bl=1,...,tx=1,...,sr=5192µs,txe=14241µs,cmt=879µs,
-    tot=21153µs,...,gas=10000000,...`. Fields carry leading padding and a
-    `µs` suffix on durations. Missing/malformed lines are skipped.
+    `__exec_block,bl=1,...,tx=1,...,sr=5192us,txe=14241us,cmt=879us,
+    tot=21153us,...,gas=10000000,...`. Fields carry leading padding;
+    durations a chrono unit suffix (see `_duration_us`). Malformed
+    lines are logged and skipped.
     """
     rows = [
         _exec_block_row(line)
