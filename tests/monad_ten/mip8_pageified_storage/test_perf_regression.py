@@ -10,7 +10,10 @@ gas budget). We do not assert gas — the oracle is post-state (success
 markers, written slots, and read-checksum slots), so the identical
 workload can be timed on both forks via the consume timing report.
 
-The suite fills the 200M-gas monad block with SLOAD/SSTORE patterns.
+Each test fills a monad block with one SLOAD/SSTORE pattern. The block
+is small by default so fixture and monad-runloop release fills stay
+fast; perf_cycle.sh fills the full 200M-gas block to time execution
+(BLOCK_GAS_TARGET, set via MIP8_PERF_BLOCK_GAS).
 
 Single-letter test parameters:
 - `k`: page occupancy — non-zero slots pre-populated per page (0..128).
@@ -25,13 +28,9 @@ work, which is exactly the effect being measured.
 `MIP8_PERF_REPEATS` (default 1) emits that many copies of each workload
 as successive blocks, each offset to a disjoint page range so every block
 is a genuine cold execution. One runloop run then yields N independent
-per-block timing samples (the first absorbs process/hugepage warmup); the
-consume timing report aggregates them with `min`. The contract bytecode
-stays fixed-size regardless of the repeat count — only the pre-state
-storage and block list grow.
+per-block timing samples (the first absorbs process/hugepage warmup).
 
-Run with `--monad-runloop` and consume via `eest-runner`; see
-MONAD_RUNLOOP_TESTING.md.
+See MONAD_RUNLOOP_TESTING.md.
 """
 
 import os
@@ -71,10 +70,19 @@ StorageDict = dict[
 SLOTS_PER_PAGE = Spec.SLOTS_PER_PAGE  # 128
 
 # The runloop stamps every monad block at 200M gas; the per-tx cap is
-# 30M on both forks. Overridable for quick local smoke fills.
-BLOCK_GAS_TARGET = int(os.environ.get("MIP8_PERF_BLOCK_GAS", "200000000"))
+# 30M on both forks. perf_cycle.sh fills at FULL_BLOCK_GAS to time real
+# blocks; the default is a small block that still exercises every
+# workload, keeping fixture/runloop release fills fast. Override with
+# MIP8_PERF_BLOCK_GAS.
+FULL_BLOCK_GAS = 200_000_000
+SMOKE_BLOCK_GAS = 10_000_000
+BLOCK_GAS_TARGET = int(
+    os.environ.get("MIP8_PERF_BLOCK_GAS", str(SMOKE_BLOCK_GAS))
+)
 TX_GAS_CAP = 30_000_000
-# 200M / 30M -> 7 equal txs of ~28.57M each fill a block.
+# Fixed tx count per block, sized so a full 200M block splits into 7
+# equal txs of ~28.57M each (near the 30M per-tx cap). A smaller
+# BLOCK_GAS_TARGET keeps the 7 txs and shrinks each one's work.
 FULL_BLOCK_TXS = 7
 # Workload txs are EIP-1559 with a high max fee and a zero priority tip.
 # The high max fee keeps them valid as each full block raises the base
@@ -84,13 +92,14 @@ FULL_BLOCK_TXS = 7
 # by the runloop on MONAD_NEXT, which would mismatch the post-state).
 MAX_FEE_PER_GAS = 10**6
 # `many_small` block shape: many txs, each still large enough to cover the
-# per-tx reserve. The count adapts to the block budget (300 at 200M) so the
-# `MIP8_PERF_BLOCK_GAS` smoke knob does not starve individual txs.
+# per-tx reserve. The count adapts to the block budget (300 at the full
+# 200M) so a smaller BLOCK_GAS_TARGET does not starve individual txs.
 MANY_SMALL_TXS = 300
 MANY_SMALL_MIN_TX_GAS = 200_000
 
 # Emit this many copies of each workload as successive, page-disjoint
-# blocks for repeat timing samples (see module docstring).
+# blocks for repeat timing samples (see module docstring). perf_cycle.sh
+# raises this; releases fill a single cold copy.
 REPEATS = int(os.environ.get("MIP8_PERF_REPEATS", "1"))
 
 # Upper bound on pre-populated storage slots per block (times REPEATS for
@@ -207,9 +216,6 @@ def test_compute_loop(
             ),
         },
     )
-
-
-# --- shared bytecode + sizing helpers ---------------------------------
 
 
 def _page_index() -> Bytecode:
@@ -406,8 +412,6 @@ def _repeat_domains(repeat: int) -> Tuple[int, int, int]:
     return READ_DOMAIN + shift, FRESH_DOMAIN + shift, WARM_BASE + repeat
 
 
-# --- dimensions 1, 2, 3, 6: op x occupancy -----------------------------
-
 # (op, page-occupancy k values). cold_miss/grow keep a zero slot free
 # (k < SLOTS_PER_PAGE, and grow writes k..k+FULL_BLOCK_TXS-1). clear_keep
 # needs k > FULL_BLOCK_TXS so a page still has slots after the block
@@ -556,8 +560,6 @@ def test_page_ops(
     )
 
 
-# --- dimension 4: m pages spread across n contracts -------------------
-
 _SPREAD_PARAMS = [
     pytest.param(m, n, id=f"m{m}_n{n}")
     for m, n in [
@@ -591,6 +593,11 @@ def test_page_spread(
     shares become several txs, and many contracts become many small
     txs). Isolates the effect of write distribution across accounts. Each
     repeat block writes a fresh page range.
+
+    Work is sized by `m` and `n`, not by BLOCK_GAS_TARGET: a high fan-out
+    (n=512) already needs one tx per contract, so these blocks stay large
+    even under the smoke knob. The block gas limit is the full 200M
+    ceiling, which covers the largest spread case.
     """
     per_iter = _per_iter_gas(StorageOp.SSTORE_FRESH, 0)
     max_per_tx = max(1, (TX_GAS_CAP - TX_RESERVE) // per_iter)
@@ -639,11 +646,9 @@ def test_page_spread(
             contract: Account(storage=storage)
             for contract, storage in contract_storage.items()
         },
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        genesis_environment=Environment(gas_limit=FULL_BLOCK_GAS),
     )
 
-
-# --- dimension 5: few big vs many small transactions ------------------
 
 _SHAPE_PARAMS = [
     pytest.param(op, k, shape, id=f"{op.value}-k{k}-{shape}")
@@ -726,9 +731,6 @@ def test_block_shape(
     )
 
 
-# --- dimension 7: exceptional halt after writes -----------------------
-
-
 @pytest.mark.parametrize("mode", ["success", "halt", "mix"])
 @pytest.mark.valid_from("MONAD_NINE")
 def test_tx_halt(
@@ -790,9 +792,6 @@ def test_tx_halt(
         genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
     )
 
-
-# --- random access + adversarial "bad block" cases -------------------
-#
 
 RAND_CONTRACTS = 8  # pool of contracts, spread across the block's txs
 RAND_BASE = 1  # first page key of the read set
