@@ -26,10 +26,6 @@ Two kinds of checks live here:
 from typing import Dict, Mapping
 
 import pytest
-from ethereum_rlp import rlp
-from ethereum_types.bytes import Bytes32
-from ethereum_types.numeric import U256, Uint
-
 from ethereum.crypto.hash import Hash32, keccak256
 from ethereum.merkle_patricia_trie import (
     EMPTY_TRIE_ROOT,
@@ -43,6 +39,9 @@ from ethereum.paged_storage_trie import (
     page_commit,
     storage_root_paged,
 )
+from ethereum_rlp import rlp
+from ethereum_types.bytes import Bytes32
+from ethereum_types.numeric import U256, Uint
 
 
 def _page(slot_values: Mapping[int, int]) -> bytes:
@@ -88,7 +87,7 @@ _PAGE_COMMIT_VECTORS = [
         id="multilevel_0_1_64_127",
     ),
     pytest.param(
-        {i: 1 for i in range(WORDS_PER_PAGE)},
+        dict.fromkeys(range(WORDS_PER_PAGE), 1),
         "a3e39c072e2f951b586e5261f7f19303dc9b95bdba8df7617508d9c10bd49ea2",
         id="full_page_all_one",
     ),
@@ -113,7 +112,7 @@ def test_page_commit_known_vectors(
 
 @pytest.mark.parametrize(
     "slot_values",
-    [{0: 1}, {127: 1}, {0: 1, 1: 2}, {i: 1 for i in range(WORDS_PER_PAGE)}],
+    [{0: 1}, {127: 1}, {0: 1, 1: 2}, dict.fromkeys(range(WORDS_PER_PAGE), 1)],
 )
 def test_page_commit_length_is_32(slot_values: Dict[int, int]) -> None:
     """A page commitment is always a 32-byte digest."""
@@ -170,7 +169,8 @@ def test_storage_root_distinguishes_pages() -> None:
 
 
 def test_storage_root_clears_to_empty_when_slots_omitted() -> None:
-    """Storage with every nonzero slot removed returns to the empty root.
+    """
+    Storage with every nonzero slot removed returns to the empty root.
 
     Cleared slots are dropped from the state trie (never stored as zero), so
     a fully cleared account is indistinguishable from a never-written one.
@@ -185,7 +185,8 @@ def test_storage_root_clears_to_empty_when_slots_omitted() -> None:
 def test_single_page_root_matches_manual_reconstruction(
     slot_values: Dict[int, int],
 ) -> None:
-    """``storage_root_paged`` matches a keccak-MPT built by hand.
+    """
+    ``storage_root_paged`` matches a keccak-MPT built by hand.
 
     Cross-checks the trie-assembly layer for a single page (page 0): slot
     grouping, the ``keccak256(page_index)`` trie key, and the
