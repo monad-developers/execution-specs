@@ -10,10 +10,10 @@ executed result.
 
 | Repo / branch | Role |
 |---|---|
-| `monad-exp/monad-eest-rust-harness` @ `execute-with-eestnet` | `eest-runner` harness: builds consensus blocks from a fixture and runs them on the runloop |
+| `monad-exp/monad-eest-rust-harness` | `eest-runner` harness: builds consensus blocks from a fixture and runs them on the runloop |
 | `monad-bft` @ `execute-with-eestnet` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
 | `monad` @ `execute-with-eestnet` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
-| this repo @ `execute-with-eestnet` | `MonadFixtureConsumer` (`packages/testing/.../client_clis/clis/monad.py`) wired into `consume direct` |
+| this repo | `MonadFixtureConsumer` (`packages/testing/.../client_clis/clis/monad.py`) wired into `consume direct` |
 
 ## One-time setup
 
@@ -21,7 +21,7 @@ Requirements: docker, ~10 GB disk for the builder image and build
 artifacts, ~6 GB RAM for hugepages.
 
 ```sh
-git clone --branch execute-with-eestnet \
+git clone --branch main \
     git@github.com:monad-exp/monad-eest-rust-harness.git
 cd monad-eest-rust-harness
 git submodule update --init --recursive

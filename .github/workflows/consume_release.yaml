@@ -13,7 +13,7 @@ on:
       harness_ref:
         description: "monad-eest-rust-harness ref (branch/tag/SHA)"
         required: false
-        default: "execute-with-eestnet"
+        default: "main"
       monad_bft_repo:
         description: "Override monad-bft from this owner/repo (e.g. category-labs/monad-bft); empty = keep the harness's pinned commit"
         required: false
