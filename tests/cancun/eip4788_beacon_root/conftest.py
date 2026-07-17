@@ -26,6 +26,13 @@ from .spec import Spec, SpecHelpers
 BLOB_COMMITMENT_VERSION_KZG = 1
 
 
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Mark all tests in this subdir as not valid for Monad forks."""
+    metafunc.definition.add_marker(
+        pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
+    )
+
+
 @pytest.fixture
 def timestamp() -> int:  # noqa: D103
     return 12
