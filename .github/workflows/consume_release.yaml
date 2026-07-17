@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Fixtures source: release spec (e.g. monad_runloop@v1.1.0-rc1), a fixtures.tar.gz URL, or latest"
+        description: "Fixtures source: release spec (e.g. tests-monad_runloop@v1.1.1-rc2), a fixtures.tar.gz URL, or latest"
         required: true
-        default: "monad_runloop@latest"
+        default: "tests-monad_runloop@latest"
       harness_ref:
         description: "monad-eest-rust-harness ref (branch/tag/SHA)"
         required: false
