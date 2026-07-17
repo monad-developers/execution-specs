@@ -32,6 +32,7 @@ from .clis.evmone import (
 )
 from .clis.execution_specs import ExecutionSpecsTransitionTool
 from .clis.geth import GethFixtureConsumer, GethTransitionTool
+from .clis.monad import MonadFixtureConsumer
 from .clis.nethermind import Nethtest, NethtestFixtureConsumer
 from .clis.nimbus import NimbusTransitionTool
 from .ethereum_cli import CLINotFoundInPathError, UnknownCLIError
@@ -74,6 +75,7 @@ __all__ = (
     "GethFixtureConsumer",
     "GethTransitionTool",
     "LazyAlloc",
+    "MonadFixtureConsumer",
     "Nethtest",
     "NethtestFixtureConsumer",
     "NimbusTransitionTool",

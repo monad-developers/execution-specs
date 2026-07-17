@@ -22,6 +22,10 @@ from .spec import Spec, ref_spec_7951
 REFERENCE_SPEC_GIT_PATH = ref_spec_7951.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7951.version
 
+# NOTE: the PragueToMONAD_EIGHT transition fork this targets was dropped as
+# unused, so this marker currently resolves to no forks and the test
+# generates nothing. P256VERIFY at MONAD_EIGHT+ is covered by the
+# non-transition p256verify tests.
 pytestmark = pytest.mark.valid_at_transition_to("MONAD_EIGHT")
 
 

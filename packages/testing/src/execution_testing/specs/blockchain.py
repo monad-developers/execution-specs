@@ -83,10 +83,11 @@ from execution_testing.fixtures.common import (
     FixtureTransactionReceipt,
 )
 from execution_testing.fixtures.post_verifications import PostVerifications
-from execution_testing.forks import Fork, TransitionFork
+from execution_testing.forks import MONAD_EIGHT, Fork, TransitionFork
 from execution_testing.test_types import (
     Alloc,
     Environment,
+    MonadRunloopDefaults,
     Removable,
     Requests,
     TestPhase,
@@ -773,6 +774,22 @@ class BlockchainTest(BaseTest):
     ) -> Tuple[Alloc, FixtureBlock]:
         """Create a genesis block from the blockchain test definition."""
         env = self.get_genesis_environment()
+
+        # Keep the genesis gas limit at monad's proposal_gas_limit so the
+        # whole chain has a constant gas limit; otherwise the jump from the
+        # EEST default to block 1's stamped limit fails the EIP-1559 gas
+        # limit bound check during fill. Resolve the fork at genesis so
+        # transition forks are covered too.
+        genesis_fork = self.fork.fork_at(
+            block_number=env.number, timestamp=env.timestamp
+        )
+        if (
+            MonadRunloopDefaults.enabled
+            and isinstance(genesis_fork, type)
+            and issubclass(genesis_fork, MONAD_EIGHT)
+        ):
+            env = env.copy(gas_limit=MonadRunloopDefaults.gas_limit)
+
         assert env.withdrawals is None or len(env.withdrawals) == 0, (
             "withdrawals must be empty at genesis"
         )
@@ -825,6 +842,25 @@ class BlockchainTest(BaseTest):
             block_number=env.number, timestamp=env.timestamp
         )
         env = env.set_fork_requirements(fork)
+
+        # When filling with --monad-runloop, monad blocks must carry the
+        # consensus-derived header fields the production runloop produces.
+        # gas_limit and prev_randao feed execution (gas, PREVRANDAO) and the
+        # EIP-2935 block-hash chain, so they are set on the env before t8n;
+        # extra_data and requests_hash are stamped onto the header below.
+        # Gate on the per-block resolved fork so transition forks (whose
+        # `self.fork` is the transition class) are covered too.
+        monad_runloop = (
+            MonadRunloopDefaults.enabled
+            and isinstance(fork, type)
+            and issubclass(fork, MONAD_EIGHT)
+        )
+        if monad_runloop:
+            env = env.copy(
+                gas_limit=MonadRunloopDefaults.gas_limit,
+                prev_randao=MonadRunloopDefaults.prev_randao,
+            )
+
         txs = [tx.with_signature_and_sender() for tx in block.txs]
 
         if failing_tx_count := len([tx for tx in txs if tx.error]) > 0:
@@ -934,6 +970,12 @@ class BlockchainTest(BaseTest):
                 Requests(requests_lists=list(block.requests))
             )
             requests_list = block.requests
+
+        if monad_runloop:
+            # monad stamps a 32-zero-byte extra_data and requests_hash,
+            # rather than empty extra_data and the EIP-7685 requests root.
+            header.extra_data = Bytes(b"\x00" * 32)
+            header.requests_hash = Hash(0)
 
         # Decode BAL from RLP bytes provided by the transition tool.
         t8n_bal_rlp = transition_tool_output.result.block_access_list
