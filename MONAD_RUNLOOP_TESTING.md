@@ -70,7 +70,6 @@ uv run consume direct --input ../fixtures_eestnet \
 SLOAD/SSTORE workloads at both forks and times block execution on the
 runloop to compare MONAD_NINE (slot-encoded) vs MONAD_NEXT (page-encoded).
 
-
 ### Setup
 
 ```sh
@@ -83,30 +82,27 @@ sudo sysctl --system
 sudo cpupower idle-set -D 1
 ```
 
-### Filling & running
+### Run
+
+From the repo root:
 
 ```sh
-MIP8_PERF_REPEATS=5 uv run fill --clean -m blockchain_test \
-    tests/monad_ten/mip8_pageified_storage/test_perf_regression.py \
-    --from MONAD_NINE --until MONAD_NEXT --chain-id 30143 --monad-runloop \
-    --output ../fixtures_eestnet -n auto
-
-uv run consume direct --input ../fixtures_eestnet \
-    --bin ../monad-eest-rust-harness/bin/eest-runner \
-    --timing-report-dir ../timing
+tmux new -s perf 'TAG=v4 RUNS=7 scripts/perf_cycle.sh'
 ```
 
-- Each block is stamped to 200M gas; the same workload is sized to fit
-  both forks (no gas assertions — post-state is the oracle).
-- `MIP8_PERF_REPEATS=N` (default 1) emits N page-disjoint copies of each
-  workload as successive blocks → N cold timing samples per fixture.
-- `MIP8_PERF_BLOCK_GAS=N` shrinks the block for a quick smoke fill.
-- Consume writes both `timing_consume.md` and `.csv` by default
-  (`--timing-report {both,md,csv,none}`, `--timing-report-dir DIR`): one
-  row per (test, params, fork) — the `min` over the repeat blocks (drops
-  the warmup block) — with MONAD_NINE, MONAD_NEXT, then a Δ% row.
-- Run consume on a quiet host for stable timings; the numbers are noisy
-  under contention.
+Fills once, consumes `RUNS` times, and writes the NINE-vs-NEXT table to
+`../timing_${TAG}_<utc>_table.{html,md}` (the `.md` is headed with the
+cycle time and the four repo SHAs). Knobs:
+
+- `TAG` (required) names every artifact; use a fresh one per experiment.
+- `RUNS` consume passes (samples per fork), `REPEATS` page-disjoint
+  copies per fixture (cold samples reduced to a `min` within each pass).
+- `MIP8_PERF_BLOCK_GAS=N` overrides the block gas target; perf_cycle.sh
+  fills full 200M blocks by default (the test default, used by release
+  fills, is a small block). `SKIP_FILL=1` reuses an existing
+  `../fixtures_${TAG}`.
+
+Run on a quiet host; timings are noisy under contention.
 
 ## Behavior and known limits
 

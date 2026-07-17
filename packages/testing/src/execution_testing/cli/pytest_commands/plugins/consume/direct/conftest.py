@@ -84,14 +84,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:  # noqa: D103
     )
     consume_group.addoption(
         "--timing-report",
-        action="store",
+        action="store_true",
         dest="timing_report",
-        choices=["both", "md", "csv", "none"],
-        default="both",
+        default=False,
         help=(
             "Emit per-block execution timing (from consumers that report "
-            "it) as a `timing_consume` table. `both` (default) writes "
-            "Markdown and CSV; `md`/`csv` write one; `none` disables."
+            "it) as a raw `timing_consume.csv`."
         ),
     )
     consume_group.addoption(
@@ -149,10 +147,9 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: D103
         )
     config.fixture_consumers = fixture_consumers  # type: ignore[attr-defined]
 
-    timing_report = config.getoption("timing_report")
-    if timing_report != "none":
+    if config.getoption("timing_report"):
         config.pluginmanager.register(
-            TimingReportPlugin(config, timing_report),
+            TimingReportPlugin(config),
             "consume-timing-report",
         )
 
