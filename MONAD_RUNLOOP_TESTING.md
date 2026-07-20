@@ -10,9 +10,9 @@ executed result.
 
 | Repo / branch | Role |
 |---|---|
-| `monad-exp/monad-eest-rust-harness` | `eest-runner` harness: builds consensus blocks from a fixture and runs them on the runloop |
-| `monad-bft` @ `execute-with-eestnet` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
-| `monad` @ `execute-with-eestnet` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
+| `monad-exp/monad-eest-rust-harness` @ `execute-with-eestnet-new-secondary` | `eest-runner` harness: builds consensus blocks from a fixture and runs them on the runloop |
+| `monad-bft` @ `execute-with-eestnet-new-secondary` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
+| `monad` @ `execute-with-eestnet-new-secondary` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) added on top of upstream's runloop C library |
 | this repo | `MonadFixtureConsumer` (`packages/testing/.../client_clis/clis/monad.py`) wired into `consume direct` |
 
 ## One-time setup
@@ -21,7 +21,7 @@ Requirements: docker, ~10 GB disk for the builder image and build
 artifacts, ~6 GB RAM for hugepages.
 
 ```sh
-git clone --branch main \
+git clone --branch execute-with-eestnet-new-secondary \
     git@github.com:monad-exp/monad-eest-rust-harness.git
 cd monad-eest-rust-harness
 git submodule update --init --recursive
@@ -77,19 +77,19 @@ uv run consume direct --input ../fixtures_eestnet \
   `vm.nr_hugepages >= 2048` on the host; the `bin/` wrappers
   re-provision this automatically (it resets on host reboot).
 
-## Fork-transition flow (MIP-8 dual-db)
+## Dual-db flow (MIP-8)
 
 MONAD_NINE storage is slot-encoded; MONAD_NEXT (MIP-8) is
-page-encoded. A transition fixture (e.g.
-`MONAD_NINEToMONAD_NEXTAtTime15k`) crosses that boundary mid-run, so
-the run keeps both encodings live in one triedb: a slot-encoded
-primary timeline and a page-encoded secondary timeline.
+page-encoded. Every run keeps both encodings live in one triedb: a
+slot-encoded primary timeline and a page-encoded secondary timeline,
+so a transition fixture (e.g. `MONAD_NINEToMONAD_NEXTAtTime15k`) can
+cross the boundary mid-run.
 
 - **Consumer** (`clis/monad.py`): loads the fixture, maps its
   `network` to a `(revision, from_timestamp)` schedule, skips
-  `expectException` blocks, and provisions the db. Revisions spanning
-  the fork activate the secondary timeline via `monad-mpt
-  --activate-secondary`.
+  `expectException` blocks, and provisions a slot-encoded db; the
+  runloop C library opens or activates the page-encoded secondary
+  timeline itself at startup.
 - **Harness** (`eest-runner`): fakes consensus with a Ledger
   simulator (`propose` then `finalize` per block) that writes BFT
   headers/bodies to `--ledger-dir` — the same artifacts monad-bft
@@ -118,15 +118,29 @@ two differences: the block source and the revision schedule.
 | Execution loop | `runloop_monad` | the same `runloop_monad` |
 | Per-block dispatch | `SWITCH_MONAD_TRAITS` on `get_monad_revision(timestamp)` | the same |
 | Block execution | `execute_block<traits>` | the same |
-| Commit | `commit_block<traits>` with dual-write | the same function; dual-write engages whenever a secondary timeline is active |
-| State root / db | `mpt::Db` + `TrieDb`, optional secondary | the same |
+| Commit | `commit_block<traits>` dual-write to both timelines | the same function; dual-write engages whenever a secondary timeline is active |
+| Db shape | slot primary + page secondary, every run (the runloop C library activates the secondary at open) | slot primary; page secondary activated by the operator (`monad-mpt --activate-secondary`) for the MIP-8 migration |
+| Read cross-check | every storage read asserted equal on both timelines (`BlockState`) | the same, whenever the secondary is active |
 
-eest-only shims: the C ABI in `runloop_interface_monad.cpp`, the `EestNet`
-chain (runtime schedule), `MonadRunloopDbCache` / `set_balance` (balance
-overrides, unused here), genesis loading from the fixture, and the Rust
-Ledger simulator that fabricates the BFT blocks consensus would deliver.
-The production fork migration uses the same dual-db mechanism: an operator
-runs `monad-mpt --activate-secondary --state-machine monad` on the live
-slot-encoded db before the fork, the node opens the secondary timeline and
-dual-writes both encodings across the boundary, and the authoritative root
-flips from slot to page at the first MONAD_NEXT block.
+Every run models a node inside the MIP-8 migration window; the
+fixture's fork selects the phase:
+
+| Fixture fork | Traits | Canonical root | Production state modeled |
+|---|---|---|---|
+| MONAD_NINE | NINE throughout | primary (slot) | armed pre-fork: secondary activated, fork not reached |
+| MONAD_NINE→MONAD_NEXT | flip at the fork block | flips to secondary (page) at the fork | the fork crossing |
+| MONAD_NEXT | NEXT throughout | secondary (page) | post-fork, pre-promotion: slot primary retained, page canonical |
+
+Not modeled: the slot-only steady state before activation (MONAD_NINE
+semantics and roots are identical there; the run only adds the shadow
+dual-write) and the page-only steady state after promotion, where the
+page timeline serves execution reads directly. The per-read
+cross-check asserts slot- and page-served results match, so the page
+read path is exercised as the checker rather than as the source.
+
+eest-only shims: the `EestNet` chain (runtime schedule, genesis from
+the fixture), the `monad_runloop_new_eest` and `monad_runloop_dump_json`
+FFI additions, and the Rust Ledger simulator that fabricates the BFT
+blocks consensus would deliver. The runloop C library itself
+(`runloop_interface_monad.cpp`, including the balance overrides used
+by the VM fuzzer) is upstream `monad` code.
