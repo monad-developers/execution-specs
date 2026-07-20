@@ -343,7 +343,22 @@ def total_cost_floor_per_token(fork: Fork) -> int:
         pytest.param(False, True),
     ],
 )
-@pytest.mark.parametrize("zero_byte", [True, False])
+@pytest.mark.parametrize(
+    "zero_byte",
+    [
+        pytest.param(
+            True,
+            marks=pytest.mark.monad_runloop(
+                pytest.mark.skip(
+                    reason="Filling the tx gas limit cap with zero bytes "
+                    "takes a ~3 MB tx, over the runloop 2 MB proposal "
+                    "byte limit."
+                )
+            ),
+        ),
+        False,
+    ],
+)
 # Osaka originally, but Monad introduces tx gas limit cap differently
 @pytest.mark.valid_from("MONAD_EIGHT")
 @pytest.mark.json_loader
