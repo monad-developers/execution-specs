@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Fixtures source: release spec (e.g. monad_runloop@v1.1.0-rc1), a fixtures.tar.gz URL, or latest"
+        description: "Fixtures source: release spec (e.g. tests-monad_runloop@v1.1.1-rc2), a fixtures.tar.gz URL, or latest"
         required: true
-        default: "monad_runloop@latest"
+        default: "tests-monad_runloop@latest"
       harness_ref:
         description: "monad-eest-rust-harness ref (branch/tag/SHA)"
         required: false
@@ -108,22 +108,73 @@ jobs:
         working-directory: monad-eest-rust-harness
         shell: bash
         run: |
+          harness=$(git rev-parse HEAD)
           bft=$(git -C monad-bft rev-parse HEAD)
           exec=$(git -C monad-bft/monad-execution rev-parse HEAD)
+          echo "harness:         $harness"
           echo "monad-bft:       $bft"
           echo "monad-execution: $exec"
-          echo "bft=$bft" >> "$GITHUB_OUTPUT"
-          echo "exec=$exec" >> "$GITHUB_OUTPUT"
+          {
+            echo "harness=$harness"
+            echo "bft=$bft"
+            echo "exec=$exec"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build the monad-builder image
+      # The monad-builder image is a fixed toolchain built from a bare
+      # Dockerfile (no build context), and it is needed both by build.sh
+      # and at consume time (the bin/ wrappers run the binary inside it).
+      # Cache it as a tarball keyed on the Dockerfile so it rebuilds only
+      # when the toolchain changes.
+      - name: Restore monad-builder image
+        id: image-cache
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: /tmp/monad-builder.tar
+          key: monad-builder-${{ runner.os }}-${{ hashFiles('monad-eest-rust-harness/monad-bft/docker/builder/Dockerfile') }}
+
+      - name: Build or load the monad-builder image
         working-directory: monad-eest-rust-harness
         shell: bash
-        run: docker build -t monad-builder:latest - < monad-bft/docker/builder/Dockerfile
+        run: |
+          if [ -f /tmp/monad-builder.tar ]; then
+            docker load -i /tmp/monad-builder.tar
+          else
+            docker build -t monad-builder:latest \
+              - < monad-bft/docker/builder/Dockerfile
+            docker save -o /tmp/monad-builder.tar monad-builder:latest
+          fi
+
+      - name: Save monad-builder image
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: /tmp/monad-builder.tar
+          key: ${{ steps.image-cache.outputs.cache-primary-key }}
+
+      # build.sh bind-mounts the harness root, so cargo/cmake output lands
+      # on the host under install/. Cache it keyed on the exact resolved
+      # stack (harness + monad-bft + monad-execution) plus the toolchain,
+      # so re-running the same stack skips the ~10 min build. Exact match
+      # only: an install/ from a different stack would be wrong.
+      - name: Restore eest-runner install/
+        id: install-cache
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: monad-eest-rust-harness/install
+          key: eest-install-${{ runner.os }}-${{ hashFiles('monad-eest-rust-harness/monad-bft/docker/builder/Dockerfile') }}-${{ steps.stack.outputs.harness }}-${{ steps.stack.outputs.bft }}-${{ steps.stack.outputs.exec }}
 
       - name: Build the eest-runner stack (build.sh)
+        if: steps.install-cache.outputs.cache-hit != 'true'
         working-directory: monad-eest-rust-harness
         shell: bash
         run: ./build.sh
+
+      - name: Save eest-runner install/
+        if: steps.install-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: monad-eest-rust-harness/install
+          key: ${{ steps.install-cache.outputs.cache-primary-key }}
 
       - name: Setup uv
         uses: ./.github/actions/setup-uv
