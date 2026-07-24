@@ -64,6 +64,7 @@ from execution_testing.fixtures import (
     BlockchainEngineSyncFixture,
     BlockchainEngineXFixture,
     BlockchainFixture,
+    BlockchainRunloopFixture,
     FixtureFormat,
     LabeledFixtureFormat,
 )
@@ -715,6 +716,7 @@ class BlockchainTest(BaseTest):
         Sequence[FixtureFormat | LabeledFixtureFormat]
     ] = [
         BlockchainFixture,
+        BlockchainRunloopFixture,
         BlockchainEngineFixture,
         BlockchainEngineSyncFixture,
         BlockchainEngineXFixture,
@@ -750,7 +752,7 @@ class BlockchainTest(BaseTest):
 
         marker_names = [m.name for m in markers]
         if (
-            fixture_format != BlockchainFixture
+            fixture_format not in [BlockchainFixture, BlockchainRunloopFixture]
             and "blockchain_test_only" in marker_names
         ):
             return True
@@ -770,7 +772,10 @@ class BlockchainTest(BaseTest):
         return Environment(**(GENESIS_ENVIRONMENT_DEFAULTS | modified_values))
 
     def make_genesis(
-        self, *, apply_pre_allocation_blockchain: bool
+        self,
+        *,
+        apply_pre_allocation_blockchain: bool,
+        monad_runloop: bool = False,
     ) -> Tuple[Alloc, FixtureBlock]:
         """Create a genesis block from the blockchain test definition."""
         env = self.get_genesis_environment()
@@ -784,7 +789,7 @@ class BlockchainTest(BaseTest):
             block_number=env.number, timestamp=env.timestamp
         )
         if (
-            MonadRunloopDefaults.enabled
+            monad_runloop
             and isinstance(genesis_fork, type)
             and issubclass(genesis_fork, MONAD_EIGHT)
         ):
@@ -828,6 +833,7 @@ class BlockchainTest(BaseTest):
         previous_env: Environment,
         previous_alloc: Alloc | LazyAlloc,
         previous_senders_authorities: Dict[int, List[Address]],
+        monad_runloop: bool = False,
     ) -> BuiltBlock:
         """
         Generate common block data for both make_fixture and make_hive_fixture.
@@ -843,7 +849,7 @@ class BlockchainTest(BaseTest):
         )
         env = env.set_fork_requirements(fork)
 
-        # When filling with --monad-runloop, monad blocks must carry the
+        # When filling a runloop_test fixture, monad blocks must carry the
         # consensus-derived header fields the production runloop produces.
         # gas_limit and prev_randao feed execution (gas, PREVRANDAO) and the
         # EIP-2935 block-hash chain, so they are set on the env before t8n;
@@ -851,7 +857,7 @@ class BlockchainTest(BaseTest):
         # Gate on the per-block resolved fork so transition forks (whose
         # `self.fork` is the transition class) are covered too.
         monad_runloop = (
-            MonadRunloopDefaults.enabled
+            monad_runloop
             and isinstance(fork, type)
             and issubclass(fork, MONAD_EIGHT)
         )
@@ -1119,11 +1125,18 @@ class BlockchainTest(BaseTest):
     def make_fixture(
         self,
         t8n: FillerBackend,
+        fixture_format: FixtureFormat = BlockchainFixture,
     ) -> FillResult:
         """Create a fixture from the blockchain test definition."""
+        assert isinstance(fixture_format, type) and issubclass(
+            fixture_format, BlockchainFixture
+        )
+        monad_runloop = issubclass(fixture_format, BlockchainRunloopFixture)
         fixture_blocks: List[FixtureBlock | InvalidFixtureBlock] = []
 
-        pre, genesis = self.make_genesis(apply_pre_allocation_blockchain=True)
+        pre, genesis = self.make_genesis(
+            apply_pre_allocation_blockchain=True, monad_runloop=monad_runloop
+        )
 
         alloc: Alloc | LazyAlloc = pre
         senders_authorities: dict[int, list[Address]] = {}
@@ -1143,6 +1156,7 @@ class BlockchainTest(BaseTest):
                 previous_env=env,
                 previous_alloc=alloc,
                 previous_senders_authorities=senders_authorities,
+                monad_runloop=monad_runloop,
             )
             block_number = int(built_block.header.number)
             is_last_block = block is self.blocks[-1]
@@ -1189,7 +1203,7 @@ class BlockchainTest(BaseTest):
         self.check_exception_test(exception=invalid_blocks > 0)
         alloc = alloc.get() if isinstance(alloc, LazyAlloc) else alloc
         self.verify_post_state(t8n, t8n_state=alloc)
-        fixture = BlockchainFixture(
+        fixture = fixture_format(
             fork=self.fork,
             genesis=genesis.header,
             genesis_rlp=genesis.rlp,
@@ -1575,8 +1589,8 @@ class BlockchainTest(BaseTest):
             BlockchainEngineSyncFixture,
         ]:
             return self.make_hive_fixture(t8n, fixture_format)
-        elif fixture_format == BlockchainFixture:
-            return self.make_fixture(t8n)
+        elif fixture_format in [BlockchainFixture, BlockchainRunloopFixture]:
+            return self.make_fixture(t8n, fixture_format)
 
         raise Exception(f"Unknown fixture format: {fixture_format}")
 

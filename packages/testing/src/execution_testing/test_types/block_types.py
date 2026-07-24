@@ -40,16 +40,18 @@ class EnvironmentDefaults:
 @dataclass
 class MonadRunloopDefaults:
     """
-    Consensus-derived header values the monad runloop produces.
+    Defaults for filling fixtures the monad runloop executes.
 
-    When `fill` runs with `--monad-runloop`, monad blocks are stamped
-    with these so filled block hashes and EIP-2935 history storage match
+    Active while a `runloop_test` fixture is being filled. Monad blocks
+    are stamped with the consensus-derived header values the runloop
+    produces, so filled block hashes and EIP-2935 history storage match
     the production runloop (which the `eest-runner` consumer executes).
-    They are the only header fields that differ from the synchronous EEST
-    defaults; the execution-result roots already agree.
+    They are the only header fields that differ from the synchronous
+    EEST defaults; the execution-result roots already agree.
     """
 
-    enabled: bool = False
+    # EestNet's chain id, compiled into the harness's EestNet chain.
+    chain_id: int = 30143
     # prev_randao = blake3(rlp(BLS round-signature over Round(0))) with the
     # harness's all-zero proposer key. Constant because the harness never
     # advances the round (Round(0) for every block).

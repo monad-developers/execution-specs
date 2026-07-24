@@ -1,6 +1,6 @@
 # Running EEST fixtures on the monad runloop
 
-Executes blockchain fixtures (including those generated from state
+Executes runloop test fixtures (generated from blockchain and state
 tests) against the monad execution client's `runloop`, using the
 consensus ledger directory as the block source. Each `postState`
 account is compared (balance/nonce/code/storage) against the
@@ -47,19 +47,23 @@ that fails silently).
 ## Fill + consume
 
 ```sh
-uv run fill --clean -m blockchain_test <test paths...> \
-    --fork MONAD_NINE --chain-id 30143 --monad-runloop \
-    --output ../fixtures_eestnet
+uv run fill --clean -m runloop_test <test paths...> \
+    --fork MONAD_NINE --output ../fixtures_eestnet
 
 uv run consume direct --input ../fixtures_eestnet \
     --bin ../monad-eest-rust-harness/bin/eest-runner
 ```
 
-- `--monad-runloop` stamps monad blocks with the consensus-derived
-  header fields the runloop produces (prev_randao from the round-0 BLS
-  signature, 32-byte extra_data, the proposal gas limit, zero
-  requests_hash).
-- `--chain-id 30143` is EestNet's chain id.
+- `-m runloop_test` selects the runloop fixture format, written under
+  `runloop_tests` (next to `blockchain_tests`). It fills with
+  EestNet's chain id (30143) and stamps monad blocks with the
+  consensus-derived header fields the runloop produces (prev_randao
+  from the round-0 BLS signature, 32-byte extra_data, the proposal gas
+  limit, zero requests_hash), regardless of `--chain-id`.
+- The `tests-monad` fixture release includes `runloop_tests` next to
+  the other formats; when consuming it (or any mixed fixtures
+  directory), pass `-m runloop_test` so only runloop fixtures reach
+  `eest-runner`.
 - Block timestamps need no special handling: the consumer derives the
   monad revision schedule from the fixture's `network`
   (`FORK_REVISION_SCHEDULES` in `clis/monad.py`) and the harness

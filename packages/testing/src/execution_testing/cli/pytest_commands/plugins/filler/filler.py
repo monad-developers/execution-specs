@@ -46,6 +46,7 @@ from execution_testing.fixtures import (
     BlockchainEngineFixture,
     BlockchainEngineXFixture,
     BlockchainFixture,
+    BlockchainRunloopFixture,
     FixtureCollector,
     FixtureConsumer,
     FixtureFillingPhase,
@@ -577,18 +578,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ),
     )
     test_group.addoption(
-        "--monad-runloop",
-        action="store_true",
-        dest="monad_runloop",
-        default=False,
-        help=(
-            "Stamp monad blocks with the consensus-derived header fields "
-            "the production runloop produces (prev_randao, extra_data, "
-            "gas_limit, requests_hash), so filled block hashes and EIP-2935 "
-            "history storage match the monad `eest-runner` consumer."
-        ),
-    )
-    test_group.addoption(
         "--generate-pre-alloc-groups",
         action="store_true",
         dest="generate_pre_alloc_groups",
@@ -708,17 +697,6 @@ def pytest_configure(config: pytest.Config) -> None:
     # Modify the block gas limit if specified.
     if option_was_explicitly_set(config, "--block-gas-limit"):
         EnvironmentDefaults.gas_limit = config.getoption("block_gas_limit")
-
-    # Stamp monad blocks with runloop-conformant header fields if requested.
-    if config.getoption("monad_runloop"):
-        MonadRunloopDefaults.enabled = True
-        # The runloop builds every block at the monad proposal gas limit, so
-        # make it the default block gas limit too: tests that read
-        # env.gas_limit (the GASLIMIT opcode, tx-gas-vs-block-limit checks)
-        # then build expectations that match execution. An explicit
-        # --block-gas-limit still wins.
-        if not option_was_explicitly_set(config, "--block-gas-limit"):
-            EnvironmentDefaults.gas_limit = MonadRunloopDefaults.gas_limit
 
     # Initialize fixture output configuration
     config.fixture_output = FixtureOutput.from_config(  # type: ignore[attr-defined]
@@ -1853,8 +1831,9 @@ def pytest_collection_modifyitems(
             if marker.name == "fill":
                 for mark in marker.args:
                     item.add_marker(mark)
-            if marker.name == "monad_runloop" and config.getoption(
-                "monad_runloop", False
+            if (
+                marker.name == "monad_runloop"
+                and item.get_closest_marker("runloop_test") is not None
             ):
                 for mark in marker.args:
                     item.add_marker(mark)
@@ -1969,6 +1948,47 @@ def pytest_collection_modifyitems(
                 item.add_marker(pytest.mark.xdist_group(name=group_name))
 
 
+runloop_saved_defaults_key: pytest.StashKey[tuple[int, int]] = (
+    pytest.StashKey()
+)
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """
+    Switch chain defaults to the runloop's for `runloop_test` items.
+
+    The chain id and block gas limit feed transaction signing and spec
+    construction in the test body, which runs once per fixture format
+    item, so the switch is per item and restored on teardown.
+    """
+    if item.get_closest_marker("runloop_test") is None:
+        return
+    item.stash[runloop_saved_defaults_key] = (
+        ChainConfigDefaults.chain_id,
+        EnvironmentDefaults.gas_limit,
+    )
+    ChainConfigDefaults.chain_id = MonadRunloopDefaults.chain_id
+    # The runloop builds every block at the monad proposal gas limit, so
+    # make it the default block gas limit too: tests that read
+    # env.gas_limit (the GASLIMIT opcode, tx-gas-vs-block-limit checks)
+    # then build expectations that match execution. An explicit
+    # --block-gas-limit still wins.
+    if not option_was_explicitly_set(item.config, "--block-gas-limit"):
+        EnvironmentDefaults.gas_limit = MonadRunloopDefaults.gas_limit
+
+
+def pytest_runtest_teardown(item: pytest.Item) -> None:
+    """Restore the session chain defaults after a `runloop_test` item."""
+    saved = item.stash.get(runloop_saved_defaults_key, None)
+    if saved is None:
+        return
+    (
+        ChainConfigDefaults.chain_id,
+        EnvironmentDefaults.gas_limit,
+    ) = saved
+    del item.stash[runloop_saved_defaults_key]
+
+
 def _verify_fixtures_post_merge(
     config: pytest.Config, output_dir: Path
 ) -> None:
@@ -2002,6 +2022,9 @@ def _verify_fixtures_post_merge(
     dir_to_format: dict[str, type[BaseFixture]] = {
         StateFixture.output_base_dir_name(): StateFixture,
         BlockchainFixture.output_base_dir_name(): BlockchainFixture,
+        BlockchainRunloopFixture.output_base_dir_name(): (
+            BlockchainRunloopFixture
+        ),
         BlockchainEngineFixture.output_base_dir_name(): (
             BlockchainEngineFixture
         ),

@@ -190,9 +190,9 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
-        "monad_runloop: Markers to be added only when filling with "
-        "--monad-runloop (e.g. skips for tests that need a test-controlled "
-        "block gas limit the runloop overrides).",
+        "monad_runloop: Markers to be added only when filling a "
+        "runloop_test fixture (e.g. skips for tests that need a "
+        "test-controlled block gas limit the runloop overrides).",
     )
     config.addinivalue_line(
         "markers",
