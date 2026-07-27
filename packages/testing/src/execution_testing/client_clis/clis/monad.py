@@ -36,8 +36,10 @@ FORK_REVISION_SCHEDULES = {
     "MONAD_EIGHT": [(8, 0)],
     "MONAD_NINE": [(9, 0)],
     "MONAD_TEN": [(10, 0)],
+    "MONAD_NEXT": [(11, 0)],
     "MONAD_EIGHTToMONAD_NINEAtTime15k": [(8, 0), (9, 15_000)],
     "MONAD_NINEToMONAD_TENAtTime15k": [(9, 0), (10, 15_000)],
+    "MONAD_TENToMONAD_NEXTAtTime15k": [(10, 0), (11, 15_000)],
 }
 
 

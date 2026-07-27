@@ -1754,6 +1754,12 @@ class MONAD_TEN(MONAD_NINE, solc_name="cancun"):  # noqa: N801
         return gas_cost
 
 
+class MONAD_NEXT(MONAD_TEN, solc_name="cancun"):  # noqa: N801
+    """MONAD_NEXT fork, a placeholder identical to MONAD_TEN."""
+
+    pass
+
+
 class BPO1(
     Osaka,
     bpo_fork=True,

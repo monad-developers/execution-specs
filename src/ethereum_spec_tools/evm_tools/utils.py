@@ -27,6 +27,9 @@ from ethereum_spec_tools.forks import Hardfork
 W = TypeVar("W", Uint, U64, U256)
 
 EXCEPTION_MAPS = {
+    "MONAD_NEXT": {
+        "fork_blocks": [("monad_next", 0)],
+    },
     "MONAD_TEN": {
         "fork_blocks": [("monad_ten", 0)],
     },
