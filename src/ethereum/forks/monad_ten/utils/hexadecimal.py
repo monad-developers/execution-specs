@@ -9,7 +9,7 @@ Introduction
 ------------
 
 Hexadecimal utility functions used in this specification, specific to
-Monad Next types.
+Monad Ten types.
 """
 
 from ethereum_types.bytes import Bytes

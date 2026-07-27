@@ -8,9 +8,9 @@ monad:
   # --suppress-no-test-exit-code works around a problem where multi-phase fill
   # (triggered by tarball output) fails to proceed on no tests processed
   # in 1st phase (exit code 5)
-  fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_NEXT --chain-id=143 -k "not invalid_header"
+  fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=143 -k "not invalid_header"
 
 monad_runloop:
   evm-type: eels
   # Like `monad`, but `--monad-runloop` and eestnet chain id `30143`
-  fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_NEXT --chain-id=30143 --monad-runloop -k "not invalid_header"
+  fill-params: --suppress-no-test-exit-code -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=30143 --monad-runloop -k "not invalid_header"

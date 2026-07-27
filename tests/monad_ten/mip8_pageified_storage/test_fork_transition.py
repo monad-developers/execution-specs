@@ -1,5 +1,5 @@
 """
-Tests MONAD_NINE -> MONAD_NEXT fork transition for MIP-8 storage.
+Tests MONAD_NINE -> MONAD_TEN fork transition for MIP-8 storage.
 """
 
 import pytest
@@ -17,7 +17,7 @@ from execution_testing import (
     Storage,
     Transaction,
 )
-from execution_testing.forks import MONAD_NEXT, MONAD_NINE
+from execution_testing.forks import MONAD_NINE, MONAD_TEN
 from execution_testing.forks.helpers import Fork
 
 from .helpers import (
@@ -35,7 +35,7 @@ value_code_worked = 0x1234
 slot_gas_measured = 0x10
 
 
-@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+@pytest.mark.valid_at_transition_to("MONAD_TEN")
 def test_storage_persists_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -86,7 +86,7 @@ def test_storage_persists_at_fork(
     )
 
 
-@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+@pytest.mark.valid_at_transition_to("MONAD_TEN")
 def test_page_warming_activates_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -97,7 +97,7 @@ def test_page_warming_activates_at_fork(
 
     In MONAD_NINE (slot-level): warming slot 0 does NOT warm
     slot 1 — each slot tracked independently.
-    In MONAD_NEXT (page-level): warming slot 0 warms entire
+    In MONAD_TEN (page-level): warming slot 0 warms entire
     page 0, so slot 1 is also warm.
 
     Pre-fork block: SLOAD(0) then measure SLOAD(1) gas.
@@ -151,16 +151,16 @@ def test_page_warming_activates_at_fork(
                     # Pre-fork (MONAD_NINE): slot-level, SLOAD(1)
                     # is cold (different slot from SLOAD(0))
                     14_999: Op.SLOAD(key_warm=False).gas_cost(MONAD_NINE),
-                    # Post-fork (MONAD_NEXT): page-level, SLOAD(1)
+                    # Post-fork (MONAD_TEN): page-level, SLOAD(1)
                     # is warm (same page as SLOAD(0))
-                    15_000: Op.SLOAD(page_load_warm=True).gas_cost(MONAD_NEXT),
+                    15_000: Op.SLOAD(page_load_warm=True).gas_cost(MONAD_TEN),
                 },
             ),
         },
     )
 
 
-@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+@pytest.mark.valid_at_transition_to("MONAD_TEN")
 def test_existing_storage_warms_page_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -231,7 +231,7 @@ def test_existing_storage_warms_page_at_fork(
                     0: 0xAA,
                     1: 0xBB,
                     slot_gas_measured: Op.SLOAD(page_load_warm=True).gas_cost(
-                        MONAD_NEXT
+                        MONAD_TEN
                     ),
                 },
             ),
@@ -241,7 +241,7 @@ def test_existing_storage_warms_page_at_fork(
 
 @pytest.mark.parametrize("scheme", ["1pre_2post", "2pre_1post"])
 @pytest.mark.parametrize("orig,curr,new", STATE_TRANSITIONS)
-@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+@pytest.mark.valid_at_transition_to("MONAD_TEN")
 def test_sstore_state_transitions_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -253,7 +253,7 @@ def test_sstore_state_transitions_at_fork(
 ) -> None:
     """
     SSTORE state-transition matrix split across the MONAD_NINE →
-    MONAD_NEXT fork.
+    MONAD_TEN fork.
 
     The 0 → orig → curr → new sequence is materialized as up to 3
     SSTOREs, distributed across the two blocks:
@@ -278,7 +278,7 @@ def test_sstore_state_transitions_at_fork(
     if scheme == "1pre_2post":
         pre_branch = Op.SSTORE(slot, orig)
         post_branch = Op.SSTORE(slot, curr) + measured
-        simulate_sstore(page, slot, curr, MONAD_NEXT)
+        simulate_sstore(page, slot, curr, MONAD_TEN)
     else:  # 2pre_1post
         pre_branch = Op.SSTORE(slot, orig) + Op.SSTORE(slot, curr)
         post_branch = measured
@@ -291,7 +291,7 @@ def test_sstore_state_transitions_at_fork(
         )
     )
 
-    expected_gas = simulate_sstore(page, slot, new, MONAD_NEXT)
+    expected_gas = simulate_sstore(page, slot, new, MONAD_TEN)
 
     blocks = [
         Block(
@@ -330,7 +330,7 @@ def test_sstore_state_transitions_at_fork(
     )
 
 
-@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+@pytest.mark.valid_at_transition_to("MONAD_TEN")
 def test_access_list_warming_at_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -341,7 +341,7 @@ def test_access_list_warming_at_fork(
 
     Pre-fork (MONAD_NINE, slot-level): AL warms only the declared
     slot; SLOAD on a different slot of the same page is cold.
-    Post-fork (MONAD_NEXT, page-level): AL warms the entire page.
+    Post-fork (MONAD_TEN, page-level): AL warms the entire page.
     """
     sender = pre.fund_eoa()
     overhead = Op.PUSH1(0).gas_cost(fork)
@@ -395,14 +395,14 @@ def test_access_list_warming_at_fork(
                     # Pre-fork: slot 1 NOT in AL → cold (slot-level).
                     14_999: Op.SLOAD(key_warm=False).gas_cost(MONAD_NINE),
                     # Post-fork: slot 1 shares page with AL's slot 0 → warm.
-                    15_000: Op.SLOAD(page_load_warm=True).gas_cost(MONAD_NEXT),
+                    15_000: Op.SLOAD(page_load_warm=True).gas_cost(MONAD_TEN),
                 },
             ),
         },
     )
 
 
-@pytest.mark.valid_at_transition_to("MONAD_NEXT")
+@pytest.mark.valid_at_transition_to("MONAD_TEN")
 def test_blockhash_stable_across_fork(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,

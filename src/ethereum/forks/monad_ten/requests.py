@@ -19,13 +19,13 @@ processed.
 
 [EIP-4895]: https://eips.ethereum.org/EIPS/eip-4895
 [EIP-7685]: https://eips.ethereum.org/EIPS/eip-7685
-[rh]: ref:ethereum.forks.monad_next.blocks.Header.requests_hash
-[dt]: ref:ethereum.forks.monad_next.requests.DEPOSIT_REQUEST_TYPE
-[wt]: ref:ethereum.forks.monad_next.requests.WITHDRAWAL_REQUEST_TYPE
-[ct]: ref:ethereum.forks.monad_next.requests.CONSOLIDATION_REQUEST_TYPE
-[pd]: ref:ethereum.forks.monad_next.requests.parse_deposit_requests
-[crh]: ref:ethereum.forks.monad_next.requests.compute_requests_hash
-[pgpr]: ref:ethereum.forks.monad_next.fork.process_general_purpose_requests
+[rh]: ref:ethereum.forks.monad_ten.blocks.Header.requests_hash
+[dt]: ref:ethereum.forks.monad_ten.requests.DEPOSIT_REQUEST_TYPE
+[wt]: ref:ethereum.forks.monad_ten.requests.WITHDRAWAL_REQUEST_TYPE
+[ct]: ref:ethereum.forks.monad_ten.requests.CONSOLIDATION_REQUEST_TYPE
+[pd]: ref:ethereum.forks.monad_ten.requests.parse_deposit_requests
+[crh]: ref:ethereum.forks.monad_ten.requests.compute_requests_hash
+[pgpr]: ref:ethereum.forks.monad_ten.fork.process_general_purpose_requests
 """
 
 from hashlib import sha256
@@ -265,9 +265,9 @@ def parse_deposit_requests(block_output: BlockOutput) -> Bytes:
     prefixed with [`DEPOSIT_REQUEST_TYPE`][dt] before being appended to
     the block's request list.
 
-    [addr]: ref:ethereum.forks.monad_next.requests.DEPOSIT_CONTRACT_ADDRESS
-    [sig]: ref:ethereum.forks.monad_next.requests.DEPOSIT_EVENT_SIGNATURE_HASH
-    [dt]: ref:ethereum.forks.monad_next.requests.DEPOSIT_REQUEST_TYPE
+    [addr]: ref:ethereum.forks.monad_ten.requests.DEPOSIT_CONTRACT_ADDRESS
+    [sig]: ref:ethereum.forks.monad_ten.requests.DEPOSIT_EVENT_SIGNATURE_HASH
+    [dt]: ref:ethereum.forks.monad_ten.requests.DEPOSIT_REQUEST_TYPE
     """
     deposit_requests: Bytes = b""
     for key in block_output.receipt_keys:
@@ -299,7 +299,7 @@ def compute_requests_hash(requests: List[Bytes]) -> Bytes:
 
     [EIP-7685]: https://eips.ethereum.org/EIPS/eip-7685
     [SHA2-256]: https://en.wikipedia.org/wiki/SHA-2
-    [rh]: ref:ethereum.forks.monad_next.blocks.Header.requests_hash
+    [rh]: ref:ethereum.forks.monad_ten.blocks.Header.requests_hash
     """
     m = sha256()
     for request in requests:

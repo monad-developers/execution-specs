@@ -4,7 +4,7 @@ import pytest
 
 from execution_testing.vm import Bytecode, Op
 
-from ..forks.forks import MONAD_NEXT, Homestead, Osaka
+from ..forks.forks import MONAD_TEN, Homestead, Osaka
 from ..helpers import Fork
 
 
@@ -611,9 +611,9 @@ def test_sstore_gas_costs(fork: Fork, opcode: Op, expected_cost: int) -> None:
     assert opcode.gas_cost(fork) == expected_cost
 
 
-# --- MIP-8 page-based storage gas tests (MONAD_NEXT) ---
+# --- MIP-8 page-based storage gas tests (MONAD_TEN) ---
 
-_gc = MONAD_NEXT.gas_costs()
+_gc = MONAD_TEN.gas_costs()
 
 
 @pytest.mark.parametrize(
@@ -633,7 +633,7 @@ _gc = MONAD_NEXT.gas_costs()
 )
 def test_mip8_sload_gas(opcode: Op, expected_cost: int) -> None:
     """Test MIP-8 page-level SLOAD gas."""
-    assert opcode.gas_cost(MONAD_NEXT) == expected_cost
+    assert opcode.gas_cost(MONAD_TEN) == expected_cost
 
 
 @pytest.mark.parametrize(
@@ -734,7 +734,7 @@ def test_mip8_sload_gas(opcode: Op, expected_cost: int) -> None:
 )
 def test_mip8_sstore_gas(opcode: Op, expected_cost: int) -> None:
     """Test MIP-8 page-level SSTORE gas."""
-    assert opcode.gas_cost(MONAD_NEXT) == expected_cost
+    assert opcode.gas_cost(MONAD_TEN) == expected_cost
 
 
 def test_mip8_sstore_no_refunds() -> None:
@@ -745,4 +745,4 @@ def test_mip8_sstore_no_refunds() -> None:
         current_value=5,
         new_value=0,
     )
-    assert clear_op.refund(MONAD_NEXT) == 0
+    assert clear_op.refund(MONAD_TEN) == 0

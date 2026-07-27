@@ -1666,8 +1666,8 @@ class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
         return fn
 
 
-class MONAD_NEXT(MONAD_NINE, solc_name="cancun"):  # noqa: N801
-    """MONAD_NEXT fork."""
+class MONAD_TEN(MONAD_NINE, solc_name="cancun"):  # noqa: N801
+    """MONAD_TEN fork."""
 
     @classmethod
     def gas_costs(cls) -> GasCosts:

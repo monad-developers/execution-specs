@@ -41,7 +41,7 @@ REFERENCE_SPEC_VERSION = ref_spec_8.version
 slot_gas_measured = 0x100
 value_code_worked = 0x1234
 
-pytestmark = [pytest.mark.valid_from("MONAD_NEXT")]
+pytestmark = [pytest.mark.valid_from("MONAD_TEN")]
 
 
 def _setup_current(slot: int, orig: int, curr: int) -> Bytecode:

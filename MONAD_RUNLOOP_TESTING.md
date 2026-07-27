@@ -79,9 +79,9 @@ uv run consume direct --input ../fixtures_eestnet \
 
 ## Fork-transition flow (MIP-8 dual-db)
 
-MONAD_NINE storage is slot-encoded; MONAD_NEXT (MIP-8) is
+MONAD_NINE storage is slot-encoded; MONAD_TEN (MIP-8) is
 page-encoded. A transition fixture (e.g.
-`MONAD_NINEToMONAD_NEXTAtTime15k`) crosses that boundary mid-run, so
+`MONAD_NINEToMONAD_TENAtTime15k`) crosses that boundary mid-run, so
 the run keeps both encodings live in one triedb: a slot-encoded
 primary timeline and a page-encoded secondary timeline.
 
@@ -97,10 +97,10 @@ primary timeline and a page-encoded secondary timeline.
   and writes `output.json`.
 - **Execution** (`runloop_monad`): reads each block from the ledger
   dir and dispatches on `get_monad_revision(timestamp)` via
-  `SWITCH_MONAD_TRAITS` — block 1 runs MONAD_NINE, block 2 MONAD_NEXT.
+  `SWITCH_MONAD_TRAITS` — block 1 runs MONAD_NINE, block 2 MONAD_TEN.
 - **Dual-write** (`commit_block`): both timelines get the same
   `StateDeltas` every block. Slot is canonical before the fork, page
-  after; the canonical root flips to page at the first MONAD_NEXT
+  after; the canonical root flips to page at the first MONAD_TEN
   block, matching the fixture's final `blockHeader.stateRoot`.
 - **Assertions**: `state_root` and every `postState` account
   (balance, nonce, code, per-slot storage) match `output`, with no
@@ -129,4 +129,4 @@ The production fork migration uses the same dual-db mechanism: an operator
 runs `monad-mpt --activate-secondary --state-machine monad` on the live
 slot-encoded db before the fork, the node opens the secondary timeline and
 dual-writes both encodings across the boundary, and the authoritative root
-flips from slot to page at the first MONAD_NEXT block.
+flips from slot to page at the first MONAD_TEN block.
