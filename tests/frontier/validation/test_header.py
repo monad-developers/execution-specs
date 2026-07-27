@@ -24,6 +24,9 @@ from execution_testing.test_types.block_types import Environment
             5000,
             marks=[
                 pytest.mark.valid_from("EIP7928"),
+                pytest.mark.not_valid_for(
+                    "MONAD_EIGHT", subsequent_forks=True
+                ),
                 pytest.mark.exception_test,
             ],
         ),

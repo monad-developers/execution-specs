@@ -23,6 +23,13 @@ from ...osaka.eip7594_peerdas.spec import Spec as EIP_7594_Spec
 from .helpers import DataTestType, find_floor_cost_threshold
 
 
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Mark all tests in this subdir as not valid for Monad forks."""
+    metafunc.definition.add_marker(
+        pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
+    )
+
+
 @pytest.fixture
 def to(
     request: pytest.FixtureRequest,
