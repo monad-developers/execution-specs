@@ -53,7 +53,7 @@ from execution_testing.exceptions import (
     EngineAPIError,
     ExceptionInstanceOrList,
 )
-from execution_testing.forks import Fork, Paris, TransitionFork
+from execution_testing.forks import MONAD_EIGHT, Fork, Paris, TransitionFork
 from execution_testing.test_types import (
     BlockAccessList,
     Environment,
@@ -845,6 +845,30 @@ class BlockchainFixture(BlockchainFixtureCommon):
     blocks: List[FixtureBlock | InvalidFixtureBlock]
     seal_engine: Literal["NoProof"] = Field("NoProof")
     transition_tool_cache_key: ClassVar[str] = "blockchain_test"
+
+
+class BlockchainRunloopFixture(BlockchainFixture):
+    """
+    Blockchain test fixture executable on the monad runloop.
+
+    Same model as `BlockchainFixture`, but filled with EestNet's chain
+    id and the consensus-derived header fields the runloop produces
+    (see `MonadRunloopDefaults`), and written under `runloop_tests`.
+    """
+
+    format_name: ClassVar[str] = "runloop_test"
+    description: ClassVar[str] = (
+        "Tests that generate a blockchain test fixture executable on "
+        "the monad runloop."
+    )
+    # Filled with a different chain id and block environment than
+    # `blockchain_test`, so transition tool outputs cannot be shared.
+    transition_tool_cache_key: ClassVar[str] = "runloop_test"
+
+    @classmethod
+    def supports_fork(cls, fork: Fork | TransitionFork) -> bool:
+        """The monad runloop only executes monad forks."""
+        return fork.fork_at(block_number=0, timestamp=0) >= MONAD_EIGHT
 
 
 @post_state_validator()

@@ -24,6 +24,7 @@ from execution_testing.client_clis.fixture_consumer_tool import (
 from execution_testing.fixtures import (
     BaseFixture,
     BlockchainFixture,
+    BlockchainRunloopFixture,
     StateFixture,
 )
 from execution_testing.fixtures.consume import (
@@ -94,6 +95,7 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: D103
     config.supported_fixture_formats = [  # type: ignore[attr-defined]
         StateFixture,
         BlockchainFixture,
+        BlockchainRunloopFixture,
     ]
     fixture_consumers = []
     for fixture_consumer_bin_path in config.getoption("fixture_consumer_bin"):

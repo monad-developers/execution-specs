@@ -1,7 +1,7 @@
 """
 Monad `eest-runner` fixture consumer.
 
-Executes blockchain fixtures against the production monad runloop via
+Executes runloop test fixtures against the production monad runloop via
 the `eest-runner` harness binary (built from monad-bft + monad
 execution, EestNet chain). The fixture is digested into a simple input
 document (genesis allocation + per-block timestamp/base fee/beneficiary
@@ -23,7 +23,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
-from execution_testing.fixtures import BlockchainFixture, FixtureFormat
+from execution_testing.fixtures import (
+    BlockchainRunloopFixture,
+    FixtureFormat,
+)
 from execution_testing.test_types import Transaction
 
 from ..fixture_consumer_tool import FixtureConsumerTool
@@ -160,9 +163,9 @@ def _compare_account(
 
 class MonadFixtureConsumer(
     FixtureConsumerTool,
-    fixture_formats=[BlockchainFixture],
+    fixture_formats=[BlockchainRunloopFixture],
 ):
-    """Monad's `eest-runner` fixture consumer for blockchain tests."""
+    """Monad's `eest-runner` consumer for runloop test fixtures."""
 
     default_binary = Path("eest-runner")
     detect_binary_pattern = re.compile(r"^eest-runner\b")
@@ -298,8 +301,8 @@ class MonadFixtureConsumer(
         fixture_name: Optional[str] = None,
         debug_output_path: Optional[Path] = None,
     ) -> None:
-        """Execute a blockchain fixture on the monad runloop and verify."""
-        assert fixture_format == BlockchainFixture
+        """Execute a runloop fixture on the monad runloop and verify."""
+        assert fixture_format == BlockchainRunloopFixture
 
         with open(fixture_path) as f:
             fixtures = json.load(f)
