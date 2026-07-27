@@ -103,3 +103,46 @@ def test_runloop_format_not_generated_for_canonical_forks(
         "Prague",
     )
     assert result.ret == pytest.ExitCode.NO_TESTS_COLLECTED
+
+
+test_module_chain_config = textwrap.dedent(
+    """\
+    import pytest
+
+    from execution_testing import Account, Op, Transaction
+
+    @pytest.mark.valid_from("MONAD_NINE")
+    def test_chain_config(state_test, pre, chain_config) -> None:
+        contract = pre.deploy_contract(Op.SSTORE(1, Op.CHAINID) + Op.STOP)
+        tx = Transaction(
+            sender=pre.fund_eoa(), to=contract, gas_limit=100_000
+        )
+        state_test(
+            pre=pre,
+            post={contract: Account(storage={1: chain_config.chain_id})},
+            tx=tx,
+        )
+    """
+)
+
+
+def test_chain_config_follows_fixture_format(
+    testdir: pytest.Testdir, fill_args: list[str]
+) -> None:
+    """
+    The `chain_config` fixture must resolve per item: the blockchain
+    item runs first in the session, and a `chain_config` cached from it
+    would sign and verify the runloop item with the wrong chain id
+    (regression test for the session-scoped `chain_config`).
+    """
+    testdir.makepyfile(test_module_chain_config)
+    result = testdir.runpytest(
+        *fill_args,
+        "-m",
+        "blockchain_test or runloop_test",
+        "--fork",
+        "MONAD_NINE",
+        "--chain-id",
+        "143",
+    )
+    result.assert_outcomes(passed=2)

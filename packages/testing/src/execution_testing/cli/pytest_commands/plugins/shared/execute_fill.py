@@ -359,9 +359,16 @@ def sender(pre: Alloc) -> EOA:
     return pre.fund_eoa()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def chain_config() -> ChainConfig:
-    """Return chain configuration."""
+    """
+    Return chain configuration.
+
+    Function-scoped because the chain id differs per fixture format
+    within one session: `runloop_test` items fill with EestNet's chain
+    id, so a session-cached `ChainConfig` would leak one format's chain
+    id into the other's items.
+    """
     return ChainConfig()
 
 
