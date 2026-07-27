@@ -55,6 +55,7 @@ FORK_ORDER = [
     # to sort after the canonical forks.
     "MONAD_EIGHT",
     "MONAD_NINE",
+    "MONAD_TEN",
     "MONAD_NEXT",
 ]
 

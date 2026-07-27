@@ -8,7 +8,7 @@ Hardfork Utility Functions For Addresses.
 Introduction
 ------------
 
-Address specific functions used in this MONAD_NINE version of
+Address specific functions used in this MONAD_NEXT version of
 specification.
 """
 

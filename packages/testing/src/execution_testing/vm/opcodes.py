@@ -2595,11 +2595,11 @@ class Opcodes(Opcode, Enum):
 
     Gas
     ----
-    NOTE: MIP-8 (MONAD_NEXT) changes the gas cost, see spec.
+    NOTE: MIP-8 (MONAD_TEN) changes the gas cost, see spec.
     - static_gas = 0
     - dynamic_gas = 100 if warm_address, 2600 if cold_address
 
-    MIP-8 (MONAD_NEXT) replaces per-key warming with per-page
+    MIP-8 (MONAD_TEN) replaces per-key warming with per-page
     warming: `GAS_PAGE_BASE_COST` when the page is already in
     `read_accessed_pages`, else `GAS_PAGE_LOAD_COST +
     GAS_PAGE_BASE_COST`.
@@ -2656,7 +2656,7 @@ class Opcodes(Opcode, Enum):
 
     Gas
     ----
-    NOTE: MIP-8 (MONAD_NEXT) changes the gas cost, see spec.
+    NOTE: MIP-8 (MONAD_TEN) changes the gas cost, see spec.
     ```
     static_gas = 0
 

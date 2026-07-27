@@ -37,7 +37,7 @@ slot_gas_measured_3 = 0x04
 value_code_worked = 0x1234
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_NEXT"),
+    pytest.mark.valid_from("MONAD_TEN"),
 ]
 
 

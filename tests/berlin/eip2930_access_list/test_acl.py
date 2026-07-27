@@ -17,7 +17,7 @@ from execution_testing import (
     Transaction,
     TransactionException,
 )
-from execution_testing.forks import MONAD_NEXT
+from execution_testing.forks import MONAD_TEN
 
 REFERENCE_SPEC_GIT_PATH = "EIPS/eip-2930.md"
 REFERENCE_SPEC_VERSION = "c9db53a936c5c9cbe2db32ba0d1b86c4c6e73534"
@@ -52,7 +52,7 @@ def test_account_storage_warm_cold_state(
 
     # MIP-8 uses page-level access tracking (128 slots/page).
     # Use slot on a different page so warm/cold distinction holds.
-    sload_slot = 129 if fork >= MONAD_NEXT else 1
+    sload_slot = 129 if fork >= MONAD_TEN else 1
 
     storage_reader_contract = pre.deploy_contract(
         Op.SLOAD(sload_slot) + Op.STOP

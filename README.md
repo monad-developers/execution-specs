@@ -36,7 +36,7 @@ It mainly serves as an alternative implementation of https://github.com/category
 3. Fill all monadized spec tests as of writing this (see below for explanation of flags):
 
     ```bash
-    uv run fill --clean -m "blockchain_test or transaction_test" --from MONAD_EIGHT --until MONAD_NINE --chain-id 143 -n auto tests
+    uv run fill --clean -m "blockchain_test or transaction_test" --from MONAD_EIGHT --until MONAD_TEN --chain-id 143 -n auto tests
     ```
 
 4. The test fixtures to be found in `fixtures/` directory under repo root.
@@ -52,7 +52,7 @@ Filling tests is the process of running Python generators of spec tests [like on
 - **`-m blockchain_test or transaction_test`**: causes these two flavors of fixtures to be generated
     - `blockchain_test` is the currently supported by `monad` flavor of a spec test checking correctness of the state transition. Note this includes `blockchain_test_from_state_test`, meaning that all `state_test(...)` fillers are included
     - `transaction_test` is also supported, tests only correctness of static transaction checks
-- **`--from MONAD_EIGHT --until MONAD_NINE`**: hardforks for which to generate fixtures. Must match with those defined in `monad`, inclusive
+- **`--from MONAD_EIGHT --until MONAD_TEN`**: hardforks for which to generate fixtures. Must match with those defined in `monad`, inclusive
 - **`--chain-id 143`**: must be specified for signatures and EIP-7702 to work correctly
 - **`-n auto`**: from `pytest`, parallel execution of tests
 - **`tests`**: root directory to traverse to discover tests
@@ -65,7 +65,7 @@ Filling tests is the process of running Python generators of spec tests [like on
 
 - not all Ethereum-only features have been switched off, e.g. eth-specific system contracts and tx types are available in the monadized `execution-specs` implementation. We're skipping their respective spec tests, and we don't have tests testing lack of these features in Monad.
 - we're going to be keeping up with upstream changes (currently `forks/amsterdam` branch). This should work by opening a PR with the upstream changes to be commit-merged into our default branch (currently `forks/monad_nine`).
-- when adding a new Monad-hardfork we should use the [`ethereum-spec-new-fork` tool](./CONTRIBUTING.md#new-fork-tool) provided to clone the parent hardfork into the new hardfork. If that new Monad-hardfork also adopts upstream (Ethereum) hardfork improvements, you will need to apply these yourself.
+- when adding a new Monad-hardfork we should use the [`ethereum-spec-new-fork` tool](./docs/specs/writing_specs.md#new-fork-tool) provided to clone the parent hardfork into the new hardfork. If that new Monad-hardfork also adopts upstream (Ethereum) hardfork improvements, you will need to apply these yourself.
 
 ---
 

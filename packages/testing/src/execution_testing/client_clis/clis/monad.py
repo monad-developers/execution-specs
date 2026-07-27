@@ -35,9 +35,11 @@ from ..fixture_consumer_tool import FixtureConsumerTool
 FORK_REVISION_SCHEDULES = {
     "MONAD_EIGHT": [(8, 0)],
     "MONAD_NINE": [(9, 0)],
-    "MONAD_NEXT": [(10, 0)],
+    "MONAD_TEN": [(10, 0)],
+    "MONAD_NEXT": [(11, 0)],
     "MONAD_EIGHTToMONAD_NINEAtTime15k": [(8, 0), (9, 15_000)],
-    "MONAD_NINEToMONAD_NEXTAtTime15k": [(9, 0), (10, 15_000)],
+    "MONAD_NINEToMONAD_TENAtTime15k": [(9, 0), (10, 15_000)],
+    "MONAD_TENToMONAD_NEXTAtTime15k": [(10, 0), (11, 15_000)],
 }
 
 
@@ -184,9 +186,9 @@ class MonadFixtureConsumer(
         Create and format a fresh triedb file via `monad-mpt`.
 
         The storage encoding depends on the fixture's revision schedule.
-        MIP-8 (MONAD_NEXT, revision >= 10) uses a page-encoded triedb; older
+        MIP-8 (MONAD_TEN, revision >= 10) uses a page-encoded triedb; older
         revisions use slot encoding. A fixture that crosses the boundary
-        (e.g. a MONAD_NINE->MONAD_NEXT transition) needs both: a slot-encoded
+        (e.g. a MONAD_NINE->MONAD_TEN transition) needs both: a slot-encoded
         primary plus an activated page-encoded secondary timeline, so the
         runloop can dual-write across the fork.
         """

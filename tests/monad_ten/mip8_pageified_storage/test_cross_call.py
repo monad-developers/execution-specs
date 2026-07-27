@@ -38,7 +38,7 @@ slot_caller = 0x103
 value_code_worked = 0x1234
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_NEXT"),
+    pytest.mark.valid_from("MONAD_TEN"),
 ]
 
 

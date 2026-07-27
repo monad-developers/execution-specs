@@ -106,7 +106,7 @@ def _resolve_state_module(fork: Any) -> Tuple[Any, Any, Any, Any, Any]:
     """
     Pick the (State, set_account, set_storage, state_root, Account) tuple
     matching ``fork``'s storage-hashing scheme. Defaults to the local
-    Frontier slot-based impl. MONAD_NEXT and any later fork switch to the
+    Frontier slot-based impl. MONAD_TEN and any later fork switch to the
     MIP-8 paged storage impl.
 
     For transition forks the genesis pre-state uses the FROM fork's
@@ -115,7 +115,7 @@ def _resolve_state_module(fork: Any) -> Tuple[Any, Any, Any, Any, Any]:
     if fork is None:
         return (State, set_account, set_storage, state_root, FrontierAccount)
 
-    from execution_testing.forks.forks.forks import MONAD_NEXT
+    from execution_testing.forks.forks.forks import MONAD_TEN
     from execution_testing.forks.transition_base_fork import (
         TransitionBaseClass,
     )
@@ -126,7 +126,7 @@ def _resolve_state_module(fork: Any) -> Tuple[Any, Any, Any, Any, Any]:
         else fork
     )
 
-    if isinstance(resolved, type) and issubclass(resolved, MONAD_NEXT):
+    if isinstance(resolved, type) and issubclass(resolved, MONAD_TEN):
         return (
             State,
             set_account,
@@ -386,7 +386,7 @@ class Alloc(BaseAlloc):
 
         ``fork`` selects the storage-hashing scheme. ``None`` keeps the
         legacy slot-based MPT (used by every fork up to MONAD_NINE). When
-        ``fork.name() == "MONAD_NEXT"`` the per-fork MIP-8 paged storage
+        ``fork.name() == "MONAD_TEN"`` the per-fork MIP-8 paged storage
         root impl is used so the genesis state_root matches what the C++
         runtime computes for that fork.
         """

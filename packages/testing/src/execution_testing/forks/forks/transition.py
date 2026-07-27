@@ -9,6 +9,7 @@ from .forks import (
     MONAD_EIGHT,
     MONAD_NEXT,
     MONAD_NINE,
+    MONAD_TEN,
     Amsterdam,
     Berlin,
     Cancun,
@@ -65,9 +66,16 @@ class MONAD_EIGHTToMONAD_NINEAtTime15k(TransitionBaseClass):  # noqa: N801
     pass
 
 
-@transition_fork(to_fork=MONAD_NEXT, from_fork=MONAD_NINE, at_timestamp=15_000)
-class MONAD_NINEToMONAD_NEXTAtTime15k(TransitionBaseClass):  # noqa: N801
-    """MONAD_NINE to MONAD_NEXT transition at Timestamp 15k."""
+@transition_fork(to_fork=MONAD_TEN, from_fork=MONAD_NINE, at_timestamp=15_000)
+class MONAD_NINEToMONAD_TENAtTime15k(TransitionBaseClass):  # noqa: N801
+    """MONAD_NINE to MONAD_TEN transition at Timestamp 15k."""
+
+    pass
+
+
+@transition_fork(to_fork=MONAD_NEXT, from_fork=MONAD_TEN, at_timestamp=15_000)
+class MONAD_TENToMONAD_NEXTAtTime15k(TransitionBaseClass):  # noqa: N801
+    """MONAD_TEN to MONAD_NEXT transition at Timestamp 15k."""
 
     pass
 
