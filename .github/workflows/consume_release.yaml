@@ -100,6 +100,7 @@ jobs:
           repository: ${{ inputs.monad_execution_repo }}
           ref: ${{ inputs.monad_execution_ref }}
           path: monad-eest-rust-harness/monad-bft/monad-execution
+          submodules: recursive
           fetch-depth: 0
           token: ${{ secrets.MONAD_STACK_TOKEN }}
 
