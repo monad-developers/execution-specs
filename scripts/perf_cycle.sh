@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fill once, consume RUNS times, emit the NINE-vs-NEXT perf table.
+# Fill once, consume RUNS times, emit the NINE-vs-TEN perf table.
 set -uo pipefail
 
 TAG="${TAG:?set TAG (names all artifacts, e.g. TAG=v4)}"
@@ -25,7 +25,7 @@ if [ -z "${SKIP_FILL:-}" ]; then
   echo "=== fill $FIX (REPEATS=$REPEATS, BLOCK_GAS=$BLOCK_GAS) $NOW ==="
   MIP8_PERF_REPEATS="$REPEATS" MIP8_PERF_BLOCK_GAS="$BLOCK_GAS" \
       uv run fill -m blockchain_test "$TEST" \
-      --from MONAD_NINE --until MONAD_NEXT --chain-id 30143 --monad-runloop \
+      --from MONAD_NINE --until MONAD_TEN --chain-id 30143 --monad-runloop \
       --output "$FIX" -n auto || {
     echo "fill failed (a non-empty $FIX aborts fill); rerun with" \
          "SKIP_FILL=1 to reuse it, or delete it to refill" >&2
