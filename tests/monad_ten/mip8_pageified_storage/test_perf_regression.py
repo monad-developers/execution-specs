@@ -3,7 +3,7 @@ MIP-8 performance-regression tests.
 
 These blockchain tests compare block/transaction execution time on the
 monad runloop before MIP-8 (MONAD_NINE, slot-encoded storage) and after
-MIP-8 (MONAD_NEXT, page-encoded storage). The same Python builds the
+MIP-8 (MONAD_TEN, page-encoded storage). The same Python builds the
 workload for both forks; the `fork` fixture is only consulted where the
 two forks genuinely differ (storage-op gas, used to size a workload to a
 gas budget). We do not assert gas — the oracle is post-state (success
@@ -20,7 +20,7 @@ Single-letter test parameters:
 - `m`: number of distinct pages a spread test writes in total.
 - `n`: number of contracts those `m` pages are spread evenly across.
 
-Workloads are sized to MONAD_NINE (its cold storage costs >= MONAD_NEXT),
+Workloads are sized to MONAD_NINE (its cold storage costs >= MONAD_TEN),
 so the same iteration count never out-of-gases on either fork; a
 post-fork block may therefore be gas-underfull while doing identical I/O
 work, which is exactly the effect being measured.
@@ -52,7 +52,7 @@ from execution_testing import (
     While,
     WhileGas,
 )
-from execution_testing.forks import MONAD_NEXT, MONAD_NINE
+from execution_testing.forks import MONAD_TEN, MONAD_NINE
 from execution_testing.forks.helpers import Fork
 
 from .helpers import fresh_sstore_cold
@@ -89,7 +89,7 @@ FULL_BLOCK_TXS = 7
 # fee ~12.5%; the zero tip means no fee reaches the block coinbase, so the
 # fee routing matches between the fill and the runloop on both forks (a
 # nonzero tip is credited to the coinbase by the fill but routed elsewhere
-# by the runloop on MONAD_NEXT, which would mismatch the post-state).
+# by the runloop on MONAD_TEN, which would mismatch the post-state).
 MAX_FEE_PER_GAS = 10**6
 # `many_small` block shape: many txs, each still large enough to cover the
 # per-tx reserve. The count adapts to the block budget (300 at the full
@@ -394,7 +394,7 @@ def _calldata(
 def _per_iter_gas(op: StorageOp, k: int) -> int:
     """Gas for one loop iteration, sized to the costlier of both forks."""
     body = _body(op, k)
-    per_op = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_NEXT))
+    per_op = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_TEN))
     return per_op + WHILE_CONTROL_GAS
 
 
@@ -818,7 +818,7 @@ CHAIN_REPEAT_STRIDE = 1 << 20  # >> ring length
 
 def _size_count(body: Bytecode, budget: int) -> int:
     """Loop iterations of `body` that fit `budget`, sized to both forks."""
-    per = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_NEXT))
+    per = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_TEN))
     return max(1, (budget - TX_RESERVE) // (per + WHILE_CONTROL_GAS))
 
 

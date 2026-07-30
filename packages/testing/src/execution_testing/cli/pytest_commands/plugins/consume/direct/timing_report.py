@@ -42,7 +42,7 @@ _COLUMNS: List[Tuple[str, str]] = [
 
 # Fork ordering (oldest first) so CSV rows group forks in release order;
 # unknown forks sort after, alphabetically.
-_FORK_ORDER = ["MONAD_EIGHT", "MONAD_NINE", "MONAD_NEXT"]
+_FORK_ORDER = ["MONAD_EIGHT", "MONAD_NINE", "MONAD_TEN", "MONAD_NEXT"]
 
 # Fixture-id suffixes identifying the fixture format, not a real parameter.
 _FORMAT_TAGS = {

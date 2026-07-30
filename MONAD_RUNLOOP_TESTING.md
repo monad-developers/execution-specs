@@ -10,9 +10,9 @@ executed result.
 
 | Repo / branch | Role |
 |---|---|
-| `monad-exp/monad-eest-rust-harness` @ `perf-regression-eestnet` | `eest-runner` harness: builds consensus blocks from a fixture and runs them on the runloop |
-| `monad-bft` @ `perf-regression-eestnet` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
-| `monad` @ `perf-regression-eestnet` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
+| `monad-exp/monad-eest-rust-harness` @ `perf-regression-eestnet-monad-ten` | `eest-runner` harness: builds consensus blocks from a fixture and runs them on the runloop |
+| `monad-bft` @ `perf-regression-eestnet-monad-ten` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
+| `monad` @ `perf-regression-eestnet-monad-ten` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
 | this repo | `MonadFixtureConsumer` (`packages/testing/.../client_clis/clis/monad.py`) wired into `consume direct` |
 
 ## One-time setup
@@ -22,7 +22,7 @@ artifacts, ~6 GB RAM for hugepages.
 
 ```sh
 snap install astral-uv --classic
-git clone --branch perf-regression-eestnet \
+git clone --branch perf-regression-eestnet-monad-ten \
     git@github.com:monad-exp/monad-eest-rust-harness.git
 cd monad-eest-rust-harness
 git submodule update --init --recursive
@@ -73,7 +73,7 @@ uv run consume direct --input ../fixtures_eestnet \
 
 `tests/monad_ten/mip8_pageified_storage/test_perf_regression.py` fills
 SLOAD/SSTORE workloads at both forks and times block execution on the
-runloop to compare MONAD_NINE (slot-encoded) vs MONAD_NEXT (page-encoded).
+runloop to compare MONAD_NINE (slot-encoded) vs MONAD_TEN (page-encoded).
 
 ### Setup
 
@@ -95,7 +95,7 @@ From the repo root:
 tmux new -s perf 'TAG=v4 RUNS=7 scripts/perf_cycle.sh'
 ```
 
-Fills once, consumes `RUNS` times, and writes the NINE-vs-NEXT table to
+Fills once, consumes `RUNS` times, and writes the NINE-vs-TEN table to
 `../timing_${TAG}_<utc>_table.{html,md}` (the `.md` is headed with the
 cycle time and the four repo SHAs). Knobs:
 
