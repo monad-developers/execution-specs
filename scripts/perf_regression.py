@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Build a NINE-vs-NEXT significance table from perf timing runs.
+Build a NINE-vs-TEN significance table from perf timing runs.
 
 Reads the `timing_consume.csv` produced by `consume direct
 --timing-report` for several identical runs (one dir each) and, per
 (test, params) case, reports each measure's mean +/- sd over the runs for
 both forks, the two-sided Mann-Whitney U p-value comparing the forks,
-and (for significant measures) the NINE->NEXT average change.
+and (for significant measures) the NINE->TEN average change.
 
 Usage: perf_regression.py [--md OUT.md] [--html OUT.html]
        [--now TS --repo SHA --harness SHA --monad-bft SHA --monad SHA]
@@ -29,11 +29,11 @@ from pathlib import Path
 from statistics import mean, stdev
 
 METRICS = ["tx_exec_us", "commit_us", "total_us"]
-FORKS = ["MONAD_NINE", "MONAD_NEXT"]
+FORKS = ["MONAD_NINE", "MONAD_TEN"]
 ALPHA = 0.01  # a measure is significant at this Mann-Whitney U p-value
 
-UP = "🔴⬆️"  # significant measures all rise NINE->NEXT (NEXT slower)
-DOWN = "🟢⬇️"  # significant measures all fall NINE->NEXT (NEXT faster)
+UP = "🔴⬆️"  # significant measures all rise NINE->TEN (TEN slower)
+DOWN = "🟢⬇️"  # significant measures all fall NINE->TEN (TEN faster)
 MIXED = "⚠️"  # significant measures move both up and down
 
 # Per-case workload descriptions live here; pinned to the execution-specs
@@ -147,13 +147,13 @@ def build(runs: list[dict]) -> list[str]:
 
     header = ["test-params"]
     for m in METRICS:
-        header += [f"{m} NINE", f"{m} NEXT", f"{m} p"]
-    header += ["significant", "Δ avg NINE→NEXT (sig)"]
+        header += [f"{m} NINE", f"{m} TEN", f"{m} p"]
+    header += ["significant", "Δ avg NINE→TEN (sig)"]
 
     lines = [
         f"Mean ± sd over {len(runs)} runs (µs). Bold = measure significant "
         f"(Mann–Whitney U p ≤ {ALPHA}). "
-        f"Significant flag: {UP} NEXT slower, {DOWN} NEXT faster, "
+        f"Significant flag: {UP} TEN slower, {DOWN} TEN faster, "
         f"{MIXED} mixed.",
         "",
         "| " + " | ".join(header) + " |",
@@ -168,7 +168,7 @@ def build(runs: list[dict]) -> list[str]:
         deltas = []
         chgs = []
         for m in METRICS:
-            n, x = forks["MONAD_NINE"][m], forks["MONAD_NEXT"][m]
+            n, x = forks["MONAD_NINE"][m], forks["MONAD_TEN"][m]
             p = _mwu_p(n, x)
             ncell, xcell = _stat(n), _stat(x)
             if p <= ALPHA:
@@ -185,7 +185,7 @@ def build(runs: list[dict]) -> list[str]:
     lines += [
         "",
         "p (MWU) is the two-sided Mann–Whitney U p-value comparing the "
-        f"NINE and NEXT run samples for that measure; significant at "
+        f"NINE and TEN run samples for that measure; significant at "
         f"p ≤ {ALPHA}.",
     ]
     return lines
@@ -196,7 +196,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MIP-8 perf: NINE vs NEXT significance</title>
+<title>MIP-8 perf: NINE vs TEN significance</title>
 <style>
   html, body { margin: 0; padding: 16px; }
   body {
