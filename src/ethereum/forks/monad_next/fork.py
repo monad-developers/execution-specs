@@ -404,6 +404,8 @@ def validate_header(chain: BlockChain, header: Header) -> None:
         raise InvalidBlock
     if header.ommers_hash != EMPTY_OMMER_HASH:
         raise InvalidBlock
+    if header.block_access_list_hash != Hash32(b"\x00" * 32):
+        raise InvalidBlock
 
     block_parent_hash = keccak256(rlp.encode(parent_header))
     if header.parent_hash != block_parent_hash:

@@ -565,6 +565,18 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
 
     @classmethod
     @abstractmethod
+    def supports_block_access_lists(cls) -> bool:
+        """
+        Return true if the fork builds block access lists (EIP-7928).
+
+        A fork can require the block access list hash header field without
+        building block access lists (e.g. Monad); the field is then fixed
+        at zero.
+        """
+        pass
+
+    @classmethod
+    @abstractmethod
     def empty_block_bal_item_count(cls) -> int:
         """
         Return the number of BAL items produced by an empty block.

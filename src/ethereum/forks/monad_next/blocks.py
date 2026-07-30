@@ -248,6 +248,16 @@ class Header:
     [SHA2-256]: https://en.wikipedia.org/wiki/SHA-2
     """
 
+    block_access_list_hash: Hash32
+    """
+    Header slot introduced by [EIP-7928] for the hash of the Block Access
+    List. Monad does not build block access lists, so this field is always
+    zero. See [`validate_header`][vh].
+
+    [EIP-7928]: https://eips.ethereum.org/EIPS/eip-7928
+    [vh]: ref:ethereum.forks.monad_next.fork.validate_header
+    """
+
     slot_number: U64
     """
     The slot number of this block as provided by the consensus layer.

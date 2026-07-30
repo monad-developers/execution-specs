@@ -955,6 +955,11 @@ class Frontier(BaseFork):
         return False
 
     @classmethod
+    def supports_block_access_lists(cls) -> bool:
+        """At genesis, no block access lists are built."""
+        return False
+
+    @classmethod
     def empty_block_bal_item_count(cls) -> int:
         """Pre-Amsterdam forks have no block access list."""
         return 0
@@ -1906,7 +1911,9 @@ class MONAD_NEXT(MONAD_TEN, Amsterdam):  # noqa: N801
 
     Amsterdam-based successor to MONAD_TEN. Only the EIP-7708, EIP-7843
     and EIP-8024 changes are inherited from Amsterdam; every other
-    Amsterdam change is pinned back to the MONAD_TEN parent.
+    Amsterdam change is pinned back to the MONAD_TEN parent. The
+    EIP-7928 block access list hash header field is carried, but no
+    block access lists are built, so the field is always zero.
     """
 
     @classmethod
@@ -1942,9 +1949,9 @@ class MONAD_NEXT(MONAD_TEN, Amsterdam):  # noqa: N801
         return MONAD_TEN.transaction_intrinsic_cost_calculator()
 
     @classmethod
-    def header_bal_hash_required(cls) -> bool:
+    def supports_block_access_lists(cls) -> bool:
         """Return spec from explicit parent (skip EIP-7928)."""
-        return MONAD_TEN.header_bal_hash_required()
+        return MONAD_TEN.supports_block_access_lists()
 
     @classmethod
     def empty_block_bal_item_count(cls) -> int:
