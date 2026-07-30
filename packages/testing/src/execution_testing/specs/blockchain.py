@@ -910,17 +910,23 @@ class BlockchainTest(BaseTest):
                 int(env.slot_number) if env.slot_number is not None else 0
             )
 
+        header_fields = transition_tool_output.result.model_dump(
+            exclude_none=True,
+            exclude={"blob_gas_used", "transactions_trie"},
+        ) | env.model_dump(
+            exclude_none=True,
+            exclude={"blob_gas_used", "slot_number"},
+        )
+        if fork.header_bal_hash_required() and (
+            not fork.supports_block_access_lists()
+        ):
+            # Fork requires the block access list hash header field but
+            # doesn't build block access lists (e.g. Monad): fix value at
+            # zero.
+            header_fields.setdefault("block_access_list_hash", Hash(0))
+
         header = FixtureHeader(
-            **(
-                transition_tool_output.result.model_dump(
-                    exclude_none=True,
-                    exclude={"blob_gas_used", "transactions_trie"},
-                )
-                | env.model_dump(
-                    exclude_none=True,
-                    exclude={"blob_gas_used", "slot_number"},
-                )
-            ),
+            **header_fields,
             blob_gas_used=blob_gas_used,
             transactions_trie=Transaction.list_root(txs),
             extra_data=(
@@ -983,7 +989,7 @@ class BlockchainTest(BaseTest):
         if t8n_bal_rlp is not None:
             t8n_bal = BlockAccessList.from_rlp(t8n_bal_rlp)
 
-        if fork.header_bal_hash_required():
+        if fork.supports_block_access_lists():
             assert t8n_bal is not None, (
                 "Block access list is required for this block but was not "
                 "provided by the transition tool"

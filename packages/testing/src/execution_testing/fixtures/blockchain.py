@@ -376,7 +376,11 @@ class FixtureHeader(CamelModel):
             if fork.header_requests_required()
             else None,
             "block_access_list_hash": (
-                BlockAccessList().rlp_hash
+                (
+                    BlockAccessList().rlp_hash
+                    if fork.supports_block_access_lists()
+                    else Hash(0)
+                )
                 if fork.header_bal_hash_required()
                 else None
             ),

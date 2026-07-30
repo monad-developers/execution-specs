@@ -148,7 +148,7 @@ class Env:
         if t8n.fork.has_compute_requests_hash:
             arguments["requests_hash"] = Hash32(b"\0" * 32)
 
-        if t8n.fork.has_hash_block_access_list:
+        if t8n.fork.has_block_access_list_hash_header:
             arguments["block_access_list_hash"] = Hash32(b"\0" * 32)
         if t8n.fork.has_slot_number:
             arguments["slot_number"] = U64(0)

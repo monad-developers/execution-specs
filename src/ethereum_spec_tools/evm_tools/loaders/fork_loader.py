@@ -172,6 +172,20 @@ class ForkLoad:
         return hasattr(module, "hash_block_access_list")
 
     @property
+    def has_block_access_list_hash_header(self) -> bool:
+        """
+        Check if the fork's header has a `block_access_list_hash` field.
+
+        A fork can carry the header field without building block access
+        lists (e.g. Monad, where the field is always zero).
+        """
+        try:
+            header = self._module("blocks").Header
+            return "block_access_list_hash" in header.__dataclass_fields__
+        except (ModuleNotFoundError, AttributeError):
+            return False
+
+    @property
     def BlockAccessIndex(self) -> Any:
         """BlockAccessIndex type of the fork."""
         return self._module("block_access_lists").BlockAccessIndex
