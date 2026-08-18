@@ -2,20 +2,11 @@ name: Create Fixture Release
 
 run-name: ${{ github.event_name == 'schedule' && 'Nightly Fill' || format('Create Fixture Release {0}@{1}{2}', inputs.feature, inputs.version, (inputs.cached || inputs.commit != '') && ' (cached)' || '') }}
 
-# Scheduled runs fill the mainnet `tests` feature (all tests, all fixture
-# formats, up to the latest mainnet fork -- no dev forks) through the exact
-# release pipeline, but skip the `release` job, so no tag or draft release
-# is created: a rotating, always-available artifact of the mainnet
-# fixtures. The cron fires at 02:00 UTC: the self-hosted runners are past
-# the EU/US daytime peaks and results are ready before the EU morning.
-#
-# A manual `tests` release can reuse the newest of those artifacts
-# instead of refilling via the `cached` checkbox: `build` and `combine`
-# are skipped and the `release` job drafts from the nightly's tarball,
-# tagged at the commit the nightly built. Runs in minutes.
+# Upstream also runs this on a nightly schedule to rehearse a mainnet
+# `tests` release and to feed the `cached` release path. This fork releases
+# the `monad` and `monad_runloop` features only, so the schedule is dropped
+# and the `cached` / `commit` inputs fail fast on their `tests`-only guard.
 on:
-  schedule:
-    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       feature:
@@ -141,7 +132,7 @@ jobs:
     name: fill (${{ matrix.label || matrix.feature }})
     needs: setup
     if: needs.setup.outputs.run == 'true'
-    runs-on: [self-hosted-ghr, size-gigachungus-x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 1440
     strategy:
       # A release must be complete, so abort on the first failed range; a
