@@ -25,6 +25,9 @@ REFERENCE_SPEC_VERSION = ref_spec_8024.version
 pytestmark = pytest.mark.valid_from("EIP8024")
 
 
+@EIPChecklist.Opcode.Test.StackComplexOperations.StackHeights.Odd()
+@EIPChecklist.Opcode.Test.StackComplexOperations.StackHeights.Even()
+@EIPChecklist.Opcode.Test.StackComplexOperations.DataPortionVariables.Bottom()
 @pytest.mark.parametrize(
     "stack_index",
     [17, 18, 32, 64, 107, 108, 200, 235],
@@ -72,7 +75,7 @@ def test_swapn_basic(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=1_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     post = {
         contract_address: Account(
@@ -86,6 +89,8 @@ def test_swapn_basic(
     state_test(pre=pre, post=post, tx=tx)
 
 
+@EIPChecklist.Opcode.Test.DataPortion.AllZeros()
+@EIPChecklist.Opcode.Test.DataPortion.MaxValue()
 @pytest.mark.parametrize(
     "immediate",
     [0, 45, 90, 128, 200, 255],
@@ -128,7 +133,7 @@ def test_swapn_valid_immediates(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=10_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     post = {
         contract_address: Account(
@@ -170,7 +175,7 @@ def test_swapn_preserves_other_stack_items(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=1_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     # After swap: position 1 and position 18 are swapped
     # Original stack (top to bottom): 0x1011, 0x1010, ..., 0x1001, 0x1000
@@ -189,6 +194,7 @@ def test_swapn_preserves_other_stack_items(
     state_test(pre=pre, post=post, tx=tx)
 
 
+@EIPChecklist.Opcode.Test.StackUnderflow()
 def test_swapn_stack_underflow(
     pre: Alloc,
     state_test: StateTestFiller,
@@ -208,10 +214,35 @@ def test_swapn_stack_underflow(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=1_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     # Transaction should fail, contract storage unchanged
     post = {contract_address: Account(storage={})}
+
+    state_test(pre=pre, post=post, tx=tx)
+
+
+@EIPChecklist.Opcode.Test.StackComplexOperations.StackHeights.Zero()
+@EIPChecklist.Opcode.Test.StackUnderflow()
+def test_swapn_empty_stack(
+    pre: Alloc,
+    state_test: StateTestFiller,
+) -> None:
+    """
+    Test SWAPN on an empty stack aborts with a stack underflow.
+    """
+    sender = pre.fund_eoa()
+
+    code = Op.SSTORE(0, 1)  # leaves the stack empty
+    code += Op.SWAPN[Spec.MIN_STACK_INDEX]
+    code += Op.STOP
+
+    contract_address = pre.deploy_contract(code=code)
+
+    tx = Transaction(to=contract_address, sender=sender)
+
+    # Transaction should fail, contract storage unchanged.
+    post = {contract_address: Account(storage={0: 0})}
 
     state_test(pre=pre, post=post, tx=tx)
 
@@ -257,13 +288,14 @@ def test_swapn_gas_cost_boundary(
         storage={0: 0xDEADBEEF},
     )
 
-    tx = Transaction(to=call_address, sender=pre.fund_eoa(), gas_limit=200_000)
+    tx = Transaction(to=call_address, sender=pre.fund_eoa())
 
     post = {call_address: Account(storage={0: 0 if gas_cost_delta < 0 else 1})}
 
     state_test(pre=pre, post=post, tx=tx)
 
 
+@EIPChecklist.Opcode.Test.ExceptionalAbort()
 @pytest.mark.parametrize(
     "invalid_immediate",
     list(range(91, 128)),  # 0x5b to 0x7f (JUMPDEST and PUSH opcodes)
@@ -301,7 +333,7 @@ def test_swapn_invalid_immediate_aborts(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=10_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     # Transaction should fail - invalid immediate causes abort.
     post = {contract_address: Account(storage={})}
@@ -344,7 +376,7 @@ def test_endofcode_behavior(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=1_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     # If tx succeeds, storage[0] = marker_value
     # Bad implementation would revert and have empty storage
@@ -353,6 +385,7 @@ def test_endofcode_behavior(
     state_test(pre=pre, post=post, tx=tx)
 
 
+@EIPChecklist.Opcode.Test.DataPortion.Jump()
 def test_swapn_jump_to_immediate_byte_0x5b_succeeds(
     pre: Alloc,
     state_test: StateTestFiller,
@@ -381,7 +414,7 @@ def test_swapn_jump_to_immediate_byte_0x5b_succeeds(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=1_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     # Transaction succeeds - 0x5b is preserved as valid JUMPDEST
     post = {contract_address: Account(storage={0: 0x42})}
@@ -389,6 +422,7 @@ def test_swapn_jump_to_immediate_byte_0x5b_succeeds(
     state_test(pre=pre, post=post, tx=tx)
 
 
+@EIPChecklist.Opcode.Test.DataPortion.Jump()
 def test_swapn_jump_to_valid_immediate_fails(
     pre: Alloc,
     state_test: StateTestFiller,
@@ -399,7 +433,8 @@ def test_swapn_jump_to_valid_immediate_fails(
     Bytecode: PUSH1(4) JUMP SWAPN[0x00]
     Hex: 6004 56 e7 00
     Position 4 contains 0x00 which is a VALID immediate for SWAPN.
-    Valid immediates are skipped in JUMPDEST analysis, so jump fails.
+    JUMPDEST analysis is unchanged by EIP-8024: position 4 holds 0x00,
+    not 0x5b, so it is not a valid jump target and the jump fails.
     """
     sender = pre.fund_eoa()
 
@@ -416,7 +451,7 @@ def test_swapn_jump_to_valid_immediate_fails(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=1_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     # Transaction fails - position 4 is a valid immediate, not JUMPDEST
     post = {contract_address: Account(storage={})}
@@ -460,7 +495,7 @@ def test_swapn_with_dup1_and_push(
 
     contract_address = pre.deploy_contract(code=code)
 
-    tx = Transaction(to=contract_address, sender=sender, gas_limit=1_000_000)
+    tx = Transaction(to=contract_address, sender=sender)
 
     # Expected: top (position 0) = 1, bottom (position 17) = 2, rest = 0
     expected_storage = {}
@@ -473,5 +508,59 @@ def test_swapn_with_dup1_and_push(
             expected_storage[i] = 0  # All middle values
 
     post = {contract_address: Account(storage=expected_storage)}
+
+    state_test(pre=pre, post=post, tx=tx)
+
+
+@EIPChecklist.Opcode.Test.StackComplexOperations.DataPortionVariables.Top()
+@EIPChecklist.Opcode.Test.StackComplexOperations.DataPortionVariables.Middle()
+@pytest.mark.parametrize(
+    "stack_index",
+    [17, 126, 235],
+    ids=lambda x: f"swapn_full_stack_{x}",
+)
+def test_swapn_full_stack(
+    stack_index: int,
+    pre: Alloc,
+    fork: Fork,
+    state_test: StateTestFiller,
+) -> None:
+    """
+    Test SWAPN succeeds on a completely full stack.
+
+    SWAPN swaps in place without pushing, so it must work at the stack
+    limit. The top marker is swapped down to position `stack_index + 1`;
+    popping `stack_index` items then exposes it. If a faulty
+    implementation had not swapped, the popped-to item would hold the
+    planted deep marker instead, so either direction of failure is
+    visible in storage.
+    """
+    sender = pre.fund_eoa()
+
+    top_marker = 0xAAAA
+    deep_marker = 0xBBBB
+
+    # Full stack, top-down: the top marker at position 1, the deep
+    # marker at the swap target, position stack_index + 1.
+    stack = [0] * fork.max_stack_height()
+    stack[0] = top_marker
+    stack[stack_index] = deep_marker
+
+    code = Bytecode()
+    for value in reversed(stack):
+        code += Op.PUSH2(value) if value else Op.PUSH0
+
+    code += Op.SWAPN[stack_index]
+
+    # Pop down to the swap target and store the item now there.
+    code += Op.POP * stack_index
+    code += Op.PUSH1(0) + Op.SSTORE
+    code += Op.STOP
+
+    contract_address = pre.deploy_contract(code=code, storage={0: 0xBA5E})
+
+    tx = Transaction(to=contract_address, sender=sender)
+
+    post = {contract_address: Account(storage={0: top_marker})}
 
     state_test(pre=pre, post=post, tx=tx)

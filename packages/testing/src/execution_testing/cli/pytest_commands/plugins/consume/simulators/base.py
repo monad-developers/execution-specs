@@ -1,7 +1,9 @@
 """Common pytest fixtures for the Hive simulators."""
 
+import logging
+import time
 from pathlib import Path
-from typing import Dict, Literal
+from typing import Dict, Generator, Literal
 
 import pytest
 from hive.client import Client
@@ -17,12 +19,42 @@ from execution_testing.fixtures.file import Fixtures
 from execution_testing.rpc import EthRPC
 
 from ..consume import FixturesSource
+from .helpers.rejected_blocks import BlockRejectionTracker
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="function")
-def eth_rpc(client: Client) -> EthRPC:
+def eth_rpc(client: Client) -> Generator[EthRPC, None, None]:
     """Initialize ethereum RPC client for the execution client under test."""
-    return EthRPC(f"http://{client.ip}:8545")
+    with EthRPC(f"http://{client.ip}:8545") as rpc:
+        yield rpc
+
+
+@pytest.fixture(scope="session")
+def genesis_verified_clients() -> set[str]:
+    """
+    Return the set of client ids whose genesis block has been verified.
+
+    Genesis is immutable per client, so the `getBlockByNumber(0)` check only
+    needs to run once per client. In enginex mode a client is reused across a
+    pre-alloc group, letting later tests skip the redundant check.
+    """
+    return set()
+
+
+@pytest.fixture(scope="session")
+def block_rejection_tracker() -> BlockRejectionTracker:
+    """
+    Return the tracker of invalid blocks rejected by each client.
+
+    In enginex mode a client is reused across a pre-alloc group, so a later
+    test can resubmit a block that the client already rejected for an earlier
+    test and receive a generic bad-block-cache error instead of the specific
+    validation error. The tracker remembers each client's first rejection so
+    the expected exception can be verified against it in that case.
+    """
+    return BlockRejectionTracker()
 
 
 @pytest.fixture(scope="function")
@@ -59,7 +91,12 @@ class FixturesDict(Dict[Path, Fixtures]):
         """
         assert key.is_file(), f"Expected a file path, got '{key}'"
         if key not in self._fixtures:
+            start = time.perf_counter()
             self._fixtures[key] = Fixtures.model_validate_json(key.read_text())
+            logger.info(
+                f"⏱ phase=fixture_load file={key.name} "
+                f"ms={(time.perf_counter() - start) * 1000:.1f}"
+            )
         return self._fixtures[key]
 
 

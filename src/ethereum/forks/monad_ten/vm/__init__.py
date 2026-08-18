@@ -146,6 +146,7 @@ class Message:
     disable_create_opcodes: bool
 
 
+@final
 @dataclass
 class EvmMemory:
     """

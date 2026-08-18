@@ -21,6 +21,7 @@ from execution_testing.base_types import (
     Address,
     BlobSchedule,
     Bytes,
+    StateCommitment,
     ZeroPaddedHexNumber,
 )
 from execution_testing.base_types.conversions import BytesConvertible
@@ -30,6 +31,7 @@ from execution_testing.vm import (
     Opcodes,
 )
 
+from ...recipient_type import RecipientType
 from ..base_fork import (
     BaseFeeChangeCalculator,
     BaseFeePerGasCalculator,
@@ -49,10 +51,7 @@ from .helpers import ceiling_division
 
 
 # All forks must be listed here !!! in the order they were introduced !!!
-class Frontier(
-    BaseFork,
-    solc_name="homestead",
-):
+class Frontier(BaseFork):
     """Frontier fork."""
 
     @classmethod
@@ -64,13 +63,6 @@ class Frontier(
         if cls._transition_tool_name is not None:
             return cls._transition_tool_name
         return cls.name()
-
-    @classmethod
-    def solc_name(cls) -> str:
-        """Return fork name as it's meant to be passed to the solc compiler."""
-        if cls._solc_name is not None:
-            return cls._solc_name
-        return cls.name().lower()
 
     @classmethod
     def header_base_fee_required(cls) -> bool:
@@ -333,26 +325,32 @@ class Frontier(
         return wrapper
 
     @classmethod
+    def minimum_block_gas_limit(cls) -> int:
+        """
+        Return the minimum gas limit for the block to be considered valid.
+        """
+        minimum_block_gas_limit = 5_000
+        bal_minimum_block_gas_limit = 0
+        if cls.header_bal_hash_required():
+            # The block gas limit is influenced by the minimum amount of
+            # block level access elements the system contracts contain.
+            bal_minimum_block_gas_limit = (
+                cls.empty_block_bal_item_count()
+                * cls.gas_costs().BLOCK_ACCESS_LIST_ITEM
+            )
+        return max(minimum_block_gas_limit, bal_minimum_block_gas_limit)
+
+    @classmethod
     def opcode_gas_map(
         cls,
     ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
         """
         Return a mapping of opcodes to their gas costs.
-
-        Each entry is either:
-        - Constants (int): Direct gas cost values from gas_costs()
-        - Callables: Functions that take the opcode instance with metadata and
-                     return gas cost
         """
         gas_costs = cls.gas_costs()
         memory_expansion_calculator = cls.memory_expansion_gas_calculator()
 
-        # Define the opcode gas cost mapping
-        # Each entry is either:
-        # - an int (constant cost)
-        # - a callable(opcode) -> int
         return {
-            # Stop and arithmetic operations
             Opcodes.STOP: 0,
             Opcodes.ADD: gas_costs.OPCODE_ADD,
             Opcodes.MUL: gas_costs.OPCODE_MUL,
@@ -369,7 +367,6 @@ class Frontier(
                 * ((op.metadata["exponent"].bit_length() + 7) // 8)
             ),
             Opcodes.SIGNEXTEND: gas_costs.OPCODE_SIGNEXTEND,
-            # Comparison & bitwise logic operations
             Opcodes.LT: gas_costs.OPCODE_LT,
             Opcodes.GT: gas_costs.OPCODE_GT,
             Opcodes.SLT: gas_costs.OPCODE_SLT,
@@ -381,7 +378,6 @@ class Frontier(
             Opcodes.XOR: gas_costs.OPCODE_XOR,
             Opcodes.NOT: gas_costs.OPCODE_NOT,
             Opcodes.BYTE: gas_costs.OPCODE_BYTE,
-            # SHA3
             Opcodes.SHA3: cls._with_memory_expansion(
                 lambda op: (
                     gas_costs.OPCODE_KECCAK256_BASE
@@ -390,7 +386,6 @@ class Frontier(
                 ),
                 memory_expansion_calculator,
             ),
-            # Environmental information
             Opcodes.ADDRESS: gas_costs.BASE,
             Opcodes.BALANCE: cls._with_account_access(0, gas_costs),
             Opcodes.ORIGIN: gas_costs.BASE,
@@ -418,14 +413,12 @@ class Frontier(
                 ),
                 memory_expansion_calculator,
             ),
-            # Block information
             Opcodes.BLOCKHASH: gas_costs.OPCODE_BLOCKHASH,
             Opcodes.COINBASE: gas_costs.OPCODE_COINBASE,
             Opcodes.TIMESTAMP: gas_costs.BASE,
             Opcodes.NUMBER: gas_costs.BASE,
             Opcodes.PREVRANDAO: gas_costs.BASE,
             Opcodes.GASLIMIT: gas_costs.BASE,
-            # Stack, memory, storage and flow operations
             Opcodes.POP: gas_costs.BASE,
             Opcodes.MLOAD: cls._with_memory_expansion(
                 gas_costs.OPCODE_MLOAD_BASE,
@@ -453,22 +446,18 @@ class Frontier(
             Opcodes.MSIZE: gas_costs.BASE,
             Opcodes.GAS: gas_costs.BASE,
             Opcodes.JUMPDEST: gas_costs.OPCODE_JUMPDEST,
-            # Push operations (PUSH1 through PUSH32)
             **{
                 getattr(Opcodes, f"PUSH{i}"): gas_costs.OPCODE_PUSH
                 for i in range(1, 33)
             },
-            # Dup operations (DUP1 through DUP16)
             **{
                 getattr(Opcodes, f"DUP{i}"): gas_costs.OPCODE_DUP
                 for i in range(1, 17)
             },
-            # Swap operations (SWAP1 through SWAP16)
             **{
                 getattr(Opcodes, f"SWAP{i}"): gas_costs.OPCODE_SWAP
                 for i in range(1, 17)
             },
-            # Logging operations
             Opcodes.LOG0: cls._with_memory_expansion(
                 lambda op: (
                     gas_costs.OPCODE_LOG_BASE
@@ -513,7 +502,6 @@ class Frontier(
                 ),
                 memory_expansion_calculator,
             ),
-            # System operations
             Opcodes.CREATE: cls._with_memory_expansion(
                 lambda op: cls._calculate_create_gas(op, gas_costs),
                 memory_expansion_calculator,
@@ -544,19 +532,37 @@ class Frontier(
         opcode_gas_map = cls.opcode_gas_map()
 
         def fn(opcode: OpcodeBase) -> int:
-            # Get the gas cost or calculator
             if opcode not in opcode_gas_map:
                 raise ValueError(
                     f"No gas cost defined for opcode: {opcode._name_}"
                 )
             gas_cost_or_calculator = opcode_gas_map[opcode]
 
-            # If it's a callable, call it with the opcode
             if callable(gas_cost_or_calculator):
                 return gas_cost_or_calculator(opcode)
 
-            # Otherwise it's a constant
             return gas_cost_or_calculator
+
+        return fn
+
+    @classmethod
+    def opcode_state_map(
+        cls,
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """
+        Return a mapping of opcodes to their state gas costs.
+        """
+        return {}
+
+    @classmethod
+    def opcode_state_calculator(cls) -> OpcodeGasCalculator:
+        """
+        Return callable that calculates the state gas of a single opcode.
+        """
+
+        def fn(opcode: OpcodeBase) -> int:
+            del opcode
+            return 0
 
         return fn
 
@@ -566,15 +572,9 @@ class Frontier(
     ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
         """
         Return a mapping of opcodes to their gas refunds.
-
-        Each entry is either:
-        - Constants (int): Direct gas refund values
-        - Callables: Functions that take the opcode instance with metadata and
-                     return gas refund
         """
         gas_costs = cls.gas_costs()
 
-        # Only SSTORE provides refunds
         return {
             Opcodes.SSTORE: lambda op: cls._calculate_sstore_refund(
                 op, gas_costs
@@ -589,18 +589,35 @@ class Frontier(
         opcode_refund_map = cls.opcode_refund_map()
 
         def fn(opcode: OpcodeBase) -> int:
-            # Get the gas refund or calculator
             if opcode not in opcode_refund_map:
-                # Most opcodes don't provide refunds
                 return 0
             refund_or_calculator = opcode_refund_map[opcode]
 
-            # If it's a callable, call it with the opcode
             if callable(refund_or_calculator):
                 return refund_or_calculator(opcode)
 
-            # Otherwise it's a constant
             return refund_or_calculator
+
+        return fn
+
+    @classmethod
+    def opcode_state_refund_map(
+        cls,
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """
+        Return a mapping of opcodes to their state refunds.
+        """
+        return {}
+
+    @classmethod
+    def opcode_state_refund_calculator(cls) -> OpcodeGasCalculator:
+        """
+        Return callable that calculates the state refund of a single opcode.
+        """
+
+        def fn(opcode: OpcodeBase) -> int:
+            del opcode
+            return 0
 
         return fn
 
@@ -802,6 +819,13 @@ class Frontier(
         )
 
     @classmethod
+    def cost_per_state_byte(cls) -> int:
+        """
+        Return the cost per state byte, 0 before state gas applies.
+        """
+        return 0
+
+    @classmethod
     def base_fee_max_change_denominator(cls) -> int:
         """Return the base fee max change denominator at a given fork."""
         raise NotImplementedError(
@@ -825,8 +849,12 @@ class Frontier(
             *,
             data: BytesConvertible,
             access_list: List[AccessList] | None = None,
+            contract_creation: bool = False,
+            sends_value: bool = False,
+            recipient_type: RecipientType = RecipientType.CONTRACT,
         ) -> int:
             del data, access_list
+            del contract_creation, sends_value, recipient_type
             return 0
 
         return fn
@@ -849,8 +877,12 @@ class Frontier(
             access_list: List[AccessList] | None = None,
             authorization_list_or_count: Sized | int | None = None,
             return_cost_deducted_prior_execution: bool = False,
+            sends_value: bool = False,
+            recipient_type: RecipientType = RecipientType.CONTRACT,
         ) -> int:
             del return_cost_deducted_prior_execution
+            del sends_value, recipient_type
+            del contract_creation
 
             assert access_list is None, (
                 f"Access list is not supported in {cls.name()}"
@@ -860,12 +892,6 @@ class Frontier(
             )
 
             intrinsic_cost: int = gas_costs.TX_BASE
-
-            if contract_creation:
-                intrinsic_cost += (
-                    gas_costs.CODE_INIT_PER_WORD
-                    * ceiling_division(len(Bytes(calldata)), 32)
-                )
 
             return intrinsic_cost + calldata_gas_calculator(data=calldata)
 
@@ -991,6 +1017,13 @@ class Frontier(
         return False
 
     @classmethod
+    def engine_payload_attribute_target_gas_limit(cls) -> bool:
+        """
+        At genesis, payload attributes do not include the target gas limit.
+        """
+        return False
+
+    @classmethod
     def get_reward(cls) -> int:
         """
         At Genesis the expected reward amount in wei is
@@ -1017,6 +1050,25 @@ class Frontier(
     def transaction_gas_limit_cap(cls) -> int | None:
         """At Genesis, no transaction gas limit cap is imposed."""
         return None
+
+    @classmethod
+    def state_gas_reservoir_enabled(cls) -> bool:
+        """
+        At Genesis, state gas reservoir is not enabled.
+        """
+        return False
+
+    @classmethod
+    def code_deposit_state_gas(cls, *, code_size: int) -> int:
+        """Return the state gas for code deposit of the given size."""
+        del code_size
+        return 0
+
+    @classmethod
+    def create_state_gas(cls, *, code_size: int = 0) -> int:
+        """Return total state gas for CREATE (new account + code deposit)."""
+        del code_size
+        return 0
 
     @classmethod
     def block_rlp_size_limit(cls) -> int | None:
@@ -1321,7 +1373,6 @@ class DAOFork(
 
 class TangerineWhistle(
     DAOFork,
-    ignore=True,
     ruleset_name="TANGERINE",
 ):
     """TangerineWhistle fork (EIP-150)."""
@@ -1334,7 +1385,6 @@ class SpuriousDragon(
     eips.EIP161,
     eips.EIP155,
     TangerineWhistle,
-    ignore=True,
     ruleset_name="SPURIOUS",
 ):
     """SpuriousDragon fork."""
@@ -1371,7 +1421,6 @@ class Constantinople(
 
 class ConstantinopleFix(
     Constantinople,
-    solc_name="constantinople",
     ruleset_name="PETERSBURG",
 ):
     """Constantinople Fix fork."""
@@ -1395,7 +1444,6 @@ class Istanbul(
 # Glacier forks skipped, unless explicitly specified
 class MuirGlacier(
     Istanbul,
-    solc_name="istanbul",
     ignore=True,
 ):
     """Muir Glacier fork."""
@@ -1426,7 +1474,6 @@ class London(
 # Glacier forks skipped, unless explicitly specified
 class ArrowGlacier(
     London,
-    solc_name="london",
     ignore=True,
 ):
     """Arrow Glacier fork."""
@@ -1436,7 +1483,6 @@ class ArrowGlacier(
 
 class GrayGlacier(
     ArrowGlacier,
-    solc_name="london",
     ignore=True,
 ):
     """Gray Glacier fork."""
@@ -1505,15 +1551,15 @@ class Osaka(
     eips.EIP7918,
     eips.EIP7594,
     eips.EIP7951,
+    eips.EIP7883,
     Prague,
-    solc_name="cancun",
 ):
     """Osaka fork."""
 
     pass
 
 
-class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
+class MONAD_EIGHT(Prague):  # noqa: N801
     """MONAD_EIGHT fork."""
 
     @classmethod
@@ -1586,7 +1632,6 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
         # in monadized prague... so it's a mess need to think about
         # fork management
         super_costs = super(MONAD_EIGHT, cls).gas_costs()
-        osaka_costs = Osaka.gas_costs()
         return replace(
             super_costs,
             PRECOMPILE_BLAKE2F_PER_ROUND=super_costs.PRECOMPILE_BLAKE2F_PER_ROUND
@@ -1600,8 +1645,9 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
             COLD_ACCOUNT_ACCESS=super_costs.COLD_ACCOUNT_ACCESS + 7500,
             COLD_STORAGE_ACCESS=super_costs.COLD_STORAGE_ACCESS + 6000,
             COLD_STORAGE_WRITE=super_costs.COLD_STORAGE_WRITE + 6000,
-            # MONAD_EIGHT introduces EIP-7951 independent of Osaka.
-            PRECOMPILE_P256VERIFY=osaka_costs.PRECOMPILE_P256VERIFY,
+            # MONAD_EIGHT introduces EIP-7951 independent of Osaka, so the
+            # cost is restated here rather than inherited.
+            PRECOMPILE_P256VERIFY=6_900,
         )
 
     @classmethod
@@ -1610,7 +1656,7 @@ class MONAD_EIGHT(Prague, solc_name="cancun"):  # noqa: N801
         return 30_000_000
 
 
-class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
+class MONAD_NINE(MONAD_EIGHT, Osaka):  # noqa: N801
     """MONAD_NINE fork."""
 
     @classmethod
@@ -1620,8 +1666,8 @@ class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
 
     @classmethod
     def gas_costs(cls) -> GasCosts:
-        """Return spec from explicit parent."""
-        return MONAD_EIGHT.gas_costs()
+        """Return spec from MONAD_EIGHT, first in the MRO."""
+        return super().gas_costs()
 
     @classmethod
     def max_code_size(cls) -> int:
@@ -1666,14 +1712,19 @@ class MONAD_NINE(MONAD_EIGHT, Osaka, solc_name="cancun"):  # noqa: N801
         return fn
 
 
-class MONAD_TEN(MONAD_NINE, solc_name="cancun"):  # noqa: N801
+class MONAD_TEN(MONAD_NINE):  # noqa: N801
     """MONAD_TEN fork."""
+
+    @classmethod
+    def state_commitment(cls) -> StateCommitment:
+        """MIP-8 commits storage per page rather than per slot."""
+        return StateCommitment.PAGED
 
     @classmethod
     def gas_costs(cls) -> GasCosts:
         """Return gas costs with MIP-8 page-based storage constants."""
         return replace(
-            MONAD_NINE.gas_costs(),
+            super().gas_costs(),
             PAGE_BASE_COST=100,
             PAGE_LOAD_COST=8_000,
             PAGE_WRITE_COST=2_800,
@@ -1754,7 +1805,7 @@ class MONAD_TEN(MONAD_NINE, solc_name="cancun"):  # noqa: N801
         return gas_cost
 
 
-class MONAD_NEXT(MONAD_TEN, solc_name="cancun"):  # noqa: N801
+class MONAD_NEXT(MONAD_TEN):  # noqa: N801
     """MONAD_NEXT fork, a placeholder identical to MONAD_TEN."""
 
     pass
@@ -1846,4 +1897,10 @@ class Amsterdam(
     #  related Amsterdam specs change over time, and before Amsterdam is
     #  live on mainnet.
 
-    pass
+    @classmethod
+    def engine_payload_attribute_target_gas_limit(cls) -> bool:
+        """
+        Starting from Amsterdam, payload attributes now include the target gas
+        limit.
+        """
+        return True

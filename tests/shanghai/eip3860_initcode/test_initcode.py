@@ -16,7 +16,6 @@ from execution_testing import (
     Address,
     Alloc,
     Bytecode,
-    Environment,
     Fork,
     Initcode,
     Op,
@@ -112,6 +111,8 @@ def initcode(fork: Fork, initcode_name: str) -> Initcode:
 """Test cases using a contract creating transaction"""
 
 
+@pytest.mark.inclusion_test
+@pytest.mark.bigmem
 @pytest.mark.xdist_group(name="bigmem")
 @pytest.mark.parametrize(
     "initcode_name",
@@ -125,7 +126,6 @@ def initcode(fork: Fork, initcode_name: str) -> Initcode:
 @pytest.mark.eels_base_coverage
 def test_contract_creating_tx(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: Alloc,
     sender: EOA,
@@ -140,12 +140,7 @@ def test_contract_creating_tx(
         nonce=0,
     )
 
-    tx = Transaction(
-        to=None,
-        data=initcode,
-        gas_limit=15_000_000,
-        sender=sender,
-    )
+    tx = Transaction(to=None, data=initcode, sender=sender)
 
     if len(initcode) > fork.max_initcode_size():
         # Initcode is above the max size, tx inclusion in the block makes
@@ -157,12 +152,7 @@ def test_contract_creating_tx(
         # is ok and the contract is successfully created.
         post[create_contract_address] = Account(code=Op.STOP)
 
-    state_test(
-        env=env,
-        pre=pre,
-        post=post,
-        tx=tx,
-    )
+    state_test(pre=pre, post=post, tx=tx)
 
 
 ZERO_GAS_SPECS = {"empty", "single_byte"}
@@ -363,11 +353,18 @@ class TestContractCreationGasUsage:
             )
         return Alloc({create_contract_address: Account.NONEXISTENT})
 
+    # Gated off under EIP-8037: state gas breaks the single-dimension
+    # intrinsic-gas equivalence asserted in `exact_intrinsic_gas`. The
+    # 2D-aware creation-gas metering is covered on Amsterdam by
+    # `test_create_tx_intrinsic_gas_boundary` and
+    # `test_max_initcode_size_gas_metering_via_create` in
+    # `eip8037_state_creation_gas_cost_increase/test_state_gas_create.py`.
+    @pytest.mark.inclusion_test
+    @pytest.mark.valid_before("EIP8037")
     @pytest.mark.slow()
     def test_gas_usage(
         self,
         state_test: StateTestFiller,
-        env: Environment,
         pre: Alloc,
         post: Alloc,
         tx: Transaction,
@@ -375,12 +372,7 @@ class TestContractCreationGasUsage:
         """
         Test transaction and contract creation using different gas limits.
         """
-        state_test(
-            env=env,
-            pre=pre,
-            post=post,
-            tx=tx,
-        )
+        state_test(pre=pre, post=post, tx=tx)
 
 
 @pytest.mark.parametrize(
@@ -468,7 +460,7 @@ class TestCreateInitcode:
         self, pre: Alloc, creator_code: Bytecode
     ) -> Address:
         """Return address of creator contract."""
-        return pre.deploy_contract(creator_code)
+        return pre.deploy_contract(creator_code, label="creator_contract")
 
     @pytest.fixture
     def created_contract_address(  # noqa: D103
@@ -496,7 +488,7 @@ class TestCreateInitcode:
         """
         return Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE) + Op.SSTORE(
             Op.CALL(
-                5000000, creator_contract_address, 0, 0, Op.CALLDATASIZE, 0, 0
+                address=creator_contract_address, args_size=Op.CALLDATASIZE
             ),
             1,
         )
@@ -506,7 +498,7 @@ class TestCreateInitcode:
         self, pre: Alloc, caller_code: Bytecode
     ) -> Address:
         """Return address of the caller contract."""
-        return pre.deploy_contract(caller_code)
+        return pre.deploy_contract(caller_code, label="caller_contract")
 
     @pytest.fixture
     def tx(
@@ -516,16 +508,16 @@ class TestCreateInitcode:
         return Transaction(
             to=caller_contract_address,
             data=initcode,
-            gas_limit=15_000_000,
+            state_gas_reservoir=0,  # Don't hide state gas from Op.GAS
             sender=sender,
         )
 
+    @pytest.mark.bigmem
     @pytest.mark.xdist_group(name="bigmem")
     @pytest.mark.slow()
     def test_create_opcode_initcode(
         self,
         state_test: StateTestFiller,
-        env: Environment,
         pre: Alloc,
         post: Alloc,
         tx: Transaction,
@@ -584,12 +576,7 @@ class TestCreateInitcode:
                 },
             )
 
-        state_test(
-            env=env,
-            pre=pre,
-            post=post,
-            tx=tx,
-        )
+        state_test(pre=pre, post=post, tx=tx)
 
 
 @pytest.mark.ported_from(
@@ -635,11 +622,7 @@ def test_create2_oversized_initcode_with_insufficient_balance(
     caller_address = pre.deploy_contract(caller_code)
 
     sender = pre.fund_eoa()
-    tx = Transaction(
-        sender=sender,
-        to=caller_address,
-        gas_limit=10_000_000,
-    )
+    tx = Transaction(sender=sender, to=caller_address)
 
     post = {
         caller_address: Account(storage={1: expected_storage_1}),

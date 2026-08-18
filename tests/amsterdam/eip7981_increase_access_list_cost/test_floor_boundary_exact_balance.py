@@ -1,6 +1,7 @@
 """
-abstract: Tests for floor-boundary rejection with exact-balance funding in [EIP-7981: Increase Access List Cost](https://eips.ethereum.org/EIPS/eip-7981).
-"""  # noqa: E501
+Tests for floor-boundary rejection with exact-balance funding in
+[EIP-7981: Increase Access List Cost](https://eips.ethereum.org/EIPS/eip-7981).
+"""
 
 import pytest
 from execution_testing import (
@@ -8,6 +9,7 @@ from execution_testing import (
     Address,
     Alloc,
     Bytes,
+    EIPChecklist,
     Fork,
     Hash,
     StateTestFiller,
@@ -23,6 +25,8 @@ REFERENCE_SPEC_VERSION = ref_spec_7981.version
 pytestmark = pytest.mark.valid_at("EIP7981")
 
 
+@pytest.mark.inclusion_test
+@EIPChecklist.GasCostChanges.Test.OutOfGas()
 @pytest.mark.exception_test
 @pytest.mark.parametrize(
     "tx_type",
@@ -31,7 +35,11 @@ pytestmark = pytest.mark.valid_at("EIP7981")
 @pytest.mark.parametrize(
     "nonzero_bytes",
     [
-        pytest.param(1000, id="1000_nonzero_bytes"),
+        # Must be large enough that the floor midpoint chosen below
+        # stays above the access-list intrinsic cost (asserted in the
+        # test body): each nonzero byte adds 64 gas to the floor but
+        # only 16 to the intrinsic cost.
+        pytest.param(1700, id="1700_nonzero_bytes"),
         pytest.param(2000, id="2000_nonzero_bytes"),
     ],
 )
@@ -50,7 +58,7 @@ def test_below_amsterdam_floor_with_access_list_exact_balance(
         )
     ]
     tx_data = Bytes(b"\x01" * nonzero_bytes)
-    intrinsic_regular = fork.transaction_intrinsic_cost_calculator()(
+    intrinsic_execution = fork.transaction_intrinsic_cost_calculator()(
         calldata=tx_data,
         access_list=access_list,
         return_cost_deducted_prior_execution=True,
@@ -61,7 +69,7 @@ def test_below_amsterdam_floor_with_access_list_exact_balance(
     # Pin gas_limit inside the access-list-byte uplift gap so an
     # implementation that omits this term from its floor accepts.
     gas_limit = (amsterdam_floor_no_al + amsterdam_floor) // 2
-    assert intrinsic_regular <= gas_limit < amsterdam_floor
+    assert intrinsic_execution <= gas_limit < amsterdam_floor
     assert gas_limit >= amsterdam_floor_no_al
 
     gas_price = 10

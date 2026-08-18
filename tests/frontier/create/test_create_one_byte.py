@@ -48,6 +48,11 @@ def test_create_one_byte(
     sender = pre.fund_eoa()
     expect_post = Storage()
 
+    new_account = fork.gas_costs().NEW_ACCOUNT
+    # Each call forwards gas to the create_contract that does CREATE;
+    # forward base + NEW_ACCOUNT (cpsb-agnostic).
+    call_gas = 50_000 + new_account
+
     # make a subcontract that deploys code, because deploy 0xef eats ALL gas
     create_contract = pre.deploy_contract(
         code=Op.MSTORE(0, Op.CALLDATALOAD(0))
@@ -64,7 +69,7 @@ def test_create_one_byte(
             [
                 Op.MSTORE8(23, opcode)  # correct the deploy byte
                 + Op.CALL(
-                    gas=50_000,
+                    gas=call_gas,
                     address=create_contract,
                     args_size=32,
                     ret_offset=32,
@@ -95,19 +100,8 @@ def test_create_one_byte(
             expect_post[opcode] = created_accounts[opcode]
     expect_post[256] = 1
 
-    gas_costs = fork.gas_costs()
-    sstore_cost = len(initcode) * (
-        gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
-    )
-    create_cost = len(initcode) * (
-        gas_costs.OPCODE_CREATE_BASE + gas_costs.CODE_DEPOSIT_PER_BYTE
-    )
-
     tx = Transaction(
-        gas_limit=150_000 + sstore_cost + create_cost,
         to=code,
-        data=b"",
-        nonce=0,
         sender=sender,
         protected=fork.supports_protected_txs(),
     )

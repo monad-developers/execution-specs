@@ -2,7 +2,7 @@
 Tests for EIP-7928 BAL cross-index tracking.
 
 Tests that state changes are correctly tracked across different block indices:
-- Index 1..N: Regular transactions
+- Index 1..N: Execution transactions
 - Index N+1: Post-execution system operations
 
 Includes tests for system contracts (withdrawal/consolidation) cross-index
@@ -69,7 +69,6 @@ def test_bal_withdrawal_contract_cross_index(
         to=WITHDRAWAL_REQUEST_ADDRESS,
         value=1,
         data=withdrawal_calldata,
-        gas_limit=1_000_000,
     )
 
     blockchain_test(
@@ -142,7 +141,6 @@ def test_bal_consolidation_contract_cross_index(
         to=CONSOLIDATION_REQUEST_ADDRESS,
         value=1,
         data=consolidation_calldata,
-        gas_limit=1_000_000,
     )
 
     blockchain_test(
@@ -223,11 +221,7 @@ def test_bal_noop_write_filtering(
         storage={3: 100, 4: 150},
     )
 
-    tx = Transaction(
-        sender=sender,
-        to=test_address,
-        gas_limit=100_000,
-    )
+    tx = Transaction(sender=sender, to=test_address)
 
     # Expected BAL should only show actual changes
     expected_block_access_list = BlockAccessListExpectation(
@@ -300,8 +294,8 @@ def test_bal_intra_tx_round_trip_after_prior_tx_write(
 
     # Both txs go into the same block; tx 1 makes the real 0 -> 0x42
     # change, tx 2 starts from 0x42 and ends at 0x42 (per-tx no-op).
-    tx_1 = Transaction(sender=sender_a, to=contract, gas_limit=200_000)
-    tx_2 = Transaction(sender=sender_b, to=contract, gas_limit=200_000)
+    tx_1 = Transaction(sender=sender_a, to=contract)
+    tx_2 = Transaction(sender=sender_b, to=contract)
 
     expected_block_access_list = BlockAccessListExpectation(
         account_expectations={
@@ -381,7 +375,6 @@ def test_bal_system_contract_noop_filtering(
         sender=sender,
         to=receiver,
         value=100,
-        gas_limit=21_000,
     )
 
     # withdrawal and consolidation contracts should NOT have any storage
@@ -461,14 +454,9 @@ def test_bal_withdrawal_predeploy_balance_observed_cross_tx(
         to=WITHDRAWAL_REQUEST_ADDRESS,
         value=fee,
         data=withdrawal_calldata,
-        gas_limit=1_000_000,
     )
 
-    tx_read_balance = Transaction(
-        sender=sender_1,
-        to=reader,
-        gas_limit=100_000,
-    )
+    tx_read_balance = Transaction(sender=sender_1, to=reader)
 
     expected_block_access_list = BlockAccessListExpectation(
         account_expectations={

@@ -32,8 +32,8 @@ class TestLoggerSetup:
         """Test that custom log levels are properly registered."""
         assert logging.getLevelName(VERBOSE_LEVEL) == "VERBOSE"
         assert logging.getLevelName(FAIL_LEVEL) == "FAIL"
-        assert logging.getLevelName("VERBOSE") == VERBOSE_LEVEL
-        assert logging.getLevelName("FAIL") == FAIL_LEVEL
+        assert logging.getLevelName("VERBOSE") == VERBOSE_LEVEL  # type: ignore[deprecated]
+        assert logging.getLevelName("FAIL") == FAIL_LEVEL  # type: ignore[deprecated]
 
     def test_get_logger(self) -> None:
         """Test that get_logger returns a properly typed logger."""
@@ -98,14 +98,15 @@ class TestFormatters:
             {
                 "msg": "Test message",
                 "created": 1609459200.0,  # 2021-01-01 00:00:00 UTC
+                "msecs": 123.0,
             }
         )
 
         formatted = formatter.format(record)
 
         # logs contain
-        #       timestamp
-        assert "2021-01-01 00:00:00" in formatted
+        #       timestamp with millisecond precision
+        assert "2021-01-01 00:00:00.123" in formatted
         #       message
         assert "Test message" in formatted
 

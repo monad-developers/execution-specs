@@ -29,7 +29,11 @@ from .spec import Spec, ref_spec_7702
 REFERENCE_SPEC_GIT_PATH = ref_spec_7702.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7702.version
 
-pytestmark = [pytest.mark.valid_from("Prague"), pytest.mark.exception_test]
+pytestmark = [
+    pytest.mark.valid_from("Prague"),
+    pytest.mark.exception_test,
+    pytest.mark.inclusion_test,
+]
 
 auth_account_start_balance = 0
 
@@ -324,8 +328,8 @@ def test_invalid_tx_invalid_nonce_as_list(
     delegate_address: Address,
 ) -> None:
     """
-    Test sending a transaction where the nonce field of an authorization
-    overflows the maximum value.
+    Test sending a transaction where the nonce field of an authorization is
+    encoded as a list instead of a scalar.
     """
     auth_signer = pre.fund_eoa()
 
@@ -368,7 +372,7 @@ def test_invalid_tx_invalid_nonce_encoding(
     delegate_address: Address,
 ) -> None:
     """
-    Test sending a transaction where the chain id field of an authorization has
+    Test sending a transaction where the nonce field of an authorization has
     an incorrect encoding.
     """
 

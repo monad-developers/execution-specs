@@ -33,11 +33,12 @@ dependencies = [
     "pytest-html>=4.1.0,<5",
     "pytest-metadata>=3,<4",
     "pytest-xdist>=3.3.1,<4",
-    "coincurve>=20.0.0,<22",
+    "spec256k1>=0.2.3,<0.3",
     "trie>=3.1.0,<4",
     "semver>=3.0.1,<4",
     "pydantic>=2.12.3,<3",
     "rich>=13.7.0,<15",
+    "ruff==0.13.2",
     "filelock>=3.15.1,<4",
     "ethereum-types>=0.4.1,<0.5",
     "pyyaml>=6.0.2,<7",
@@ -53,6 +54,7 @@ dependencies = [
     "tenacity>=9.0.0,<10",
     "Jinja2>=3,<4",
     "ijson>=3.3,<4",
+    "eth-remerkleable==0.1.31",
 ]
 
 [project.urls]
@@ -66,8 +68,8 @@ test = [
     "pytest-cov>=4.1.0,<5",
 ]
 lint = [
-    "ruff==0.13.2",
-    "mypy==1.20.0",
+    # ruff is included in package deps for gentest
+    "mypy==2.1.0",
     "types-requests>=2.31,<2.33",
 ]
 dev = [
@@ -76,6 +78,7 @@ dev = [
 ]
 
 [project.scripts]
+ethereum-spec-evm = "execution_testing.evm_tools:main"
 fill = "execution_testing.cli.pytest_commands.fill:fill"
 phil = "execution_testing.cli.pytest_commands.fill:phil"
 execute = "execution_testing.cli.pytest_commands.execute:execute"
@@ -95,11 +98,9 @@ order_fixtures = "execution_testing.cli.order_fixtures:order_fixtures"
 evm_bytes = "execution_testing.cli.evm_bytes:evm_bytes"
 hasher = "execution_testing.cli.hasher:main"
 eest = "execution_testing.cli.eest.cli:eest"
-fillerconvert = "execution_testing.cli.fillerconvert.fillerconvert:main"
 groupstats = "execution_testing.cli.show_pre_alloc_group_stats:main"
 extract_config = "execution_testing.cli.extract_config:extract_config"
 compare_fixtures = "execution_testing.cli.compare_fixtures:main"
-modify_static_test_gas_limits = "execution_testing.cli.modify_static_test_gas_limits:main"
 benchmark_parser = "execution_testing.cli.benchmark_parser:main"
 
 [tool.setuptools.packages.find]
@@ -141,6 +142,7 @@ markers = [
     "some_mark: Test marker for parametrizer tests",
     "eip_checklist: Custom marker for EIP checklist tests",
     "slow: Marks tests as slow running",
+    "evm_tools: marks tests as evm_tools (deselect with '-m \"not evm_tools\"')",
 ]
 
 [tool.uv]

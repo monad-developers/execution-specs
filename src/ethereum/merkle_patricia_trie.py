@@ -44,7 +44,6 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from typing import (
-    TYPE_CHECKING,
     Callable,
     Dict,
     Generic,
@@ -65,16 +64,11 @@ from ethereum_types.frozen import slotted_freezable
 from ethereum_types.numeric import Uint
 from typing_extensions import assert_type
 
-from ethereum.crypto.hash import Hash32, keccak256
+from ethereum.crypto.hash import keccak256
+from ethereum.state import Account, Address, Root
 from ethereum.utils.hexadecimal import hex_to_bytes
 
-if TYPE_CHECKING:
-    from ethereum.state import Account, Address, Root
-
-# Note: `Hash32` is used here rather than `Root` because `Root` is defined in
-# `ethereum.state`, which imports from this module — referring to it at module
-# scope would create a circular import.
-EMPTY_TRIE_ROOT = Hash32(
+EMPTY_TRIE_ROOT = Root(
     hex_to_bytes(
         "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
     )
@@ -266,8 +260,6 @@ def encode_node(node: Extended, storage_root: Bytes | None = None) -> Bytes:
     [`Account`]: ref:ethereum.state.Account
     [`encode_account`]: ref:ethereum.merkle_patricia_trie.encode_account
     """
-    from ethereum.state import Account
-
     if isinstance(node, Account):
         assert storage_root is not None
         return encode_account(node, storage_root)
@@ -412,12 +404,13 @@ def bytes_to_nibble_list(bytes_: Bytes) -> Bytes:
     return Bytes(nibble_list)
 
 
-def _prepare_trie(
-    trie: Trie[K, V],
+def _prepare_data(
+    data: Mapping[K, V],
+    secured: bool,
     get_storage_root: Optional[Callable[[Address], Root]] = None,
 ) -> Mapping[Bytes, Bytes]:
     """
-    Convert a [`Trie`] into the nibble-keyed mapping consumed by
+    Convert trie data into the nibble-keyed mapping consumed by
     [`patricialize`].
 
     Each value is encoded with [`encode_node`]; if the value is an
@@ -425,18 +418,15 @@ def _prepare_trie(
     root. Keys are hashed with [`keccak256`] when the trie is secured, then
     expanded into nibble form via [`bytes_to_nibble_list`][bnl].
 
-    [`Trie`]: ref:ethereum.merkle_patricia_trie.Trie
     [`patricialize`]: ref:ethereum.merkle_patricia_trie.patricialize
     [`encode_node`]: ref:ethereum.merkle_patricia_trie.encode_node
     [`Account`]: ref:ethereum.state.Account
     [bnl]: ref:ethereum.merkle_patricia_trie.bytes_to_nibble_list
     [`keccak256`]: ref:ethereum.crypto.hash.keccak256
     """
-    from ethereum.state import Account, Address
-
     mapped: MutableMapping[Bytes, Bytes] = {}
 
-    for preimage, value in trie._data.items():
+    for preimage, value in data.items():
         if isinstance(value, Account):
             assert get_storage_root is not None
             address = Address(preimage)
@@ -448,7 +438,7 @@ def _prepare_trie(
         if encoded_value == b"":
             raise AssertionError
         key: Bytes
-        if trie.secured:
+        if secured:
             # "secure" tries hash keys once before construction
             key = keccak256(preimage)
         else:
@@ -456,6 +446,33 @@ def _prepare_trie(
         mapped[bytes_to_nibble_list(key)] = encoded_value
 
     return mapped
+
+
+def _prepare_trie(
+    trie: Trie[K, V],
+    get_storage_root: Optional[Callable[[Address], Root]] = None,
+) -> Mapping[Bytes, Bytes]:
+    """
+    Prepare the trie for root calculation.
+
+    Remove values that are empty, hash the keys (if
+    ``secured == True``) and encode all the nodes.
+
+    Parameters
+    ----------
+    trie :
+        The ``Trie`` to prepare.
+    get_storage_root :
+        Function to get the storage root of an account. Needed
+        to encode ``Account`` objects.
+
+    Returns
+    -------
+    out : `Mapping[ethereum.base_types.Bytes, Node]`
+        Object with keys mapped to nibble-byte form.
+
+    """
+    return _prepare_data(trie._data, trie.secured, get_storage_root)
 
 
 def root(
@@ -477,8 +494,6 @@ def root(
     [`Hash32`]: ref:ethereum.crypto.hash.Hash32
     [`Account`]: ref:ethereum.state.Account
     """
-    from ethereum.state import Root
-
     obj = _prepare_trie(trie, get_storage_root)
 
     root_node = encode_internal_node(patricialize(obj, Uint(0)))

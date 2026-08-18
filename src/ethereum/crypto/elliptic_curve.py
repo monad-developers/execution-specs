@@ -1,6 +1,6 @@
 """Elliptic Curves."""
 
-import coincurve
+import spec256k1
 from Crypto.Util.asn1 import DerSequence
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.backends import default_backend
@@ -67,8 +67,8 @@ def secp256k1_recover(r: U256, s: U256, v: U256, msg_hash: Hash32) -> Bytes:
     # the signature is considered invalid
     # the below function will raise a ValueError.
     try:
-        public_key = coincurve.PublicKey.from_signature_and_message(
-            bytes(signature), msg_hash, hasher=None
+        public_key = spec256k1.PublicKey.from_signature_and_message(
+            bytes(signature), msg_hash
         )
     except ValueError as e:
         raise InvalidSignatureError from e

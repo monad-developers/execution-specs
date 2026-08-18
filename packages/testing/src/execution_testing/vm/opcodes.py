@@ -5427,6 +5427,7 @@ class Opcodes(Opcode, Enum):
             "init_code_size": 0,
             "new_memory_size": 0,
             "old_memory_size": 0,
+            "account_new": True,
         },
     )
     """
@@ -5470,6 +5471,7 @@ class Opcodes(Opcode, Enum):
     - init_code_size: size of the initialization code in bytes (default: 0)
     - new_memory_size: memory size after expansion in bytes (default: 0)
     - old_memory_size: memory size before expansion in bytes (default: 0)
+    - account_new: whether creating a new account (default: True)
 
     Source: [evm.codes/#F0](https://www.evm.codes/#F0)
     """
@@ -5764,6 +5766,7 @@ class Opcodes(Opcode, Enum):
             "init_code_size": 0,
             "new_memory_size": 0,
             "old_memory_size": 0,
+            "account_new": True,
         },
     )
     """
@@ -5809,6 +5812,7 @@ class Opcodes(Opcode, Enum):
     - init_code_size: size of the initialization code in bytes (default: 0)
     - new_memory_size: memory size after expansion in bytes (default: 0)
     - old_memory_size: memory size before expansion in bytes (default: 0)
+    - account_new: whether creating a new account (default: True)
 
     Source: [evm.codes/#F5](https://www.evm.codes/#F5)
     """
@@ -5955,7 +5959,13 @@ class Opcodes(Opcode, Enum):
         0xFF,
         popped_stack_items=1,
         kwargs=["address"],
-        metadata={"address_warm": False, "account_new": False},
+        metadata={
+            "address_warm": False,
+            "account_new": False,
+            "self_destructed_account": False,
+            "self_destructed_account_storage_slot_count": 0,
+            "self_destructed_account_code_deposit": 0,
+        },
     )
     """
     SELFDESTRUCT(address)
@@ -5983,6 +5993,12 @@ class Opcodes(Opcode, Enum):
                     (default: False)
     - account_new: whether creating a new beneficiary account, requires
                    non-zero balance in the source account (default: False)
+    - self_destructed_account: whether the execution results in an account
+            self-destructing (default: False)
+    - self_destructed_account_storage_slot_count: amount of storage slots that
+            were created in the self-destructing account (default: 0)
+    - self_destructed_account_code_deposit: amount of bytes that comprised the
+            code of the self-destructing account (default: 0)
 
     Source: [evm.codes/#FF](https://www.evm.codes/#FF)
     """

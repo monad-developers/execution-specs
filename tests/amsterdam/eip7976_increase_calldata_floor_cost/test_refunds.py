@@ -52,16 +52,9 @@ def data_test_type() -> DataTestType:
 
 
 @pytest.fixture
-def authorization_list(
-    pre: Alloc, refund_type: RefundTypes
-) -> List[AuthorizationTuple] | None:
-    """
-    Modify fixture from conftest to automatically read the refund_type
-    information.
-    """
-    if refund_type != RefundTypes.AUTHORIZATION_EXISTING_AUTHORITY:
-        return None
-    return [AuthorizationTuple(signer=pre.fund_eoa(1), address=Address(1))]
+def authorization_list() -> List[AuthorizationTuple] | None:
+    """Return no authorizations; the STORAGE_CLEAR refund needs none."""
+    return None
 
 
 @pytest.fixture
@@ -70,8 +63,6 @@ def ty(refund_type: RefundTypes) -> int:
     Modify fixture from conftest to automatically read the refund_type
     information.
     """
-    if refund_type == RefundTypes.AUTHORIZATION_EXISTING_AUTHORITY:
-        return 4
     if refund_type == RefundTypes.STORAGE_CLEAR:
         return 2
     raise ValueError(f"Unknown refund type: {refund_type}")
@@ -81,17 +72,11 @@ def ty(refund_type: RefundTypes) -> int:
 def max_refund(fork: Fork, refund_type: RefundTypes) -> int:
     """Return the max refund gas of the transaction."""
     gas_costs = fork.gas_costs()
-    max_refund = (
+    return (
         gas_costs.REFUND_STORAGE_CLEAR
         if refund_type == RefundTypes.STORAGE_CLEAR
         else 0
     )
-    max_refund += (
-        gas_costs.REFUND_AUTH_PER_EXISTING_ACCOUNT
-        if refund_type == RefundTypes.AUTHORIZATION_EXISTING_AUTHORITY
-        else 0
-    )
-    return max_refund
 
 
 @pytest.fixture
@@ -149,10 +134,11 @@ def intrinsic_gas_data_floor_minimum_delta() -> int:
     would always be the below the execution gas cost even after the refund is
     applied.
 
-    This value has been set as of Amsterdam and should be adjusted if the gas
-    costs change.
+    This value has been set as of Amsterdam (with the provisional
+    state-access repricing) and should be adjusted if the gas costs
+    change.
     """
-    return 250
+    return 11_000
 
 
 @pytest.fixture
@@ -233,6 +219,7 @@ def refund(
 
 @pytest.fixture
 def to(
+    fork: Fork,
     pre: Alloc,
     execution_gas_used: int,
     prefix_code: Bytecode,
@@ -248,10 +235,44 @@ def to(
     Ideally, we can use memory expansion to consume gas.
     """
     extra_gas = execution_gas_used - prefix_code_gas
-    return pre.deploy_contract(
-        prefix_code + (Op.JUMPDEST * extra_gas) + Op.STOP,
-        storage=code_storage,
+    code = prefix_code + (Op.JUMPDEST * extra_gas) + Op.STOP
+    if len(code) <= fork.max_code_size():
+        return pre.deploy_contract(code, storage=code_storage)
+
+    loop_target = len(prefix_code) + len(Op.PUSH2(0))
+    setup = Op.PUSH2(0)
+    loop_body = (
+        Op.JUMPDEST
+        + Op.PUSH1(1)
+        + Op.SWAP1
+        + Op.SUB
+        + Op.DUP1
+        + Op.PUSH1(loop_target)
+        + Op.JUMPI
     )
+    teardown = Op.POP
+    overhead = setup.gas_cost(fork) + teardown.gas_cost(fork)
+    gas_per_iter = loop_body.gas_cost(fork)
+
+    available = extra_gas - overhead
+    iterations = available // gas_per_iter
+    remaining = available % gas_per_iter
+
+    code = (
+        prefix_code
+        + Op.PUSH2(iterations)
+        + Op.JUMPDEST
+        + Op.PUSH1(1)
+        + Op.SWAP1
+        + Op.SUB
+        + Op.DUP1
+        + Op.PUSH1(loop_target)
+        + Op.JUMPI
+        + Op.POP
+        + (Op.JUMPDEST * remaining)
+        + Op.STOP
+    )
+    return pre.deploy_contract(code, storage=code_storage)
 
 
 @pytest.fixture

@@ -13,7 +13,6 @@ import pytest
 from execution_testing import (
     Alloc,
     Bytecode,
-    Environment,
     Fork,
     Op,
     ParameterSet,
@@ -65,21 +64,6 @@ def input_length_modifier() -> int:
     Input length modifier to apply to each element of the precompile_gas_list.
     """
     return 0
-
-
-@pytest.fixture
-def env(fork: Fork, tx: Transaction) -> Environment:
-    """Environment used for all tests."""
-    env = Environment()
-    tx_gas_limit_cap = fork.transaction_gas_limit_cap()
-    if tx_gas_limit_cap is not None:
-        assert tx.gas_limit <= tx_gas_limit_cap, (
-            "tx exceeds gas limit cap: "
-            f"{int(tx.gas_limit)} > {tx_gas_limit_cap}"
-        )
-    if tx.gas_limit > env.gas_limit:
-        env = Environment(gas_limit=tx.gas_limit)
-    return env
 
 
 @pytest.fixture
@@ -172,10 +156,12 @@ def tx_gas_limit_calculator(
         fork.transaction_intrinsic_cost_calculator()
     )
     memory_expansion_gas_calculator = fork.memory_expansion_gas_calculator()
-    gas_costs = fork.gas_costs()
-    extra_gas = (
-        10_000 + gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
-    ) * len(precompile_gas_list)
+    extra_gas = 22_500 * len(precompile_gas_list)
+    # Each SSTORE 0->non-zero contributes one state-set under EIP-8037
+    # (returns 0 pre-fork).
+    sstore_state_gas = Op.SSTORE(new_value=1).state_cost(fork) * len(
+        precompile_gas_list
+    )
     return (
         extra_gas
         + intrinsic_gas_cost_calculator()
@@ -183,22 +169,7 @@ def tx_gas_limit_calculator(
             new_bytes=max_precompile_input_length
         )
         + sum(precompile_gas_list)
-    )
-
-
-@pytest.fixture
-def tx_gas_limit(
-    fork: Fork,
-    input_data: bytes,
-    precompile_gas_list: List[int],
-    precompile_data_length_list: List[int],
-) -> int:
-    """
-    Transaction gas limit used for the test (Can be overridden in the test).
-    """
-    assert len(input_data) == 0, "Expected empty data in the transaction."
-    return tx_gas_limit_calculator(
-        fork, precompile_gas_list, max(precompile_data_length_list)
+        + sstore_state_gas
     )
 
 
@@ -256,9 +227,10 @@ def get_split_discount_table_by_fork(
                     new_range = (current_min, current_max)
                     g1_msm_discount_table_ranges.append(new_range)
                     current_min = current_max
-                elif current_max == discount_table_length:
-                    new_range = (current_min, current_max + 1)
-                    g1_msm_discount_table_ranges.append(new_range)
+            if current_min <= discount_table_length:
+                g1_msm_discount_table_ranges.append(
+                    (current_min, discount_table_length + 1)
+                )
 
             g1_msm_discount_table_splits = [
                 [
@@ -299,7 +271,6 @@ def get_split_discount_table_by_fork(
 @pytest.mark.slow()
 def test_valid_gas_g1msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -312,7 +283,6 @@ def test_valid_gas_g1msm(
     If any of the calls fail, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -333,14 +303,12 @@ def test_valid_gas_g1msm(
 @pytest.mark.parametrize("precompile_address", [Spec.G1MSM])
 def test_invalid_zero_gas_g1msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
 ) -> None:
     """Test the BLS12_G1MSM precompile calling it with zero gas."""
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -361,7 +329,6 @@ def test_invalid_zero_gas_g1msm(
 @pytest.mark.eels_base_coverage
 def test_invalid_gas_g1msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -374,7 +341,6 @@ def test_invalid_gas_g1msm(
     If any of the calls succeeds, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -395,14 +361,12 @@ def test_invalid_gas_g1msm(
 @pytest.mark.parametrize("precompile_address", [Spec.G1MSM])
 def test_invalid_zero_length_g1msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
 ) -> None:
     """Test the BLS12_G1MSM precompile by passing an input with zero length."""
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -426,7 +390,6 @@ def test_invalid_zero_length_g1msm(
 @pytest.mark.parametrize("precompile_address", [Spec.G1MSM])
 def test_invalid_length_g1msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -439,7 +402,6 @@ def test_invalid_length_g1msm(
     If any of the calls succeeds, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -458,7 +420,6 @@ def test_invalid_length_g1msm(
 @pytest.mark.slow()
 def test_valid_gas_g2msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -471,7 +432,6 @@ def test_valid_gas_g2msm(
     If any of the calls fail, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -492,14 +452,12 @@ def test_valid_gas_g2msm(
 @pytest.mark.parametrize("precompile_address", [Spec.G2MSM])
 def test_invalid_zero_gas_g2msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
 ) -> None:
     """Test the BLS12_G2MSM precompile calling it with zero gas."""
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -520,7 +478,6 @@ def test_invalid_zero_gas_g2msm(
 @pytest.mark.eels_base_coverage
 def test_invalid_gas_g2msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -533,7 +490,6 @@ def test_invalid_gas_g2msm(
     If any of the calls succeeds, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -554,14 +510,12 @@ def test_invalid_gas_g2msm(
 @pytest.mark.parametrize("precompile_address", [Spec.G2MSM])
 def test_invalid_zero_length_g2msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
 ) -> None:
     """Test the BLS12_G2MSM precompile by passing an input with zero length."""
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -585,7 +539,6 @@ def test_invalid_zero_length_g2msm(
 @pytest.mark.parametrize("precompile_address", [Spec.G2MSM])
 def test_invalid_length_g2msm(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -598,7 +551,6 @@ def test_invalid_length_g2msm(
     If any of the calls succeeds, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -617,7 +569,6 @@ def test_invalid_length_g2msm(
 @pytest.mark.slow()
 def test_valid_gas_pairing(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -629,7 +580,6 @@ def test_valid_gas_pairing(
     If any of the calls fails, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -650,14 +600,12 @@ def test_valid_gas_pairing(
 @pytest.mark.parametrize("precompile_address", [Spec.PAIRING])
 def test_invalid_zero_gas_pairing(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
 ) -> None:
     """Test the BLS12_PAIRING precompile calling it with zero gas."""
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -677,7 +625,6 @@ def test_invalid_zero_gas_pairing(
 @pytest.mark.parametrize("precompile_address", [Spec.PAIRING])
 def test_invalid_gas_pairing(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -690,7 +637,6 @@ def test_invalid_gas_pairing(
     If any of the calls succeeds, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -711,7 +657,6 @@ def test_invalid_gas_pairing(
 @pytest.mark.parametrize("precompile_address", [Spec.PAIRING])
 def test_invalid_zero_length_pairing(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -720,7 +665,6 @@ def test_invalid_zero_length_pairing(
     Test the BLS12_PAIRING precompile by passing an input with zero length.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,
@@ -744,7 +688,6 @@ def test_invalid_zero_length_pairing(
 @pytest.mark.parametrize("precompile_address", [Spec.PAIRING])
 def test_invalid_length_pairing(
     state_test: StateTestFiller,
-    env: Environment,
     pre: Alloc,
     post: dict,
     tx: Transaction,
@@ -757,7 +700,6 @@ def test_invalid_length_pairing(
     If any of the calls succeeds, the test will fail.
     """
     state_test(
-        env=env,
         pre=pre,
         tx=tx,
         post=post,

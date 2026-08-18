@@ -10,13 +10,15 @@ import pytest
 from pytest_metadata.plugin import metadata_key
 
 from execution_testing.base_types import Account
-from execution_testing.base_types import Alloc as BaseAlloc
-from execution_testing.execution import BaseExecute
+from execution_testing.base_types.base_types import HexNumber
+from execution_testing.execution import BaseExecute, LabeledExecuteFormat
 from execution_testing.forks import Fork, TransitionFork
 from execution_testing.logging import get_logger
 from execution_testing.rpc import EngineRPC, EthRPC
 from execution_testing.specs import BaseTest
+from execution_testing.test_types import Alloc as BaseAlloc
 from execution_testing.test_types import (
+    Environment,
     EnvironmentDefaults,
 )
 
@@ -24,7 +26,6 @@ from ..shared.execute_fill import ALL_FIXTURE_PARAMETERS
 from ..shared.helpers import (
     get_spec_format_for_item,
     is_help_or_collectonly_mode,
-    labeled_format_parameter_set,
     option_was_explicitly_set,
 )
 from ..spec_version_checker.spec_version_checker import EIPSpecTestItem
@@ -186,7 +187,7 @@ def pytest_html_report_title(report: Any) -> None:
 
 
 # NOTE: ``transactions_per_block``, ``default_gas_price``, ``dry_run``,
-# ``max_transactions_per_batch``, ``use_testing_build_block``,
+# ``max_batch_size``, ``use_testing_build_block``,
 # ``default_max_fee_per_gas``, ``default_max_priority_fee_per_gas``,
 # ``default_max_fee_per_blob_gas``, ``max_priority_fee_per_gas``,
 # ``max_fee_per_gas``, ``max_fee_per_blob_gas``, ``gas_price``, and
@@ -271,6 +272,17 @@ def gas_limit_accumulator() -> Generator[GasInfoAccumulator, None, None]:
     logger.info(f"Total minimum balance: {total_min_eth:.18f}")
 
 
+@pytest.fixture(scope="session")
+def env_gas_limit(eth_rpc: EthRPC) -> HexNumber:
+    """
+    Return the environment gas limit derived from the head block before
+    tests start running.
+    """
+    head_block = eth_rpc.get_block_by_number()
+    assert head_block is not None, "Unable to obtain head block from RPC"
+    return HexNumber(head_block["gasLimit"])
+
+
 def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
     """
     Generate pytest.fixture for a given BaseTest subclass.
@@ -288,7 +300,7 @@ def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
     )
     def base_test_parametrizer_func(
         request: Any,
-        fork: Fork | TransitionFork,
+        fork: Fork,
         pre: Alloc,
         eth_rpc: EthRPC,
         engine_rpc: EngineRPC | None,
@@ -302,8 +314,10 @@ def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
         max_fee_per_blob_gas: int,
         max_gas_limit_per_test: int | None,
         gas_limit_accumulator: GasInfoAccumulator,
+        env_gas_limit: HexNumber,
         is_tx_gas_heavy_test: bool,
         is_exception_test: bool,
+        is_inclusion_test: bool,
     ) -> Type[BaseTest]:
         """
         Fixture used to instantiate an auto-fillable BaseTest object from
@@ -319,7 +333,9 @@ def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
         del fixed_opcode_count
         execute_format = request.param
         assert execute_format in BaseExecute.formats.values()
-        assert issubclass(execute_format, BaseExecute)
+        assert isinstance(execute_format, LabeledExecuteFormat) or issubclass(
+            execute_format, BaseExecute
+        )
 
         if execute_format.requires_engine_rpc:
             assert engine_rpc is not None, (
@@ -342,30 +358,30 @@ def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
                 kwargs["operation_mode"] = request.config.op_mode
                 kwargs["is_tx_gas_heavy_test"] = is_tx_gas_heavy_test
                 kwargs["is_exception_test"] = is_exception_test
+                kwargs["is_inclusion_test"] = is_inclusion_test
                 kwargs |= {
                     p: request.getfixturevalue(p)
                     for p in cls_fixture_parameters
                     if p not in kwargs
                 }
 
-                # TODO: get values from network
-                timestamp = 0
-                block_number = 0
-
                 request.node.config.sender_address = str(pre._sender)
 
                 super(BaseTestWrapper, self).__init__(*args, **kwargs)
                 execute = self.execute(execute_format=execute_format)
 
-                # get balances of required sender accounts
-                required_balances = execute.get_required_sender_balances(
+                execute.prepare_transactions(
+                    env=Environment(gas_limit=env_gas_limit),
                     gas_price=gas_price,
                     max_fee_per_gas=max_fee_per_gas,
                     max_priority_fee_per_gas=max_priority_fee_per_gas,
                     max_fee_per_blob_gas=max_fee_per_blob_gas,
-                    fork=fork.fork_at(
-                        block_number=block_number, timestamp=timestamp
-                    ),
+                    fork=fork,
+                )
+
+                # get balances of required sender accounts
+                required_balances = execute.get_required_sender_balances(
+                    fork=fork,
                 )
 
                 pre.resolve_deferred_checks()
@@ -432,9 +448,7 @@ def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
                 )
 
                 execute_result = execute.execute(
-                    fork=fork.fork_at(
-                        block_number=block_number, timestamp=timestamp
-                    ),
+                    fork=fork,
                     eth_rpc=eth_rpc,
                     engine_rpc=engine_rpc,
                     request=request,
@@ -472,13 +486,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         if test_type.pytest_parameter_name() in metafunc.fixturenames:
             parameter_set = []
             for (
-                format_with_or_without_label
-            ) in test_type.supported_execute_formats:
-                param = labeled_format_parameter_set(
-                    format_with_or_without_label
-                )
+                execute_format,
+                param,
+            ) in test_type.execute_format_parameters():
                 if (
-                    format_with_or_without_label.requires_engine_rpc
+                    execute_format.requires_engine_rpc
                     and not engine_rpc_supported
                 ):
                     param.marks.append(  # type: ignore
@@ -493,12 +505,17 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             )
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(
     items: List[pytest.Item],
 ) -> None:
     """
     Remove transition tests and add the appropriate execute markers to the
     test.
+
+    Runs tryfirst so that items collected without a fork parametrization
+    (tests not valid for the session's fork) are removed before other
+    plugins inspect item params, as in the filler plugin.
     """
     items_for_removal = []
     for i, item in enumerate(items):
@@ -510,7 +527,6 @@ def pytest_collection_modifyitems(
             continue
         fork: Fork | TransitionFork = params["fork"]
         spec_type, execute_format = get_spec_format_for_item(params)
-        assert issubclass(execute_format, BaseExecute)
         markers = list(item.iter_markers())
         if spec_type.discard_execute_format_by_marks(
             execute_format, fork, markers
@@ -530,9 +546,6 @@ def pytest_collection_modifyitems(
                         reason="Pre-alloc modification not supported"
                     )
                 )
-
-        if "yul" in item.fixturenames:  # type: ignore
-            item.add_marker(pytest.mark.yul_test)
 
     for i in reversed(items_for_removal):
         items.pop(i)
