@@ -92,7 +92,7 @@ sudo cpupower idle-set -D 1
 From the repo root:
 
 ```sh
-tmux new -s perf 'TAG=v4 RUNS=7 scripts/perf_cycle.sh'
+tmux new -s perf 'TAG=v4 scripts/perf_cycle.sh'
 ```
 
 Fills once, consumes `RUNS` times, and writes the NINE-vs-TEN table to
@@ -100,8 +100,8 @@ Fills once, consumes `RUNS` times, and writes the NINE-vs-TEN table to
 cycle time and the four repo SHAs). Knobs:
 
 - `TAG` (required) names every artifact; use a fresh one per experiment.
-- `RUNS` consume passes (samples per fork), `REPEATS` page-disjoint
-  copies per fixture (cold samples reduced to a `min` within each pass).
+- `RUNS` consume passes (default 12), `REPEATS` page-disjoint copies per
+  fixture (cold samples reduced to a `min` within each pass).
 - `MIP8_PERF_BLOCK_GAS=N` overrides the block gas target; perf_cycle.sh
   fills full 200M blocks by default (the test default, used by release
   fills, is a small block). `SKIP_FILL=1` reuses an existing

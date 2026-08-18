@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Fill once, consume RUNS times, emit the NINE-vs-TEN perf table.
-set -uo pipefail
+set -euo pipefail
 
 TAG="${TAG:?set TAG (names all artifacts, e.g. TAG=v4)}"
-RUNS="${RUNS:-7}"
+# The table pairs runs and adjusts for its own test count, so no raw
+# p-value can fall below 2/2^RUNS; below ~12 runs only measures that move
+# together can reach significance (the table says so when it applies).
+RUNS="${RUNS:-12}"
 REPEATS="${REPEATS:-20}"
 # Perf runs time full 200M blocks; the test default is a small block.
 BLOCK_GAS="${MIP8_PERF_BLOCK_GAS:-200000000}"
@@ -12,7 +15,7 @@ HARNESS="${HARNESS:-$REPO/../monad-eest-rust-harness}"
 BIN="${BIN:-$HARNESS/bin/eest-runner}"
 TEST="${TEST:-tests/monad_ten/mip8_pageified_storage/test_perf_regression.py}"
 
-cd "$REPO"
+cd "$REPO" || exit 1
 EPOCH="$(date -u +%s)"
 NOW="$(date -u -d "@$EPOCH" '+%Y-%m-%dT%H:%M:%SZ')"
 STAMP="$(date -u -d "@$EPOCH" '+%y%m%d_%H%M%S')"
@@ -37,8 +40,13 @@ for i in $(seq 1 "$RUNS"); do
   out="${PREFIX}_${i}"
   rm -rf "$out"
   echo "=== consume $i/$RUNS -> $out $(date -u +%T)Z ==="
+  # A failing fixture must not silently drop its case from the table.
   uv run consume direct --input "$FIX" --bin "$BIN" \
-      --timing-report --timing-report-dir "$out"
+      --timing-report --timing-report-dir "$out" || {
+    echo "consume run $i reported failures; the table would silently omit" \
+         "the affected cases. Fix them or drop them from $TEST." >&2
+    exit 1
+  }
   [ -f "$out/timing_consume.csv" ] || {
     echo "consume run $i left no $out/timing_consume.csv (eest-runner" \
          "emitted no parseable __exec_block timing lines?)" >&2
