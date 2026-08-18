@@ -19,13 +19,12 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, TypedDict
 
 import ijson  # type: ignore[import-untyped]
 import pytest
 
 from execution_testing.fixtures import BlockchainFixture, FixtureFormat
-from execution_testing.fixtures.consume import BlockExecutionTiming
 from execution_testing.logging import get_logger
 from execution_testing.test_types import Transaction
 
@@ -180,6 +179,24 @@ def _compare_account(
     return mismatches
 
 
+class BlockExecutionTiming(TypedDict):
+    """
+    Per-block execution timing reported by the monad runloop.
+
+    All durations are in microseconds. The keys name the runloop's own
+    execution phases, and are the columns `consume direct
+    --timing-report` writes for this consumer.
+    """
+
+    block: int
+    tx_count: int
+    gas: int
+    tx_exec_us: int
+    state_root_us: int
+    commit_us: int
+    total_us: int
+
+
 # A runloop duration: a decimal number and a chrono unit suffix, with
 # optional whitespace.
 _DURATION_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ns|[µμu]s|ms|s)\s*$")
@@ -263,6 +280,17 @@ class MonadFixtureConsumer(
         """Initialize the MonadFixtureConsumer."""
         super().__init__(binary=binary)
         self.trace = trace
+        self._block_timings: Sequence[BlockExecutionTiming] = ()
+
+    def last_block_timings(self) -> Sequence[BlockExecutionTiming]:
+        """
+        Return the per-block timing parsed from the last consumed fixture.
+
+        Implements the `BlockTimingReporter` capability. Reset at the start
+        of every `consume_fixture` call, so a fixture the runloop reported
+        nothing for never inherits the previous one's timing.
+        """
+        return self._block_timings
 
     def _init_triedb(
         self, db_path: Path, schedule: List[Tuple[int, int]]
@@ -384,9 +412,10 @@ class MonadFixtureConsumer(
         fixture_path: Path,
         fixture_name: Optional[str] = None,
         debug_output_path: Optional[Path] = None,
-    ) -> Optional[List[BlockExecutionTiming]]:
+    ) -> None:
         """Execute a blockchain fixture on the monad runloop and verify."""
         assert fixture_format == BlockchainFixture
+        self._block_timings = ()
 
         fixture = _load_fixture(fixture_path, fixture_name)
 
@@ -442,7 +471,7 @@ class MonadFixtureConsumer(
                 )
 
             output = json.loads(output_path.read_text())
-            block_timings = _parse_block_timings(stdout)
+            self._block_timings = _parse_block_timings(stdout)
 
         actual_post = {
             address.lower(): account
@@ -475,5 +504,3 @@ class MonadFixtureConsumer(
                 "post-state mismatch on the monad runloop:\n"
                 + "\n".join(mismatches)
             )
-
-        return block_timings or None

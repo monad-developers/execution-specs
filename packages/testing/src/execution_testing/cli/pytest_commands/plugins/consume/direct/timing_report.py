@@ -2,12 +2,20 @@
 Emit per-block execution timing collected during `consume direct` as a
 CSV artifact alongside the HTML report.
 
-The consumer (e.g. the monad runloop) returns per-block timing from
-`consume_fixture`; `test_via_direct.test_fixture` stashes it on the test's
-`user_properties` under `TIMING_PROPERTY`. This plugin writes one part file
-per test *in the process that ran it* (so it never depends on xdist
-forwarding `user_properties` to the controller), then the controller
-collects every part into a single raw per-block CSV at session end.
+A consumer that implements the `BlockTimingReporter` capability (e.g. the
+monad runloop) exposes per-block timing for the fixture it just ran. This
+plugin reads it off the finished test, writes one part file per test *in
+the process that ran it* (so it never depends on xdist forwarding data to
+the controller), then the controller collects every part into a single raw
+per-block CSV at session end.
+
+The metric columns are whatever keys the consumer reported, so the plugin
+stays agnostic of which execution phases a given client can measure.
+
+Everything the feature needs lives here — the capability protocol, the
+command-line options and the reporting — so the generic `consume` modules
+stay byte-identical to upstream. `pytest-consume.ini` registers it with a
+single `-p` line.
 """
 
 from __future__ import annotations
@@ -17,47 +25,127 @@ import io
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Tuple
+from typing import (
+    Any,
+    Dict,
+    Generator,
+    List,
+    Mapping,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+    runtime_checkable,
+)
 
 import pytest
 
-# Key under which `test_fixture` records the timing payload
-# ``{"id": <fixture id>, "blocks": [BlockExecutionTiming, ...]}``.
-TIMING_PROPERTY = "consume_block_timing"
+from execution_testing.fixtures.consume import (
+    TestCaseIndexFile,
+    TestCaseStream,
+)
+from execution_testing.forks import Fork, TransitionFork
+from execution_testing.forks.helpers import get_forks
 
-# Column key -> header. One row per block carrying the raw per-block
-# measurements.
-_COLUMNS: List[Tuple[str, str]] = [
-    ("test", "test"),
-    ("params", "params"),
-    ("fork", "fork"),
-    ("block", "block"),
-    ("tx_count", "tx"),
-    ("gas", "gas"),
-    ("tx_exec_us", "tx_exec_us"),
-    ("state_root_us", "state_root_us"),
-    ("commit_us", "commit_us"),
-    ("total_us", "total_us"),
-]
+BlockTiming = Mapping[str, int]
+"""
+One block's measurements, keyed by metric name.
 
-# Fork ordering (oldest first) so CSV rows group forks in release order;
-# unknown forks sort after, alphabetically.
-_FORK_ORDER = ["MONAD_EIGHT", "MONAD_NINE", "MONAD_TEN", "MONAD_NEXT"]
-
-# Fixture-id suffixes identifying the fixture format, not a real parameter.
-_FORMAT_TAGS = {
-    "blockchain_test",
-    "blockchain_test_engine",
-    "blockchain_test_sync",
-    "state_test",
-}
+The metric names are the reporting consumer's own: it decides which
+phases it can measure and how they are labelled. Consumers must use the
+same keys, in the same order, for every block they report.
+"""
 
 
-def _fork_rank(fork: str) -> Tuple[int, str]:
-    """Sort key placing known forks in release order, others after."""
-    if fork in _FORK_ORDER:
-        return _FORK_ORDER.index(fork), ""
-    return len(_FORK_ORDER), fork
+@runtime_checkable
+class BlockTimingReporter(Protocol):
+    """
+    Optional consumer capability: per-block timing of the last fixture.
+
+    A consumer that can measure block processing implements this so
+    `consume direct --timing-report` can tabulate it.
+    """
+
+    def last_block_timings(self) -> Sequence[BlockTiming]:
+        """
+        Return per-block measurements from the most recent
+        `consume_fixture` call, empty if it measured none.
+        """
+        ...
+
+
+# Fixtures the report hook reads off the finished test. Both are
+# parametrized by the consume plugins, so they are present in
+# `item.funcargs` for the call phase.
+_CONSUMER_FIXTURE = "fixture_consumer"
+_TEST_CASE_FIXTURE = "test_case"
+
+# Columns identifying a row; the reported metric keys follow them.
+_ID_COLUMNS = ["test", "params", "fork"]
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add the timing report options to the consume command group."""
+    group = parser.getgroup(
+        "consume_direct",
+        "Arguments related to consuming fixtures via a client",
+    )
+    group.addoption(
+        "--timing-report",
+        action="store_true",
+        dest="timing_report",
+        default=False,
+        help=(
+            "Emit per-block execution timing (from consumers that report "
+            "it) as a raw `timing_consume.csv`."
+        ),
+    )
+    group.addoption(
+        "--timing-report-dir",
+        action="store",
+        dest="timing_report_dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for the timing report. Defaults to the HTML report's "
+            "directory (the fixtures `.meta` directory)."
+        ),
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the report plugin, or refuse a run that cannot time."""
+    if not config.getoption("timing_report", False):
+        return
+    # `--bin` is registered by the `consume direct` conftest only, so its
+    # absence means a hive simulator, where no consumer reports timing.
+    # A hive command usually fails its own setup check before reaching
+    # here; this keeps the flag from being silently accepted if it does.
+    if config.getoption("fixture_consumer_bin", None) is None:
+        raise pytest.UsageError(
+            "--timing-report is only available for `consume direct`."
+        )
+    if (config.getoption("numprocesses", None) or 0) != 0:
+        raise pytest.UsageError(
+            "--timing-report cannot be combined with xdist."
+        )
+    config.pluginmanager.register(
+        TimingReportPlugin(config), "consume-timing-report"
+    )
+
+
+def _fork_rank(fork: Fork | TransitionFork | None) -> int:
+    """
+    Position of `fork` in the framework's chronological fork list.
+
+    Used to group CSV rows in release order without hardcoding a fork
+    list. Transition and unknown forks sort after all plain forks.
+    """
+    forks = get_forks()
+    try:
+        return forks.index(fork)  # type: ignore[arg-type]
+    except ValueError:
+        return len(forks)
 
 
 def _sorted_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -66,58 +154,98 @@ def _sorted_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         key=lambda r: (
             r["test"],
             r["params"],
-            _fork_rank(r["fork"]),
-            r["block"],
+            r["fork_rank"],
+            r["fork"],
+            r.get("block", 0),
         )
     )
     return rows
 
 
-def _split_fixture_id(fixture_id: str) -> Tuple[str, str, str]:
+def _split_fixture_id(
+    fixture_id: str, fork: str, fixture_format: str
+) -> Tuple[str, str]:
     """
-    Split a fixture id into (test, params, fork).
+    Split a fixture id into (test, params).
 
-    ``tests/.../test_perf_regression.py::test_compute_loop[
-    scheme_a-fork_MONAD_NINE-blockchain_test]`` becomes
-    ``("test_perf_regression::test_compute_loop", "scheme_a", "MONAD_NINE")``.
-    Parameters are kept as one ``-``-joined column since their arity varies
-    per test; the fork token and the trailing format tag are pulled out.
+    ``tests/.../test_perf_regression.py::test_page_ops[
+    sstore_fresh-k0-fork_MONAD_NINE-blockchain_test]`` becomes
+    ``("test_perf_regression::test_page_ops", "sstore_fresh-k0")``. The
+    fork and fixture-format tokens are dropped by value (both are known
+    from the test case), and the remaining parameters are kept as one
+    ``-``-joined column since their arity varies per test.
     """
     module, _, rest = fixture_id.partition("::")
     func = rest.split("[", 1)[0]
     test = f"{Path(module).stem}::{func}" if module else func
-    fork = ""
     params: List[str] = []
     if "[" in rest and rest.rstrip().endswith("]"):
         inner = rest[rest.index("[") + 1 : rest.rindex("]")]
-        for token in inner.split("-"):
-            if token.startswith("fork_"):
-                fork = token[len("fork_") :]
-            elif token in _FORMAT_TAGS:
-                continue
-            else:
-                params.append(token)
-    return test, "-".join(params), fork
+        params = [token for token in inner.split("-") if token]
+        for known in (f"fork_{fork}", fixture_format):
+            if known in params:
+                params.remove(known)
+    return test, "-".join(params)
+
+
+def timing_payload(
+    consumer: object,
+    test_case: TestCaseIndexFile | TestCaseStream,
+) -> Optional[Dict[str, Any]]:
+    """
+    Build one test's timing payload from the consumer that ran it.
+
+    Returns None for a consumer without the `BlockTimingReporter`
+    capability and for a fixture the consumer measured nothing for.
+    """
+    if not isinstance(consumer, BlockTimingReporter):
+        return None
+    timings = consumer.last_block_timings()
+    if not timings:
+        return None
+    fork = test_case.fork
+    fork_name = fork.name() if fork is not None else ""
+    test, params = _split_fixture_id(
+        test_case.id, fork_name, test_case.format.format_name
+    )
+    return {
+        "test": test,
+        "params": params or "-",
+        "fork": fork_name,
+        "fork_rank": _fork_rank(fork),
+        "blocks": [dict(timing) for timing in timings],
+    }
 
 
 def _rows_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Flatten one recorded timing payload into per-block table rows."""
-    test, params, fork = _split_fixture_id(payload["id"])
-    rows = []
-    for block in payload["blocks"]:
-        rows.append(
-            {"test": test, "params": params or "-", "fork": fork, **block}
-        )
-    return rows
+    identity = {key: payload[key] for key in (*_ID_COLUMNS, "fork_rank")}
+    return [{**identity, **block} for block in payload["blocks"]]
+
+
+def _metric_columns(rows: List[Dict[str, Any]]) -> List[str]:
+    """
+    Metric columns, in the order the consumer first reported them.
+
+    Consumers reporting different metrics in one session contribute their
+    own columns; a row missing a column is written blank.
+    """
+    columns: List[str] = []
+    for row in rows:
+        for key in row:
+            if key not in columns and key not in (*_ID_COLUMNS, "fork_rank"):
+                columns.append(key)
+    return columns
 
 
 def _render_csv(rows: List[Dict[str, Any]]) -> str:
     """Render rows as CSV."""
+    columns = [*_ID_COLUMNS, *_metric_columns(rows)]
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow([header for _, header in _COLUMNS])
+    writer.writerow(columns)
     for row in rows:
-        writer.writerow([row.get(key, "") for key, _ in _COLUMNS])
+        writer.writerow([row.get(column, "") for column in columns])
     return buffer.getvalue()
 
 
@@ -146,20 +274,42 @@ class TimingReportPlugin:
         return Path(source.path) / ".meta"
 
     def _parts_dir(self) -> Path:
-        return self._output_dir() / ".timing_parts"
+        """
+        Directory holding this session's part files.
+
+        Namespaced by session id so a killed or crashed run's leftovers
+        are never folded into a later run's CSV. Under xdist the workers
+        inherit the controller's id through `workerinput`.
+        """
+        return self._output_dir() / ".timing_parts" / self._session_id()
+
+    def _session_id(self) -> str:
+        """Id shared by the controller and, under xdist, its workers."""
+        workerinput = getattr(self.config, "workerinput", None)
+        if workerinput is not None:
+            return str(workerinput["timing_report_session"])
+        if not hasattr(self.config, "_timing_report_session"):
+            self.config._timing_report_session = uuid.uuid4().hex  # type: ignore[attr-defined]
+        return str(self.config._timing_report_session)  # type: ignore[attr-defined]
+
+    def pytest_configure_node(self, node: Any) -> None:
+        """Pass the session id to an xdist worker as it starts."""
+        node.workerinput["timing_report_session"] = self._session_id()
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_makereport(
         self,
-        item: pytest.Item,  # noqa: ARG002
+        item: pytest.Item,
         call: pytest.CallInfo[None],
     ) -> Generator[None, Any, None]:
         """
         Persist this test's timing to a part file, in the running process.
 
-        Reading ``user_properties`` here (rather than on the controller)
-        avoids relying on xdist to marshal them back; each test writes its
-        own uniquely-named file, so parallel workers never race.
+        The consumer and test case are read straight off the finished
+        item, so the generic test function stays untouched. Writing here
+        rather than on the controller avoids relying on xdist to marshal
+        anything back; each test writes its own uniquely-named file, so
+        parallel workers never race.
         """
         outcome = yield
         if call.when != "call":
@@ -167,7 +317,12 @@ class TimingReportPlugin:
         report = outcome.get_result()
         if report.outcome != "passed":
             return
-        payload = dict(report.user_properties).get(TIMING_PROPERTY)
+        funcargs = getattr(item, "funcargs", None) or {}
+        consumer = funcargs.get(_CONSUMER_FIXTURE)
+        test_case = funcargs.get(_TEST_CASE_FIXTURE)
+        if consumer is None or test_case is None:
+            return
+        payload = timing_payload(consumer, test_case)
         if not payload:
             return
         parts_dir = self._parts_dir()
@@ -203,6 +358,10 @@ class TimingReportPlugin:
         for part in parts_dir.glob("*.json"):
             part.unlink()
         parts_dir.rmdir()
+        try:
+            parts_dir.parent.rmdir()
+        except OSError:
+            pass  # another session's parts are still there
 
     def pytest_terminal_summary(
         self,
