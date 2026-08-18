@@ -20,6 +20,10 @@ Single-letter test parameters:
 - `m`: number of distinct pages a spread test writes in total.
 - `n`: number of contracts those `m` pages are spread evenly across.
 
+Every transaction gets its own sender, so no block carries a sender nonce
+chain that would serialise it regardless of storage access. The block-shape
+sweep parametrizes this to measure what the chain alone costs.
+
 Workloads are sized to MONAD_NINE (its cold storage costs >= MONAD_TEN),
 so the same iteration count never out-of-gases on either fork; a
 post-fork block may therefore be gas-underfull while doing identical I/O
@@ -35,10 +39,11 @@ See MONAD_RUNLOOP_TESTING.md.
 
 import os
 from enum import StrEnum, auto
-from typing import List, SupportsBytes, Tuple
+from typing import Iterator, List, SupportsBytes, Tuple
 
 import pytest
 from execution_testing import (
+    EOA,
     Account,
     Address,
     Alloc,
@@ -168,6 +173,25 @@ class StorageOp(StrEnum):
     """Cold SLOAD of a slot on a never-populated, empty page."""
 
 
+def _senders(pre: Alloc, distinct: bool = True) -> Iterator[EOA]:
+    """
+    Yield one sender per transaction.
+
+    Consecutive nonces from one EOA conflict on that account, so a block
+    whose transactions all share a sender carries a dependency chain that
+    serialises it in a parallel executor — which would mask whatever the
+    storage encoding does. Distinct senders remove that chain, leaving
+    storage access as the only cross-transaction dependency. `distinct`
+    stays a parameter where the sender chain is itself the subject.
+    """
+    if distinct:
+        while True:
+            yield pre.fund_eoa()
+    shared = pre.fund_eoa()
+    while True:
+        yield shared
+
+
 @pytest.mark.valid_from("MONAD_NINE")
 def test_compute_loop(
     blockchain_test: BlockchainTestFiller,
@@ -182,7 +206,7 @@ def test_compute_loop(
     SSTORE. Pure stack arithmetic touches no storage, so the loop costs
     the same on both forks and the marker is the only state written.
     """
-    sender = pre.fund_eoa()
+    senders = _senders(pre)
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
 
     body = Op.POP(Op.ADD(Op.MUL(Op.NUMBER, Op.GAS), Op.CALLVALUE))
@@ -196,7 +220,7 @@ def test_compute_loop(
             txs=[
                 Transaction(
                     to=contract_address,
-                    sender=sender,
+                    sender=next(senders),
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
@@ -482,7 +506,7 @@ def test_page_ops(
     elif per_tx_pages:
         pages = min(pages, PRE_SLOT_CAP // FULL_BLOCK_TXS)
 
-    sender = pre.fund_eoa()
+    senders = _senders(pre)
 
     prestate: StorageDict = {}
     for r in range(REPEATS):
@@ -513,7 +537,7 @@ def test_page_ops(
             txs.append(
                 Transaction(
                     to=contract,
-                    sender=sender,
+                    sender=next(senders),
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
@@ -614,7 +638,7 @@ def test_page_spread(
     max_per_tx = max(1, (TX_GAS_CAP - TX_RESERVE) // per_iter)
     pages_per_contract = m // n
 
-    sender = pre.fund_eoa()
+    senders = _senders(pre)
     contracts: List[Address] = [
         pre.deploy_contract(_contract(StorageOp.SSTORE_FRESH, 0))
         for _ in range(n)
@@ -633,7 +657,7 @@ def test_page_spread(
                 txs.append(
                     Transaction(
                         to=contract,
-                        sender=sender,
+                        sender=next(senders),
                         gas_limit=count * per_iter + TX_RESERVE,
                         max_fee_per_gas=MAX_FEE_PER_GAS,
                         max_priority_fee_per_gas=0,
@@ -662,13 +686,21 @@ def test_page_spread(
 
 
 _SHAPE_PARAMS = [
-    pytest.param(op, k, shape, id=f"{op.value}-k{k}-{shape}")
+    pytest.param(
+        op,
+        k,
+        shape,
+        distinct,
+        id=f"{op.value}-k{k}-{shape}-"
+        f"{'distinct' if distinct else 'shared'}_senders",
+    )
     for op, k in [(StorageOp.SSTORE_FRESH, 0), (StorageOp.SLOAD_COLD_HIT, 8)]
     for shape in ("few_big", "many_small")
+    for distinct in (True, False)
 ]
 
 
-@pytest.mark.parametrize("op, k, shape", _SHAPE_PARAMS)
+@pytest.mark.parametrize("op, k, shape, distinct_senders", _SHAPE_PARAMS)
 @pytest.mark.valid_from("MONAD_NINE")
 def test_block_shape(
     blockchain_test: BlockchainTestFiller,
@@ -676,6 +708,7 @@ def test_block_shape(
     op: StorageOp,
     k: int,
     shape: str,
+    distinct_senders: bool,
 ) -> None:
     """
     Same total work packed as a few big txs vs many small txs.
@@ -684,6 +717,10 @@ def test_block_shape(
     (300 at the full block budget) smaller ones. Reads reuse one
     pre-populated page pool (each tx a fresh cold pass); fresh writes give
     each tx a disjoint range. Each repeat block is offset to a fresh range.
+
+    `distinct_senders` decides whether the block also carries a sender
+    nonce chain: shared senders serialise the transactions independently
+    of their storage access, which bounds how much the packing can matter.
     """
     if shape == "few_big":
         num_txs = FULL_BLOCK_TXS
@@ -699,7 +736,7 @@ def test_block_shape(
     if occupied:
         count = min(count, PRE_SLOT_CAP // max(k, 1))
 
-    sender = pre.fund_eoa()
+    senders = _senders(pre, distinct_senders)
     prestate: StorageDict = {}
     for r in range(REPEATS):
         read_dom, _, _ = _repeat_domains(r)
@@ -718,7 +755,7 @@ def test_block_shape(
             txs.append(
                 Transaction(
                     to=contract,
-                    sender=sender,
+                    sender=next(senders),
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
@@ -761,7 +798,7 @@ def test_tx_halt(
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
     count = _iterations(StorageOp.SSTORE_FRESH, 0, budget)
 
-    sender = pre.fund_eoa()
+    senders = _senders(pre)
     contract = pre.deploy_contract(_contract(StorageOp.SSTORE_FRESH, 0))
 
     blocks = []
@@ -775,7 +812,7 @@ def test_tx_halt(
             txs.append(
                 Transaction(
                     to=contract,
-                    sender=sender,
+                    sender=next(senders),
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
@@ -881,7 +918,7 @@ def test_random_sload(
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
     count = _size_count(_rand_sload_body(slots), budget)
     code = _rand_sload_contract(slots)
-    sender = pre.fund_eoa()
+    senders = _senders(pre)
 
     # Plan tx -> (contract index, base page key) and genesis slots.
     plan: List[Tuple[int, int]] = []
@@ -915,7 +952,7 @@ def test_random_sload(
             txs.append(
                 Transaction(
                     to=contract,
-                    sender=sender,
+                    sender=next(senders),
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
@@ -946,9 +983,12 @@ def test_bad_block_serial(
     SSTOREs (increments) the same contiguous slot sequence, so the txs
     conflict and cannot run in parallel; each shared slot ends at
     FULL_BLOCK_TXS. Each repeat uses a fresh slot range.
+
+    Senders are distinct, so the storage conflict is the only thing
+    serialising the block.
     """
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
-    sender = pre.fund_eoa()
+    senders = _senders(pre)
 
     # Per-iteration body: increment the counter-th shared slot.
     sl = Op.ADD(Op.MLOAD(M_BASE), Op.MLOAD(M_COUNTER))
@@ -981,7 +1021,7 @@ def test_bad_block_serial(
             txs.append(
                 Transaction(
                     to=contract,
-                    sender=sender,
+                    sender=next(senders),
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
@@ -1015,7 +1055,7 @@ def test_bad_block_chained(
     uses a fresh ring.
     """
     budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
-    sender = pre.fund_eoa()
+    senders = _senders(pre)
 
     # Per-iteration body: SLOAD current slot; its value is the next slot.
     nxt = Op.SLOAD(Op.MLOAD(M_CHAIN), key_warm=False, page_load_warm=False)
@@ -1058,7 +1098,7 @@ def test_bad_block_chained(
             txs.append(
                 Transaction(
                     to=contract,
-                    sender=sender,
+                    sender=next(senders),
                     gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,

@@ -35,7 +35,7 @@ page D + i:
 
 Block anatomy shared by `test_page_ops`, `test_block_shape` (few_big),
 `test_tx_halt`, `test_random_sload` and the two `test_bad_block_*` tests
-— one 200M-gas block, 7 equal txs, all from the same sender to the same
+— one 200M-gas block, 7 equal txs, each from its own sender, to the same
 workload contract (`test_random_sload` cycles a pool of 8 contracts
 instead):
 
@@ -51,6 +51,12 @@ Per-tx warm/access sets reset between transactions, so every tx of a
 block pays **cold** access again even when it re-touches the exact pages
 tx 0 touched. This is what lets one pre-populated pool serve all 7 txs
 as 7 independent cold passes.
+
+Each tx also has its own sender. Consecutive nonces from one EOA are a
+write-write conflict on that account, which would serialise the block
+whatever its storage access looks like; distinct senders leave storage as
+the only cross-tx dependency. `test_block_shape` parametrizes
+`distinct_senders` so the cost of that chain stays measurable.
 
 Every transaction runs the same loop contract: read calldata
 `(base, count, g, halt, t)`, execute `count` iterations of the op body,
