@@ -21,7 +21,7 @@ from execution_testing.fixtures.consume import TestCaseIndexFile
 from execution_testing.forks import MONAD_NINE, MONAD_TEN
 
 FIXTURE_ID = (
-    "tests/monad_ten/mip8_pageified_storage/test_perf_regression.py"
+    "tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py"
     "::test_page_ops[sstore_fresh-k0-fork_MONAD_NINE-blockchain_test]"
 )
 
