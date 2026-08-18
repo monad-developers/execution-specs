@@ -17,9 +17,6 @@ from execution_testing.base_types import to_json
 from execution_testing.cli.pytest_commands.plugins.consume.consume import (
     FixturesSource,
 )
-from execution_testing.cli.pytest_commands.plugins.consume.direct.timing_report import (  # noqa: E501
-    TimingReportPlugin,
-)
 from execution_testing.client_clis.ethereum_cli import EthereumCLI
 from execution_testing.client_clis.fixture_consumer_tool import (
     FixtureConsumerTool,
@@ -82,27 +79,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:  # noqa: D103
             "consumer tool."
         ),
     )
-    consume_group.addoption(
-        "--timing-report",
-        action="store_true",
-        dest="timing_report",
-        default=False,
-        help=(
-            "Emit per-block execution timing (from consumers that report "
-            "it) as a raw `timing_consume.csv`."
-        ),
-    )
-    consume_group.addoption(
-        "--timing-report-dir",
-        action="store",
-        dest="timing_report_dir",
-        type=Path,
-        default=None,
-        help=(
-            "Directory for the timing report. Defaults to the HTML report's "
-            "directory (the fixtures `.meta` directory)."
-        ),
-    )
     debug_group = parser.getgroup("debug", "Arguments defining debug behavior")
     debug_group.addoption(
         "--dump-dir",
@@ -146,12 +122,6 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: D103
             "path via `--bin`."
         )
     config.fixture_consumers = fixture_consumers  # type: ignore[attr-defined]
-
-    if config.getoption("timing_report"):
-        config.pluginmanager.register(
-            TimingReportPlugin(config),
-            "consume-timing-report",
-        )
 
 
 @pytest.fixture(scope="function")
