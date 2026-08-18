@@ -52,7 +52,7 @@ from execution_testing import (
     While,
     WhileGas,
 )
-from execution_testing.forks import MONAD_TEN, MONAD_NINE
+from execution_testing.forks import MONAD_NINE, MONAD_TEN
 from execution_testing.forks.helpers import Fork
 
 from .helpers import fresh_sstore_cold
@@ -86,10 +86,7 @@ TX_GAS_CAP = 30_000_000
 FULL_BLOCK_TXS = 7
 # Workload txs are EIP-1559 with a high max fee and a zero priority tip.
 # The high max fee keeps them valid as each full block raises the base
-# fee ~12.5%; the zero tip means no fee reaches the block coinbase, so the
-# fee routing matches between the fill and the runloop on both forks (a
-# nonzero tip is credited to the coinbase by the fill but routed elsewhere
-# by the runloop on MONAD_TEN, which would mismatch the post-state).
+# fee ~12.5%.
 MAX_FEE_PER_GAS = 10**6
 # `many_small` block shape: many txs, each still large enough to cover the
 # per-tx reserve. The count adapts to the block budget (300 at the full
@@ -141,8 +138,6 @@ CD_LOCAL = 0x80
 slot_code_worked = 0x1
 value_code_worked = 0x1234
 
-COMPUTE_GAS = 10_000_000
-
 
 class StorageOp(StrEnum):
     """A storage-access pattern a workload applies to each page."""
@@ -188,6 +183,7 @@ def test_compute_loop(
     the same on both forks and the marker is the only state written.
     """
     sender = pre.fund_eoa()
+    budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
 
     body = Op.POP(Op.ADD(Op.MUL(Op.NUMBER, Op.GAS), Op.CALLVALUE))
     contract_address = pre.deploy_contract(
@@ -201,10 +197,11 @@ def test_compute_loop(
                 Transaction(
                     to=contract_address,
                     sender=sender,
-                    gas_limit=COMPUTE_GAS,
+                    gas_limit=budget,
                     max_fee_per_gas=MAX_FEE_PER_GAS,
                     max_priority_fee_per_gas=0,
-                ),
+                )
+                for _ in range(FULL_BLOCK_TXS)
             ],
         ),
     ]
@@ -217,6 +214,7 @@ def test_compute_loop(
                 storage={slot_code_worked: value_code_worked}
             ),
         },
+        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
     )
 
 
