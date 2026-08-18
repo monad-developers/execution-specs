@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Build a NINE-vs-TEN significance table from perf timing runs.
 
@@ -8,25 +7,29 @@ Reads the `timing_consume.csv` produced by `consume direct
 both forks, the two-sided Mann-Whitney U p-value comparing the forks,
 and (for significant measures) the NINE->TEN average change.
 
-Usage: perf_regression.py [--md OUT.md] [--html OUT.html]
-       [--now TS --repo SHA --harness SHA --monad-bft SHA --monad SHA]
-       [DIR ...]  (default dirs: ../timing_[0-9]*)
-Writes GitHub-flavored Markdown to --md (or stdout if omitted); when
---now is given, prefixes a provenance header. With
---html also writes a standalone HTML rendering whose table spans the
-full window width.
+Writes GitHub-flavored Markdown to `--md` (or stdout if omitted); when
+`--now` is given, prefixes a provenance header. With `--html` also writes
+a standalone HTML rendering whose table spans the full window width.
 """
 
 from __future__ import annotations
 
 import csv
-import glob
 import html
-import sys
 from itertools import combinations
 from math import comb, erfc, sqrt
 from pathlib import Path
 from statistics import mean, stdev
+from typing import Dict, List, Optional, Tuple
+
+import click
+
+# One run's measurements: (test, params, fork) -> {metric: value}.
+CaseMetrics = Dict[str, int]
+Run = Dict[Tuple[str, str, str], CaseMetrics]
+
+# Samples gathered across runs: {metric: [value per run]}.
+MetricSamples = Dict[str, List[int]]
 
 METRICS = ["tx_exec_us", "commit_us", "total_us"]
 FORKS = ["MONAD_NINE", "MONAD_TEN"]
@@ -44,7 +47,7 @@ DIAGRAMS_URL = (
 )
 
 
-def _direction(chgs: list[int]) -> str:
+def _direction(chgs: List[int]) -> str:
     """Pick the direction emoji from the significant measures' changes."""
     ups = any(c > 0 for c in chgs)
     downs = any(c < 0 for c in chgs)
@@ -57,14 +60,14 @@ def _direction(chgs: list[int]) -> str:
     return MIXED
 
 
-def parse(report: Path) -> dict:
+def parse(report: Path) -> Run:
     """
     Map (test, params, fork) -> {metric: value} from one csv report.
 
     The csv holds one row per block (raw, unaggregated); each metric is
     reduced to the minimum across a case's blocks.
     """
-    rows: dict = {}
+    rows: Run = {}
     with report.open(newline="") as f:
         for row in csv.DictReader(f):
             if row["fork"] not in FORKS:
@@ -83,7 +86,7 @@ def parse(report: Path) -> dict:
     return rows
 
 
-def _stat(values: list[int]) -> str:
+def _stat(values: List[int]) -> str:
     """Format a run sample as 'mean ± sd' (µs, rounded)."""
     sd = stdev(values) if len(values) > 1 else 0.0
     return f"{round(mean(values))} ± {round(sd)}"
@@ -94,7 +97,7 @@ def _pfmt(p: float) -> str:
     return "<0.001" if p < 0.001 else f"{p:.3f}"
 
 
-def _avg_ranks(vals: list[float]) -> list[float]:
+def _avg_ranks(vals: List[float]) -> List[float]:
     """Return 1-based ranks (ties averaged), aligned to `vals`."""
     order = sorted(range(len(vals)), key=lambda i: vals[i])
     ranks = [0.0] * len(vals)
@@ -110,7 +113,7 @@ def _avg_ranks(vals: list[float]) -> list[float]:
     return ranks
 
 
-def _mwu_p(a: list[int], b: list[int]) -> float:
+def _mwu_p(a: List[int], b: List[int]) -> float:
     """
     Two-sided Mann-Whitney U p-value comparing samples `a` and `b`.
 
@@ -135,9 +138,9 @@ def _mwu_p(a: list[int], b: list[int]) -> float:
     return erfc(max(0.0, (d - 0.5) / sigma) / sqrt(2))
 
 
-def build(runs: list[dict]) -> list[str]:
+def build(runs: List[Run]) -> List[str]:
     """Return the markdown lines for the significance table."""
-    cases: dict = {}
+    cases: Dict[Tuple[str, str], Dict[str, MetricSamples]] = {}
     for run in runs:
         for (test, params, fork), mv in run.items():
             per_fork = cases.setdefault((test, params), {})
@@ -246,7 +249,7 @@ def _inline(text: str) -> str:
     return "".join(out)
 
 
-def _table_html(block: list[str]) -> str:
+def _table_html(block: List[str]) -> str:
     """Render a markdown table (list of `|`-rows) as an HTML table."""
     rows = [
         [c.strip() for c in r.strip().strip("|").split("|")] for r in block
@@ -289,19 +292,7 @@ def md_to_html(md: str) -> str:
     return HTML_TEMPLATE.replace("__BODY__", "\n".join(blocks))
 
 
-def _take_opt(argv: list[str], name: str) -> str | None:
-    """Pop `--name VALUE` out of argv, returning VALUE (or None)."""
-    if name not in argv:
-        return None
-    idx = argv.index(name)
-    if idx + 1 >= len(argv):
-        sys.exit(f"{name} requires a value")
-    value = argv[idx + 1]
-    del argv[idx : idx + 2]
-    return value
-
-
-def _provenance(now: str, shas: list[str | None]) -> str:
+def _provenance(now: str, shas: List[Optional[str]]) -> str:
     """Markdown header: descriptions link, cycle time, and repo shas."""
     repos = [
         "execution-specs",
@@ -324,38 +315,90 @@ def _provenance(now: str, shas: list[str | None]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
-    """Parse the run dirs and write the markdown/HTML report."""
-    argv = list(sys.argv[1:])
-    md_path = _take_opt(argv, "--md")
-    html_path = _take_opt(argv, "--html")
-    now = _take_opt(argv, "--now")
-    shas = [
-        _take_opt(argv, "--repo"),
-        _take_opt(argv, "--harness"),
-        _take_opt(argv, "--monad-bft"),
-        _take_opt(argv, "--monad"),
-    ]
-    dirs = argv or sorted(
-        glob.glob("../timing_[0-9]*"),
-        key=lambda p: int(p.rsplit("_", 1)[-1]),
-    )
-    runs = [
-        parse(Path(d) / "timing_consume.csv")
-        for d in dirs
-        if (Path(d) / "timing_consume.csv").exists()
-    ]
+def report(
+    run_dirs: Tuple[Path, ...],
+    now: Optional[str] = None,
+    shas: Optional[List[Optional[str]]] = None,
+) -> str:
+    """
+    Render the significance table for the given run directories.
+
+    Raises `click.ClickException` if fewer than two of them hold a
+    `timing_consume.csv`, since a comparison needs at least two samples
+    per fork.
+    """
+    reports = [Path(d) / "timing_consume.csv" for d in run_dirs]
+    missing = [str(p.parent) for p in reports if not p.exists()]
+    runs = [parse(p) for p in reports if p.exists()]
+    if missing:
+        click.echo(
+            f"skipping {len(missing)} run dir(s) without a "
+            f"timing_consume.csv: {', '.join(missing)}",
+            err=True,
+        )
     if len(runs) < 2:
-        sys.exit("need >=2 runs with timing_consume.csv")
+        raise click.ClickException(
+            f"need >=2 runs with timing_consume.csv, found {len(runs)}"
+        )
     md = "\n".join(build(runs))
     if now:
-        md = f"{_provenance(now, shas)}\n\n{md}"
+        md = f"{_provenance(now, shas or [None] * 4)}\n\n{md}"
+    return md
+
+
+@click.command()
+@click.argument(
+    "run_dirs",
+    nargs=-1,
+    required=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option(
+    "--md",
+    "md_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write the Markdown report here instead of stdout.",
+)
+@click.option(
+    "--html",
+    "html_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Also write a standalone HTML rendering here.",
+)
+@click.option(
+    "--now",
+    default=None,
+    help="Cycle timestamp; prefixes the report with a provenance header.",
+)
+@click.option("--repo", default=None, help="execution-specs sha.")
+@click.option("--harness", default=None, help="monad-eest-rust-harness sha.")
+@click.option("--monad-bft", default=None, help="monad-bft sha.")
+@click.option("--monad", default=None, help="monad-execution sha.")
+def main(
+    run_dirs: Tuple[Path, ...],
+    md_path: Optional[Path],
+    html_path: Optional[Path],
+    now: Optional[str],
+    repo: Optional[str],
+    harness: Optional[str],
+    monad_bft: Optional[str],
+    monad: Optional[str],
+) -> None:
+    """
+    Build a NINE-vs-TEN significance table from perf timing runs.
+
+    Each RUN_DIRS argument is one `consume direct --timing-report` output
+    directory holding a `timing_consume.csv`.
+    """
+    md = report(run_dirs, now, [repo, harness, monad_bft, monad])
     if html_path:
-        Path(html_path).write_text(md_to_html(md), encoding="utf-8")
+        html_path.write_text(md_to_html(md), encoding="utf-8")
     if md_path:
-        Path(md_path).write_text(md + "\n", encoding="utf-8")
+        md_path.write_text(md + "\n", encoding="utf-8")
     else:
-        print(md)
+        click.echo(md)
 
 
 if __name__ == "__main__":
