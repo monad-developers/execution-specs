@@ -71,9 +71,10 @@ uv run consume direct --input ../fixtures_eestnet \
 
 ## MIP-8 perf-regression tests
 
-`tests/monad_ten/mip8_pageified_storage/test_perf_regression.py` fills
-SLOAD/SSTORE workloads at both forks and times block execution on the
-runloop to compare MONAD_NINE (slot-encoded) vs MONAD_TEN (page-encoded).
+`tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py`
+fills SLOAD/SSTORE workloads at both forks and times block execution on
+the runloop to compare MONAD_NINE (slot-encoded) vs MONAD_TEN
+(page-encoded).
 
 ### Setup
 
@@ -102,10 +103,11 @@ cycle time and the four repo SHAs). Knobs:
 - `TAG` (required) names every artifact; use a fresh one per experiment.
 - `RUNS` consume passes (default 12), `REPEATS` page-disjoint copies per
   fixture (cold samples reduced to a `min` within each pass).
-- `MIP8_PERF_BLOCK_GAS=N` overrides the block gas target; perf_cycle.sh
-  fills full 200M blocks by default (the test default, used by release
-  fills, is a small block). `SKIP_FILL=1` reuses an existing
-  `../fixtures_${TAG}`.
+- `BLOCK_GAS_M=N` sets the block gas budget in millions, passed through
+  as `--gas-benchmark-values`; the default 200 matches the gas the
+  runloop stamps. Fixtures land under `for_{fork}_at_0200M/`, so the
+  budget a fixture was built with is visible in its path.
+  `SKIP_FILL=1` reuses an existing `../fixtures_${TAG}`.
 
 Run on a quiet host; timings are noisy under contention.
 

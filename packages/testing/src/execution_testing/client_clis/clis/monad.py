@@ -473,19 +473,21 @@ class MonadFixtureConsumer(
             output = json.loads(output_path.read_text())
             self._block_timings = _parse_block_timings(stdout)
 
-        actual_post = {
-            address.lower(): account
-            for address, account in output["post_state"].items()
-        }
-        post_state = fixture.get("postState")
-        assert post_state is not None, (
-            "fixture has no postState (hash-only fixtures not supported)"
-        )
-
+        # The state root below is the authoritative check: it commits to
+        # the whole state, so any divergence changes it. `postState`, when
+        # the fixture carries it, only adds per-account detail to the
+        # failure message; fixtures that omit it (benchmark fixtures do,
+        # keeping them small) are verified by the root alone.
         mismatches = []
-        for address, expected in post_state.items():
-            actual = actual_post.get(address.lower())
-            mismatches.extend(_compare_account(address, expected, actual))
+        post_state = fixture.get("postState")
+        if post_state is not None:
+            actual_post = {
+                address.lower(): account
+                for address, account in output["post_state"].items()
+            }
+            for address, expected in post_state.items():
+                actual = actual_post.get(address.lower())
+                mismatches.extend(_compare_account(address, expected, actual))
 
         # Assert the final state root, the last executed block's root. Under
         # monad's synchronous execution it equals the fixture's last block

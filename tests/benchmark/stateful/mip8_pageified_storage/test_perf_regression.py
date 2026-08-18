@@ -10,10 +10,10 @@ gas budget). We do not assert gas — the oracle is post-state (success
 markers, written slots, and read-checksum slots), so the identical
 workload can be timed on both forks via the consume timing report.
 
-Each test fills a monad block with one SLOAD/SSTORE pattern. The block
-is small by default so fixture and monad-runloop release fills stay
-fast; perf_cycle.sh fills the full 200M-gas block to time execution
-(BLOCK_GAS_TARGET, set via MIP8_PERF_BLOCK_GAS).
+Each test fills a monad block with one SLOAD/SSTORE pattern, sized to the
+`gas_benchmark_value` the framework injects from
+`--gas-benchmark-values` (in millions). perf_cycle.sh passes 200, the gas
+the runloop stamps every monad block with.
 
 Single-letter test parameters:
 - `k`: page occupancy — non-zero slots pre-populated per page (0..128).
@@ -28,6 +28,19 @@ Workloads are sized to MONAD_NINE (its cold storage costs >= MONAD_TEN),
 so the same iteration count never out-of-gases on either fork; a
 post-fork block may therefore be gas-underfull while doing identical I/O
 work, which is exactly the effect being measured.
+
+That is also why these tests pass `skip_gas_used_validation`: the gas a
+block actually uses differs between the forks by construction, so no
+single `expected_benchmark_gas_used` can match both. The framework still
+enforces that a block stays within its budget, `_assert_tx_within_budget`
+checks the plan against it, and `_per_iter_gas` bounds its own estimate,
+so a block cannot quietly end up sized for less work than the budget.
+
+Benchmark fixtures omit the full post state, which keeps them small and
+quick to consume; the monad consumer then verifies each run against the
+block's state root, which commits to the whole state. The `post` argument
+still drives what the fill asserts, so the markers and checksums below
+remain the oracle at fill time.
 
 `MIP8_PERF_REPEATS` (default 1) emits that many copies of each workload
 as successive blocks, each offset to a disjoint page range so every block
@@ -47,8 +60,8 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    BenchmarkTestFiller,
     Block,
-    BlockchainTestFiller,
     Bytecode,
     Conditional,
     Environment,
@@ -60,8 +73,8 @@ from execution_testing import (
 from execution_testing.forks import MONAD_NINE, MONAD_TEN
 from execution_testing.forks.helpers import Fork
 
-from .helpers import fresh_sstore_cold
-from .spec import Spec, ref_spec_8
+from tests.monad_ten.mip8_pageified_storage.helpers import fresh_sstore_cold
+from tests.monad_ten.mip8_pageified_storage.spec import Spec, ref_spec_8
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
 REFERENCE_SPEC_VERSION = ref_spec_8.version
@@ -74,20 +87,14 @@ StorageDict = dict[
 
 SLOTS_PER_PAGE = Spec.SLOTS_PER_PAGE  # 128
 
-# The runloop stamps every monad block at 200M gas; the per-tx cap is
-# 30M on both forks. perf_cycle.sh fills at FULL_BLOCK_GAS to time real
-# blocks; the default is a small block that still exercises every
-# workload, keeping fixture/runloop release fills fast. Override with
-# MIP8_PERF_BLOCK_GAS.
-FULL_BLOCK_GAS = 200_000_000
-SMOKE_BLOCK_GAS = 10_000_000
-BLOCK_GAS_TARGET = int(
-    os.environ.get("MIP8_PERF_BLOCK_GAS", str(SMOKE_BLOCK_GAS))
-)
+# Every test takes its block gas budget from `gas_benchmark_value`, set
+# by `--gas-benchmark-values` (in millions). The runloop stamps every
+# monad block at 200M gas, so `--gas-benchmark-values 200` is the setting
+# that times real blocks; smaller values shrink the same workloads.
 TX_GAS_CAP = 30_000_000
 # Fixed tx count per block, sized so a full 200M block splits into 7
-# equal txs of ~28.57M each (near the 30M per-tx cap). A smaller
-# BLOCK_GAS_TARGET keeps the 7 txs and shrinks each one's work.
+# equal txs of ~28.57M each (near the 30M per-tx cap). A smaller budget
+# keeps the 7 txs and shrinks each one's work.
 FULL_BLOCK_TXS = 7
 # Workload txs are EIP-1559 with a high max fee and a zero priority tip.
 # The high max fee keeps them valid as each full block raises the base
@@ -95,7 +102,7 @@ FULL_BLOCK_TXS = 7
 MAX_FEE_PER_GAS = 10**6
 # `many_small` block shape: many txs, each still large enough to cover the
 # per-tx reserve. The count adapts to the block budget (300 at the full
-# 200M) so a smaller BLOCK_GAS_TARGET does not starve individual txs.
+# 200M) so a smaller budget does not starve individual txs.
 MANY_SMALL_TXS = 300
 MANY_SMALL_MIN_TX_GAS = 200_000
 
@@ -108,9 +115,14 @@ REPEATS = int(os.environ.get("MIP8_PERF_REPEATS", "1"))
 # the whole fixture's genesis).
 PRE_SLOT_CAP = 65_536
 
-# Gas of one While control step (JUMPDEST + JUMPI + counter compare);
-# a small over-estimate keeps sizing on the safe side (no OOG).
+# Gas of one While control step (JUMPDEST + JUMPI + the jump back).
+# Deliberately above the real cost so sizing never over-commits a tx into
+# an OOG; `_while_control_gas` measures the real cost and
+# `_per_iter_gas` fails if this drifts out of MAX_CONTROL_SLACK of it.
+# Every gas of slack here is workload the block does not do, so the bound
+# is checked rather than trusted.
 WHILE_CONTROL_GAS = 40
+MAX_CONTROL_SLACK = 24
 # Per-tx headroom: intrinsic + calldata + two cold marker SSTOREs + slack.
 TX_RESERVE = 120_000
 
@@ -123,6 +135,15 @@ FRESH_DOMAIN = 1 << 52  # page-index base for fresh-write pages
 WARM_BASE = 1 << 70  # per-repeat slot re-read by sload_warm_repeat
 MARKER_BASE = 1 << 200  # per-tx success marker slot = MARKER_BASE + global_idx
 CKSUM_BASE = 1 << 220  # per-tx read-checksum slot = CKSUM_BASE + global_idx
+
+
+# Loop condition shared by every workload: iterate while the counter is
+# below the requested count. Shared so `_while_control_gas` measures the
+# same control overhead the workloads pay.
+def _loop_condition() -> Bytecode:
+    """Bytecode: counter < count."""
+    return Op.LT(Op.MLOAD(M_COUNTER), Op.MLOAD(M_COUNT))
+
 
 # Memory layout inside the workload contract.
 M_COUNTER = 0x00
@@ -194,8 +215,9 @@ def _senders(pre: Alloc, distinct: bool = True) -> Iterator[EOA]:
 
 @pytest.mark.valid_from("MONAD_NINE")
 def test_compute_loop(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
     fork: Fork,
 ) -> None:
     """
@@ -207,7 +229,7 @@ def test_compute_loop(
     the same on both forks and the marker is the only state written.
     """
     senders = _senders(pre)
-    budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
+    budget = gas_benchmark_value // FULL_BLOCK_TXS
 
     body = Op.POP(Op.ADD(Op.MUL(Op.NUMBER, Op.GAS), Op.CALLVALUE))
     contract_address = pre.deploy_contract(
@@ -230,7 +252,7 @@ def test_compute_loop(
         ),
     ]
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={
@@ -238,7 +260,9 @@ def test_compute_loop(
                 storage={slot_code_worked: value_code_worked}
             ),
         },
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )
 
 
@@ -386,7 +410,7 @@ def _contract(op: StorageOp, k: int) -> Bytecode:
     )
     loop = While(
         body=_body(op, k),
-        condition=Op.LT(Op.MLOAD(M_COUNTER), Op.MLOAD(M_COUNT)),
+        condition=_loop_condition(),
     )
     markers = Op.SSTORE(
         Op.ADD(MARKER_BASE, Op.MLOAD(M_GLOBAL)), value_code_worked
@@ -413,16 +437,58 @@ def _calldata(
     )
 
 
+def _while_control_gas(fork: Fork) -> int:
+    """
+    Gas the `While` wrapper adds around one body iteration.
+
+    Taken from the framework's own accounting rather than counted by hand,
+    so a change to how `While` is assembled surfaces as a failed bound in
+    `_per_iter_gas` instead of as quietly smaller workloads.
+    """
+    body = Op.MSTORE(M_COUNTER, Op.ADD(Op.MLOAD(M_COUNTER), 1))
+    condition = _loop_condition()
+    loop = While(body=body, condition=condition)
+    return loop.gas_cost(fork) - body.gas_cost(fork) - condition.gas_cost(fork)
+
+
 def _per_iter_gas(op: StorageOp, k: int) -> int:
     """Gas for one loop iteration, sized to the costlier of both forks."""
     body = _body(op, k)
     per_op = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_TEN))
+    control = max(
+        _while_control_gas(MONAD_NINE), _while_control_gas(MONAD_TEN)
+    )
+    assert control <= WHILE_CONTROL_GAS <= control + MAX_CONTROL_SLACK, (
+        f"WHILE_CONTROL_GAS is {WHILE_CONTROL_GAS} but a While control step "
+        f"actually costs {control}: below it every workload risks an OOG, "
+        f"more than {MAX_CONTROL_SLACK} above it and every block is sized "
+        "for measurably less work than its gas budget allows"
+    )
     return per_op + WHILE_CONTROL_GAS
 
 
 def _iterations(op: StorageOp, k: int, budget: int) -> int:
     """Loop iterations that fit `budget` gas, leaving tx headroom."""
     return max(1, (budget - TX_RESERVE) // _per_iter_gas(op, k))
+
+
+def _assert_tx_within_budget(per_iter: int, count: int, budget: int) -> None:
+    """
+    Fail if a workload transaction plans more gas than its budget.
+
+    Catches a `count` that was not derived from `budget` and a `TX_RESERVE`
+    that outgrew a small budget; either would put more gas in the block
+    than the runloop allows.
+
+    How tightly a gas-bound tx *fills* its budget is not checked here — it
+    follows from `_per_iter_gas`, whose estimate is bounded against the
+    framework's own accounting at the point it is built.
+    """
+    planned = count * per_iter + TX_RESERVE
+    assert planned <= budget, (
+        f"workload tx plans {planned} gas but its budget is {budget}; "
+        "the block would exceed the gas the runloop allows"
+    )
 
 
 def _occupied_prestate(domain: int, pages: int, k: int) -> StorageDict:
@@ -473,8 +539,9 @@ _PAGE_OP_PARAMS = [
 @pytest.mark.parametrize("op, k", _PAGE_OP_PARAMS)
 @pytest.mark.valid_from("MONAD_NINE")
 def test_page_ops(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
     op: StorageOp,
     k: int,
 ) -> None:
@@ -492,7 +559,7 @@ def test_page_ops(
     bound and run below 200M by design. With REPEATS > 1 each repeat block
     is offset to a fresh page range.
     """
-    budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
+    budget = gas_benchmark_value // FULL_BLOCK_TXS
     pages = _iterations(op, k, budget)
 
     per_tx_pages = op is StorageOp.SSTORE_CLEAR_EMPTY
@@ -505,6 +572,7 @@ def test_page_ops(
         pages = min(pages, PRE_SLOT_CAP // max(k, 1))
     elif per_tx_pages:
         pages = min(pages, PRE_SLOT_CAP // FULL_BLOCK_TXS)
+    _assert_tx_within_budget(_per_iter_gas(op, k), pages, budget)
 
     senders = _senders(pre)
 
@@ -587,11 +655,13 @@ def test_page_ops(
 
         blocks.append(Block(txs=txs))
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={contract: Account(storage=expected)},
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )
 
 
@@ -615,8 +685,9 @@ _SPREAD_PARAMS = [
 @pytest.mark.parametrize("m, n", _SPREAD_PARAMS)
 @pytest.mark.valid_from("MONAD_NINE")
 def test_page_spread(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
     m: int,
     n: int,
 ) -> None:
@@ -629,14 +700,23 @@ def test_page_spread(
     txs). Isolates the effect of write distribution across accounts. Each
     repeat block writes a fresh page range.
 
-    Work is sized by `m` and `n`, not by BLOCK_GAS_TARGET: a high fan-out
-    (n=512) already needs one tx per contract, so these blocks stay large
-    even under the smoke knob. The block gas limit is the full 200M
-    ceiling, which covers the largest spread case.
+    Work is sized by `m` and `n`, not by the gas budget, so a high fan-out
+    (n=512) stays large however small the budget is. The budget only has
+    to be large enough to hold the resulting block, which the sizing
+    check below enforces.
     """
     per_iter = _per_iter_gas(StorageOp.SSTORE_FRESH, 0)
     max_per_tx = max(1, (TX_GAS_CAP - TX_RESERVE) // per_iter)
     pages_per_contract = m // n
+
+    txs_per_contract = -(-pages_per_contract // max_per_tx)
+    planned = n * (
+        pages_per_contract * per_iter + txs_per_contract * TX_RESERVE
+    )
+    assert planned <= gas_benchmark_value, (
+        f"m={m} n={n} needs {planned} gas but the budget is "
+        f"{gas_benchmark_value}; raise --gas-benchmark-values or drop the case"
+    )
 
     senders = _senders(pre)
     contracts: List[Address] = [
@@ -674,14 +754,16 @@ def test_page_spread(
                 contract_storage[contract][slot] = 1
         blocks.append(Block(txs=txs))
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={
             contract: Account(storage=storage)
             for contract, storage in contract_storage.items()
         },
-        genesis_environment=Environment(gas_limit=FULL_BLOCK_GAS),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )
 
 
@@ -703,8 +785,9 @@ _SHAPE_PARAMS = [
 @pytest.mark.parametrize("op, k, shape, distinct_senders", _SHAPE_PARAMS)
 @pytest.mark.valid_from("MONAD_NINE")
 def test_block_shape(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
     op: StorageOp,
     k: int,
     shape: str,
@@ -727,14 +810,15 @@ def test_block_shape(
     else:
         num_txs = min(
             MANY_SMALL_TXS,
-            max(1, BLOCK_GAS_TARGET // MANY_SMALL_MIN_TX_GAS),
+            max(1, gas_benchmark_value // MANY_SMALL_MIN_TX_GAS),
         )
-    budget = min(TX_GAS_CAP, BLOCK_GAS_TARGET // num_txs)
+    budget = min(TX_GAS_CAP, gas_benchmark_value // num_txs)
     count = _iterations(op, k, budget)
 
     occupied = op is not StorageOp.SSTORE_FRESH
     if occupied:
         count = min(count, PRE_SLOT_CAP // max(k, 1))
+    _assert_tx_within_budget(_per_iter_gas(op, k), count, budget)
 
     senders = _senders(pre, distinct_senders)
     prestate: StorageDict = {}
@@ -771,19 +855,22 @@ def test_block_shape(
                 expected[(fresh_dom + j) << 7] = 1
         blocks.append(Block(txs=txs))
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={contract: Account(storage=expected)},
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )
 
 
 @pytest.mark.parametrize("mode", ["success", "halt", "mix"])
 @pytest.mark.valid_from("MONAD_NINE")
 def test_tx_halt(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
     mode: str,
 ) -> None:
     """
@@ -795,8 +882,11 @@ def test_tx_halt(
     strong post-state oracle for the mixed case. Each repeat block is
     offset to a fresh range.
     """
-    budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
+    budget = gas_benchmark_value // FULL_BLOCK_TXS
     count = _iterations(StorageOp.SSTORE_FRESH, 0, budget)
+    _assert_tx_within_budget(
+        _per_iter_gas(StorageOp.SSTORE_FRESH, 0), count, budget
+    )
 
     senders = _senders(pre)
     contract = pre.deploy_contract(_contract(StorageOp.SSTORE_FRESH, 0))
@@ -833,11 +923,13 @@ def test_tx_halt(
             global_idx += 1
         blocks.append(Block(txs=txs))
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={contract: Account(storage=expected)},
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )
 
 
@@ -853,8 +945,13 @@ CHAIN_REPEAT_STRIDE = 1 << 20  # >> ring length
 
 def _size_count(body: Bytecode, budget: int) -> int:
     """Loop iterations of `body` that fit `budget`, sized to both forks."""
-    per = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_TEN))
-    return max(1, (budget - TX_RESERVE) // (per + WHILE_CONTROL_GAS))
+    per_iter = (
+        max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_TEN))
+        + WHILE_CONTROL_GAS
+    )
+    count = max(1, (budget - TX_RESERVE) // per_iter)
+    _assert_tx_within_budget(per_iter, count, budget)
+    return count
 
 
 def _rand_sload_body(slots: int) -> Bytecode:
@@ -881,7 +978,7 @@ def _rand_sload_contract(slots: int) -> Bytecode:
     )
     loop = While(
         body=_rand_sload_body(slots),
-        condition=Op.LT(Op.MLOAD(M_COUNTER), Op.MLOAD(M_COUNT)),
+        condition=_loop_condition(),
     )
     tail = (
         Op.SSTORE(Op.ADD(MARKER_BASE, Op.MLOAD(M_GLOBAL)), value_code_worked)
@@ -903,8 +1000,9 @@ _RAND_PARAMS = [
 @pytest.mark.parametrize("slots, k", _RAND_PARAMS)
 @pytest.mark.valid_from("MONAD_NINE")
 def test_random_sload(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
     slots: int,
     k: int,
 ) -> None:
@@ -915,7 +1013,7 @@ def test_random_sload(
     small set means only the first pass is cold, so blocks are
     gas-underfull by design; each repeat uses a fresh page range.
     """
-    budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
+    budget = gas_benchmark_value // FULL_BLOCK_TXS
     count = _size_count(_rand_sload_body(slots), budget)
     code = _rand_sload_contract(slots)
     senders = _senders(pre)
@@ -965,18 +1063,21 @@ def test_random_sload(
             g += 1
         blocks.append(Block(txs=txs))
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={c: Account(storage=s) for c, s in post.items()},
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )
 
 
 @pytest.mark.valid_from("MONAD_NINE")
 def test_bad_block_serial(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
 ) -> None:
     """
     Adversarial block forcing serial execution: every tx SLOADs and
@@ -987,7 +1088,7 @@ def test_bad_block_serial(
     Senders are distinct, so the storage conflict is the only thing
     serialising the block.
     """
-    budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
+    budget = gas_benchmark_value // FULL_BLOCK_TXS
     senders = _senders(pre)
 
     # Per-iteration body: increment the counter-th shared slot.
@@ -1005,7 +1106,7 @@ def test_bad_block_serial(
         + Op.MSTORE(M_COUNTER, 0)
         + While(
             body=body,
-            condition=Op.LT(Op.MLOAD(M_COUNTER), Op.MLOAD(M_COUNT)),
+            condition=_loop_condition(),
         )
         + Op.SSTORE(Op.ADD(MARKER_BASE, Op.MLOAD(M_GLOBAL)), value_code_worked)
         + Op.STOP
@@ -1034,18 +1135,21 @@ def test_bad_block_serial(
             expected[base + i] = FULL_BLOCK_TXS
         blocks.append(Block(txs=txs))
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={contract: Account(storage=expected)},
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )
 
 
 @pytest.mark.valid_from("MONAD_NINE")
 def test_bad_block_chained(
-    blockchain_test: BlockchainTestFiller,
+    benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
+    gas_benchmark_value: int,
 ) -> None:
     """
     Adversarial block with a data-dependent SLOAD chain: each SLOAD
@@ -1054,7 +1158,7 @@ def test_bad_block_chained(
     and each hop is a random disk position (pointer chase). Each repeat
     uses a fresh ring.
     """
-    budget = BLOCK_GAS_TARGET // FULL_BLOCK_TXS
+    budget = gas_benchmark_value // FULL_BLOCK_TXS
     senders = _senders(pre)
 
     # Per-iteration body: SLOAD current slot; its value is the next slot.
@@ -1072,7 +1176,7 @@ def test_bad_block_chained(
         + Op.MSTORE(M_CHAIN, Op.MLOAD(M_BASE))
         + While(
             body=body,
-            condition=Op.LT(Op.MLOAD(M_COUNTER), Op.MLOAD(M_COUNT)),
+            condition=_loop_condition(),
         )
         + Op.SSTORE(Op.ADD(MARKER_BASE, Op.MLOAD(M_GLOBAL)), value_code_worked)
         + Op.STOP
@@ -1109,9 +1213,11 @@ def test_bad_block_chained(
             g += 1
         blocks.append(Block(txs=txs))
 
-    blockchain_test(
+    benchmark_test(
         pre=pre,
         blocks=blocks,
         post={contract: Account(storage=expected)},
-        genesis_environment=Environment(gas_limit=BLOCK_GAS_TARGET),
+        env=Environment(gas_limit=gas_benchmark_value),
+        gas_benchmark_value=gas_benchmark_value,
+        skip_gas_used_validation=True,
     )

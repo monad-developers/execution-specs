@@ -8,12 +8,13 @@ TAG="${TAG:?set TAG (names all artifacts, e.g. TAG=v4)}"
 # together can reach significance (the table says so when it applies).
 RUNS="${RUNS:-12}"
 REPEATS="${REPEATS:-20}"
-# Perf runs time full 200M blocks; the test default is a small block.
-BLOCK_GAS="${MIP8_PERF_BLOCK_GAS:-200000000}"
+# Block gas budget in millions, as --gas-benchmark-values takes it. The
+# runloop stamps every monad block at 200M.
+BLOCK_GAS_M="${BLOCK_GAS_M:-200}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HARNESS="${HARNESS:-$REPO/../monad-eest-rust-harness}"
 BIN="${BIN:-$HARNESS/bin/eest-runner}"
-TEST="${TEST:-tests/monad_ten/mip8_pageified_storage/test_perf_regression.py}"
+TEST="${TEST:-tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py}"
 
 cd "$REPO" || exit 1
 EPOCH="$(date -u +%s)"
@@ -25,10 +26,11 @@ TABLE="${PREFIX}_table"
 [ -x "$BIN" ] || { echo "harness not executable: $BIN" >&2; exit 1; }
 
 if [ -z "${SKIP_FILL:-}" ]; then
-  echo "=== fill $FIX (REPEATS=$REPEATS, BLOCK_GAS=$BLOCK_GAS) $NOW ==="
-  MIP8_PERF_REPEATS="$REPEATS" MIP8_PERF_BLOCK_GAS="$BLOCK_GAS" \
+  echo "=== fill $FIX (REPEATS=$REPEATS, ${BLOCK_GAS_M}M blocks) $NOW ==="
+  MIP8_PERF_REPEATS="$REPEATS" \
       uv run fill -m blockchain_test "$TEST" \
       --from MONAD_NINE --until MONAD_TEN --chain-id 30143 --monad-runloop \
+      --gas-benchmark-values "$BLOCK_GAS_M" \
       --output "$FIX" -n auto || {
     echo "fill failed (a non-empty $FIX aborts fill); rerun with" \
          "SKIP_FILL=1 to reuse it, or delete it to refill" >&2

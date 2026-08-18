@@ -1,10 +1,10 @@
 # MIP-8 perf-regression tests: block diagrams
 
 What each test case in
-`tests/monad_ten/mip8_pageified_storage/test_perf_regression.py` actually
-does at the SLOAD/SSTORE level inside one block. Numbers (pages per tx,
-per-iteration gas) are computed with the module's own sizing helpers at
-`BLOCK_GAS_TARGET = 200M`, `REPEATS = 1`.
+`tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py`
+actually does at the SLOAD/SSTORE level inside one block. Numbers (pages
+per tx, per-iteration gas) are computed with the module's own sizing
+helpers at `--gas-benchmark-values 200`, `REPEATS = 1`.
 
 ## Legend and shared machinery
 
