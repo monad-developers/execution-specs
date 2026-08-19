@@ -1805,12 +1805,6 @@ class MONAD_TEN(MONAD_NINE):  # noqa: N801
         return gas_cost
 
 
-class MONAD_NEXT(MONAD_TEN):  # noqa: N801
-    """MONAD_NEXT fork, a placeholder identical to MONAD_TEN."""
-
-    pass
-
-
 class BPO1(
     Osaka,
     bpo_fork=True,
@@ -1904,3 +1898,20 @@ class Amsterdam(
         limit.
         """
         return True
+
+
+class MONAD_NEXT(  # noqa: N801
+    eips.EIP7997,
+    MONAD_TEN,
+    follows=Amsterdam,
+):
+    """
+    MONAD_NEXT fork.
+
+    Amsterdam-based successor to MONAD_TEN, adopting the EIP-7997
+    changes. The Amsterdam changes it does not adopt stay out of the
+    fork by not being inherited at all; the fork order still places
+    MONAD_NEXT after Amsterdam through `follows`.
+    """
+
+    pass

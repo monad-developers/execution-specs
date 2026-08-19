@@ -30,6 +30,7 @@ from execution_testing import (
     compute_create2_address,
     keccak256,
 )
+from execution_testing.forks import MONAD_EIGHT
 
 from ...prague.eip7702_set_code_tx.spec import Spec as Spec7702
 from .spec import Spec, ref_spec_7997
@@ -538,6 +539,7 @@ def test_factory_receives_balance_via_selfdestruct(
 def test_factory_via_eip7702_delegation(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """
     An EOA delegates its code to the factory via an EIP-7702
@@ -548,6 +550,10 @@ def test_factory_via_eip7702_delegation(
     """
     auth_signer = pre.fund_eoa()
     auth_signer_nonce = auth_signer.nonce
+
+    # Monad forbids the `CREATE2` of a delegated account's context, so
+    # the factory reverts there instead of deploying.
+    factory_reverts = fork >= MONAD_EIGHT
 
     salt = 0x42
     runtime_code = Op.PUSH1(0x01) + Op.PUSH1(0x00) + Op.RETURN
@@ -586,10 +592,12 @@ def test_factory_via_eip7702_delegation(
         ),
         post={
             auth_signer: Account(
-                nonce=auth_signer_nonce + 2,
+                nonce=auth_signer_nonce + (1 if factory_reverts else 2),
                 code=Spec7702.delegation_designation(Address(FACTORY)),
             ),
-            expected_address: Account(nonce=1, code=bytes(runtime_code)),
+            expected_address: Account.NONEXISTENT
+            if factory_reverts
+            else Account(nonce=1, code=bytes(runtime_code)),
             FACTORY: Account(
                 nonce=1,
                 balance=0,
