@@ -24,7 +24,6 @@ from ...state_tracker import (
     increment_nonce,
     is_account_alive,
     move_ether,
-    set_account_balance,
 )
 from ...utils.address import (
     compute_contract_address,
@@ -587,9 +586,6 @@ def selfdestruct(evm: Evm) -> None:
     # register account for deletion only if it was created
     # in the same transaction
     if originator in evm.message.tx_env.state.created_accounts:
-        # If beneficiary is the same as originator, then
-        # the ether is burnt.
-        set_account_balance(evm.message.tx_env.state, originator, U256(0))
         evm.accounts_to_delete.add(originator)
 
     # HALT the execution
