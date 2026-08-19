@@ -218,7 +218,6 @@ def test_compute_loop(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
     gas_benchmark_value: int,
-    fork: Fork,
 ) -> None:
     """
     Run a gas-bounded arithmetic loop, then write a success marker.
@@ -227,13 +226,24 @@ def test_compute_loop(
     budget is nearly spent, reserving just enough for the trailing
     SSTORE. Pure stack arithmetic touches no storage, so the loop costs
     the same on both forks and the marker is the only state written.
+
+    This is the suite's control, so the contract is built from a fixed
+    fork rather than the one under test: sizing the loop against the
+    running fork would emit different bytecode either side of MIP-8, and
+    a control has to run the same code. MONAD_NINE prices the trailing
+    cold SSTORE at least as high as MONAD_TEN, so its reserve is safe on
+    both.
     """
     senders = _senders(pre)
     budget = gas_benchmark_value // FULL_BLOCK_TXS
 
     body = Op.POP(Op.ADD(Op.MUL(Op.NUMBER, Op.GAS), Op.CALLVALUE))
     contract_address = pre.deploy_contract(
-        WhileGas(body=body, fork=fork, extra_gas=fresh_sstore_cold(fork))
+        WhileGas(
+            body=body,
+            fork=MONAD_NINE,
+            extra_gas=fresh_sstore_cold(MONAD_NINE),
+        )
         + Op.SSTORE(slot_code_worked, value_code_worked)
     )
 
