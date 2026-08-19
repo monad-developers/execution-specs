@@ -55,6 +55,7 @@ def test_duration_suffix(suffix: str) -> None:
             "block": 1,
             "tx_count": 7,
             "gas": 10_000_000,
+            "retries": 0,
             "tx_exec_us": 6991,
             "state_root_us": 5745,
             "commit_us": 169,
