@@ -333,12 +333,23 @@ class BaseForkMeta(ABCMeta):
     @staticmethod
     def _is_subclass_of(a: "BaseForkMeta", b: "BaseForkMeta") -> bool:
         """
-        Check if `a` is a subclass of `b`, taking fork transitions into
-        account.
+        Check if `a` is a subclass of `b`, taking fork transitions and
+        declared succession into account.
+
+        A fork can follow another fork it does not inherit from, which
+        places it after that fork (and after everything that fork comes
+        after) in the fork order without adopting its behavior.
         """
         a = BaseForkMeta._maybe_transitioned(a)
         b = BaseForkMeta._maybe_transitioned(b)
-        return issubclass(a, b)
+        if issubclass(a, b):
+            return True
+        followed = getattr(a, "_follows", None)
+        while followed is not None:
+            if issubclass(followed, b):
+                return True
+            followed = followed._follows
+        return False
 
     def __gt__(cls, other: "BaseForkMeta") -> bool:
         """Compare if a fork is newer than some other fork (cls > other)."""
@@ -381,6 +392,7 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
     _fork_by_timestamp: ClassVar[bool] = False
     _blob_constants: ClassVar[Dict[str, int]] = {}
     _deployed: ClassVar[bool] = True
+    _follows: ClassVar[Optional[Type["BaseFork"]]] = None
     _enabled_eips: ClassVar[Set[int]] = set()
     _enabling_forks: ClassVar[Set[Type["BaseFork"]]] = set()
 
@@ -396,6 +408,7 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         transition_tool_name: Optional[str] = None,
         ignore: bool = False,
         bpo_fork: bool = False,
+        follows: Optional[Type["BaseFork"]] = None,
         ruleset_name: Optional[str] = None,
         fork_by_timestamp: Optional[bool] = None,
         deployed: Optional[bool] = None,
@@ -410,6 +423,7 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         forks.
         """
         cls._transition_tool_name = transition_tool_name
+        cls._follows = follows
         cls._ignore = ignore
         cls._bpo_fork = bpo_fork
         cls._ruleset_name = ruleset_name
