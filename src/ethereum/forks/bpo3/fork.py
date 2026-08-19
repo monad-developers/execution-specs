@@ -28,12 +28,8 @@ from ethereum.exceptions import (
     NonceMismatchError,
 )
 from ethereum.merkle_patricia_trie import root, trie_set
-from ethereum.state import (
-    EMPTY_CODE_HASH,
-    Address,
-    State,
-    apply_changes_to_state,
-)
+from ethereum.state import EMPTY_CODE_HASH, Address
+from ethereum.state_mpt import State, apply_changes_to_state
 
 from . import vm
 from .blocks import Block, Header, Log, Receipt, Withdrawal, encode_receipt
@@ -46,8 +42,8 @@ from .exceptions import (
     InsufficientMaxFeePerGasError,
     InvalidBlobVersionedHashError,
     NoBlobDataError,
-    PriorityFeeGreaterThanMaxFeeError,
     TransactionTypeContractCreationError,
+    WrongChainIdError,
 )
 from .fork_types import Authorization, VersionedHash
 from .requests import (
@@ -71,10 +67,11 @@ from .state_tracker import (
 )
 from .transactions import (
     BlobTransaction,
-    FeeMarketTransaction,
+    FeeMarketCapableTransaction,
     LegacyTransaction,
     SetCodeTransaction,
     Transaction,
+    chain_id,
     decode_transaction,
     encode_transaction,
     get_transaction_hash,
@@ -251,9 +248,7 @@ def state_transition(chain: BlockChain, block: Block) -> None:
         withdrawals=block.withdrawals,
     )
     block_diff = extract_block_diff(block_state)
-    block_state_root, _ = chain.state.compute_state_root_and_trie_changes(
-        block_diff.account_changes, block_diff.storage_changes
-    )
+    block_state_root = chain.state.compute_state_root(block_diff)
     transactions_root = root(block_output.transactions_trie)
     receipt_root = root(block_output.receipts_trie)
     block_logs_bloom = logs_bloom(block_output.block_logs)
@@ -450,8 +445,6 @@ def check_transaction(
         If the sender's balance is not enough to pay for the transaction.
     InvalidSenderError :
         If the transaction is from an address that does not exist anymore.
-    PriorityFeeGreaterThanMaxFeeError :
-        If the priority fee is greater than the maximum fee per gas.
     InsufficientMaxFeePerGasError :
         If the maximum fee per gas is insufficient for the transaction.
     InsufficientMaxFeePerBlobGasError :
@@ -483,16 +476,17 @@ def check_transaction(
     if tx_blob_gas_used > blob_gas_available:
         raise BlobGasLimitExceededError("blob gas limit exceeded")
 
-    sender_address = recover_sender(block_env.chain_id, tx)
+    tx_chain_id = chain_id(tx)
+    if tx_chain_id is not None and tx_chain_id != block_env.chain_id:
+        raise WrongChainIdError(
+            expected=block_env.chain_id,
+            actual=tx_chain_id,
+        )
+
+    sender_address = recover_sender(tx)
     sender_account = get_account(tx_state, sender_address)
 
-    if isinstance(
-        tx, (FeeMarketTransaction, BlobTransaction, SetCodeTransaction)
-    ):
-        if tx.max_fee_per_gas < tx.max_priority_fee_per_gas:
-            raise PriorityFeeGreaterThanMaxFeeError(
-                "priority fee greater than max fee"
-            )
+    if isinstance(tx, FeeMarketCapableTransaction):
         if tx.max_fee_per_gas < block_env.base_fee_per_gas:
             raise InsufficientMaxFeePerGasError(
                 tx.max_fee_per_gas, block_env.base_fee_per_gas
@@ -872,7 +866,7 @@ def process_transaction(
         encode_transaction(tx),
     )
 
-    intrinsic_gas, calldata_floor_gas_cost = validate_transaction(tx)
+    intrinsic = validate_transaction(tx)
 
     (
         sender,
@@ -895,7 +889,7 @@ def process_transaction(
 
     effective_gas_fee = tx.gas * effective_gas_price
 
-    gas = tx.gas - intrinsic_gas
+    gas = tx.gas - intrinsic.regular
     increment_nonce(tx_state, sender)
 
     sender_balance_after_gas_fee = (
@@ -944,7 +938,7 @@ def process_transaction(
     # Transactions with less execution_gas_used than the floor pay at the
     # floor cost.
     tx_gas_used_after_refund = max(
-        tx_gas_used_after_refund, calldata_floor_gas_cost
+        tx_gas_used_after_refund, intrinsic.calldata_floor
     )
 
     tx_gas_left = tx.gas - tx_gas_used_after_refund
@@ -1001,7 +995,7 @@ def process_withdrawals(
             rlp.encode(wd),
         )
 
-        create_ether(wd_state, wd.address, wd.amount * U256(10**9))
+        create_ether(wd_state, wd.address, U256(wd.amount) * U256(10**9))
 
     incorporate_tx_into_block(wd_state)
 

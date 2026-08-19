@@ -10,8 +10,28 @@ list:
 root := justfile_directory()
 output_dir := root / ".just"
 xdist_workers := env("PYTEST_XDIST_AUTO_NUM_WORKERS", "6")
+
+# The env var's job ends with the `-n` value above; export it empty so
+# pytest-xdist, which reads it as a numeric worker-count override in
+# `-n auto` mode, does not warn on non-numeric values such as "auto".
+export PYTEST_XDIST_AUTO_NUM_WORKERS := ""
 evm_bin := env("EVM_BIN", "evm")
 latest_fork := "Amsterdam"
+
+# Use the faster sys.monitoring coverage core (default on 3.14, opt-in below).
+export COVERAGE_CORE := "sysmon"
+
+# --- Helpers ---
+
+# Create a recipe's --basetemp scratch directory
+[private]
+_tmp name:
+    @mkdir -p "{{ output_dir }}/{{ name }}/tmp"
+
+# Create a recipe's --basetemp and --log-to directories
+[private]
+_tmp-logs name: (_tmp name)
+    @mkdir -p "{{ output_dir }}/{{ name }}/logs"
 
 # --- Static Analysis ---
 
@@ -24,6 +44,20 @@ fix:
 # Run all static checks (spellcheck, lint, format, mypy, ...)
 [group('static analysis'), parallel]
 static: typecheck lint-spec spellcheck deadcode lint-actions lock-check format-check lint
+
+# Ensure the spec package never imports the testing package
+[group('static analysis')]
+check-testing-imports:
+    #!/usr/bin/env bash
+    # A module-level import walk cannot catch function-scoped imports,
+    # so reject any reference, wherever it appears. `-I` skips binary
+    # files, such as stale bytecode caches.
+    if grep -rn -I --exclude-dir=__pycache__ "execution_testing" src/; then
+        echo ""
+        echo "src/ must not reference the execution_testing package."
+        echo "The spec wheel must install and run without it."
+        exit 1
+    fi
 
 # Check spelling
 [group('static analysis')]
@@ -44,7 +78,7 @@ spellcheck:
 # Add a word to the spellcheck whitelist
 [group('static analysis')]
 whitelist *words:
-    uv run whitelist "$@"
+    uv run python -m ethereum_spec_tools.whitelist "$@"
 
 # Lint with ruff
 [group('static analysis')]
@@ -54,17 +88,20 @@ lint *args:
 # Check for dead code with vulture
 [group('static analysis')]
 deadcode:
-    uv run vulture src/ vulture_whitelist.py
+    uv run vulture \
+        src/ \
+        packages/testing/src/execution_testing/evm_tools/ \
+        vulture_whitelist.py
 
 # Check formatting with ruff
 [group('static analysis')]
 format-check *args:
     uv run ruff format --check "$@"
 
-# Run type checking with mypy
+# Run type checking with mypy (installs the optimized dependency group)
 [group('static analysis')]
 typecheck *args:
-    uv run mypy "$@"
+    uv run --group optimized mypy "$@"
 
 # Check EELS import isolation
 [group('static analysis')]
@@ -103,8 +140,7 @@ checklist *args:
 
 # Fill the consensus tests using EELS (with Python)
 [group('consensus tests')]
-fill *args:
-    @mkdir -p "{{ output_dir }}/fill/tmp" "{{ output_dir }}/fill/logs"
+fill *args: (_tmp-logs "fill")
     uv run fill \
         -m "not slow" \
         -n {{ xdist_workers }} --dist=loadgroup \
@@ -124,13 +160,24 @@ fill *args:
         "$@" \
         tests
 
+# Callers append the feature params, fork range and output; last flag wins.
+# Fill fixtures with the flags shared by all fixture releases
+[group('consensus tests')]
+fill-release *args:
+    uv run fill \
+        -n {{ xdist_workers }} \
+        --output="{{ output_dir }}/fill-release/fixtures" \
+        --no-html \
+        --durations=100 \
+        --log-level=DEBUG \
+        "$@"
+
 # --- Integration Tests ---
 
 # Fill the base coverage consensus tests using EELS with PyPy
 [group('integration tests')]
-fill-pypy *args:
-    @mkdir -p "{{ output_dir }}/fill-pypy/tmp" "{{ output_dir }}/fill-pypy/logs"
-    uv run --python pypy3.11 fill \
+fill-pypy *args: (_tmp-logs "fill-pypy")
+    uv run --python pypy3.11 --no-dev --group test fill \
         --skip-index \
         --output="{{ output_dir }}/fill-pypy/fixtures" \
         --no-html \
@@ -138,7 +185,7 @@ fill-pypy *args:
         -ra \
         --show-capture=no \
         --disable-warnings \
-        -m "eels_base_coverage and not derived_test" \
+        -m "eels_base_coverage and primary_format" \
         -n auto --maxprocesses 7 \
         --dist=loadgroup \
         --basetemp="{{ output_dir }}/fill-pypy/tmp" \
@@ -151,10 +198,9 @@ fill-pypy *args:
 
 # Fill the base coverage consensus tests and run EELS against the fixtures
 [group('integration tests')]
-json-loader *args:
-    @mkdir -p "{{ output_dir }}/json-loader/tmp"
+json-loader *args: (_tmp "json-loader")
     uv run fill \
-        -m "eels_base_coverage and not derived_test" \
+        -m "eels_base_coverage and primary_format" \
         --until "{{ latest_fork }}" \
         -n {{ xdist_workers }} --dist=loadgroup \
         --skip-index \
@@ -163,92 +209,188 @@ json-loader *args:
         --output="tests/json_loader/fixtures" \
         --cov-config=pyproject.toml \
         --cov=ethereum \
+        --cov-branch \
+        --cov-report=term \
+        --durations=50 \
         --cov-fail-under=85
     uv run pytest \
         -m "not slow" \
-        -n auto --maxprocesses 6 --dist=loadfile \
+        -n {{ xdist_workers }} --dist=loadfile \
+        --cov-config=pyproject.toml \
+        --cov=ethereum \
+        --cov-branch \
+        --cov-report=term \
+        --cov-report "xml:{{ output_dir }}/json-loader/coverage.xml" \
+        --durations=50 \
         --basetemp="{{ output_dir }}/json-loader/tmp" \
         "$@" \
         tests/json_loader
+
+# Run the spec-tools tests (lint and new-fork tooling)
+[group('integration tests')]
+spec-tools *args: (_tmp "spec-tools")
+    uv run pytest \
+        -n {{ xdist_workers }} \
+        --basetemp="{{ output_dir }}/spec-tools/tmp" \
+        "$@" \
+        tests/spec_tools
 
 # --- Unit Tests ---
 
 # Run the testing package unit tests (with Python)
 [group('unit tests')]
-test-tests *args:
-    @mkdir -p "{{ output_dir }}/test-tests/tmp"
+test-tests *args: (_tmp "test-tests")
     cd packages/testing && uv run pytest \
         -n {{ xdist_workers }} \
         --basetemp="{{ output_dir }}/test-tests/tmp" \
-        --ignore=src/execution_testing/cli/pytest_commands/plugins/filler/tests/test_benchmarking.py \
         "$@" \
         src
 
 # Run the testing package unit tests (with PyPy)
 [group('unit tests')]
-test-tests-pypy *args:
-    @mkdir -p "{{ output_dir }}/test-tests-pypy/tmp"
-    cd packages/testing && uv run --python pypy3.11 pytest \
+test-tests-pypy *args: (_tmp "test-tests-pypy")
+    cd packages/testing && uv run --python pypy3.11 --no-dev --group test pytest \
         -n auto --maxprocesses 6 \
         --basetemp="{{ output_dir }}/test-tests-pypy/tmp" \
         --ignore=src/execution_testing/cli/pytest_commands/plugins/filler/tests/test_benchmarking.py \
         "$@" \
         src
 
-# Run benchmark framework unit tests (with Python)
-[group('unit tests')]
-[group('benchmark tests')]
-test-tests-bench *args:
-    @mkdir -p "{{ output_dir }}/test-tests-bench/tmp"
-    uv run pytest \
-        --basetemp="{{ output_dir }}/test-tests-bench/tmp" \
-        "$@" \
-        packages/testing/src/execution_testing/cli/pytest_commands/plugins/filler/tests/test_benchmarking.py
-
 # Run CI release script integration tests
 [group('unit tests')]
 test-ci-scripts *args:
     uv run pytest "$@" .github/scripts/tests/
 
+# --- Packaging ---
+
+# Build every workspace wheel into .just/dist
+[group('packaging')]
+build-wheels:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Build every workspace member, so a dependency on a sibling
+    # package resolves against the wheel built here rather than
+    # against an index. Start from an empty directory: stale wheels
+    # from an earlier version would also match the install globs.
+    rm -rf "{{ output_dir }}/dist"
+    uv build --wheel --all-packages --out-dir "{{ output_dir }}/dist"
+
+# Smoke-test the built wheels: clean-venv install, real t8n run, spec-wheel-alone import check
+[group('packaging')]
+test-packaging: check-testing-imports build-wheels
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dist="{{ output_dir }}/dist"
+    work="{{ output_dir }}/test-packaging"
+    fixtures="packages/testing/src/execution_testing/evm_tools/tests/fixtures/t8n_build"
+    rm -rf "$work"
+
+    # Install into a bare venv, deliberately outside the uv workspace.
+    # Both wheels are passed by explicit path: resolving either
+    # through an index could silently substitute a published PyPI
+    # version for the branch's own build.
+    echo "--> Installing the wheels into a clean environment"
+    uv venv "$work/wheel-venv"
+    uv pip install --python "$work/wheel-venv/bin/python" \
+        "$dist"/ethereum_execution_testing-*.whl \
+        "$dist"/ethereum_execution-*.whl
+
+    # Run a real transition rather than `--help`, which returns inside
+    # argparse without ever reaching the imports that t8n needs. The
+    # output basedir is emptied before the run, so keep it out of the
+    # source tree.
+    echo "--> Smoke-testing ethereum-spec-evm t8n"
+    mkdir -p "$work/t8n-out"
+    "$work/wheel-venv/bin/ethereum-spec-evm" t8n \
+        --state.fork=Frontier \
+        --input.alloc="$fixtures/alloc.json" \
+        --input.env="$fixtures/env.json" \
+        --input.txs="$fixtures/txs.json" \
+        --output.basedir="$work/t8n-out"
+    test -s "$work/t8n-out/result.json"
+
+    # Install the spec wheel on its own and import every shipped
+    # module: catches undeclared dependencies and modules missing
+    # from the packages list, which only fail outside the workspace.
+    echo "--> Import-checking the spec wheel alone"
+    uv venv "$work/spec-venv"
+    uv pip install --python "$work/spec-venv/bin/python" \
+        "$dist"/ethereum_execution-*.whl
+    "$work/spec-venv/bin/python" .github/scripts/import_check.py
+
 # --- Benchmarks ---
 
-# Fill benchmark tests with --gas-benchmark-values, then verify with EELS
+# test_return_revert is excluded: its max-size INVALID-padded callees make
+# EELS re-scan jumpdests on every call (100-270s per test, ~60% of the
+# suite's runtime); the geth-backed benchmarks/** CI still fills it.
+# Fill benchmark tests at 1M gas with the in-repo EELS t8n
 [group('benchmark tests')]
-bench-gas *args:
-    @mkdir -p "{{ output_dir }}/bench-gas/tmp" "{{ output_dir }}/bench-gas/logs"
-    @echo "==> Step 1/2: Filling benchmark fixtures with configured EVM (EVM_BIN={{ evm_bin }})"
+fill-benchmark *args: (_tmp-logs "fill-benchmark")
+    uv run fill \
+        --gas-benchmark-values 1 \
+        --fork "{{ latest_fork }}" \
+        -m "not slow and primary_format" \
+        -k "not test_return_revert" \
+        -n {{ xdist_workers }} --dist=loadgroup \
+        --skip-index \
+        --output="{{ output_dir }}/fill-benchmark/fixtures" \
+        --basetemp="{{ output_dir }}/fill-benchmark/tmp" \
+        --log-to "{{ output_dir }}/fill-benchmark/logs" \
+        --clean \
+        --durations=20 \
+        "$@" \
+        tests/benchmark/compute
+
+# Smoke-test benchmark tests: fill blockchain_test fixtures, then verify against EELS.
+[group('benchmark tests')]
+bench-gas *args: (_tmp-logs "bench-gas")
+    @echo "==> Step 1/3: Generating pre-alloc groups (smoke-tests the BlockchainEngineX path)"
+    uv run fill \
+        --generate-pre-alloc-groups \
+        --evm-bin="{{ evm_bin }}" \
+        --gas-benchmark-values 1 \
+        --fork Amsterdam \
+        -m "not slow" \
+        -n auto --maxprocesses 10 --dist=loadgroup \
+        --output="{{ output_dir }}/bench-gas/pre-alloc" \
+        --basetemp="{{ output_dir }}/bench-gas/tmp" \
+        --log-to "{{ output_dir }}/bench-gas/logs" \
+        --clean \
+        "$@" \
+        tests/benchmark/compute
+    @echo "==> Step 2/3: Filling blockchain_test fixtures with configured EVM (EVM_BIN={{ evm_bin }})"
     uv run fill \
         --evm-bin="{{ evm_bin }}" \
         --gas-benchmark-values 1 \
-        --generate-all-formats \
-        --fork Osaka \
-        -m "not slow" \
+        --fork Amsterdam \
+        -m "blockchain_test and primary_format and (not slow)" \
         -n auto --maxprocesses 10 --dist=loadgroup \
+        --durations=20 \
         --output="{{ output_dir }}/bench-gas/fixtures" \
         --basetemp="{{ output_dir }}/bench-gas/tmp" \
         --log-to "{{ output_dir }}/bench-gas/logs" \
         --clean \
         "$@" \
         tests/benchmark/compute
-    @echo "==> Step 2/2: Running filled fixtures against EELS via json_loader"
+    @echo "==> Step 3/3: Running filled fixtures against EELS via json_loader"
     @rm -rf tests/json_loader/bench_gas_fixtures
     ln -sfn "{{ output_dir }}/bench-gas/fixtures" tests/json_loader/bench_gas_fixtures
-    cd tests/json_loader && uv run --python pypy3.11 pytest \
-        --fork Osaka \
+    cd tests/json_loader && uv run --python pypy3.11 --no-dev --group test pytest \
+        --fork Amsterdam \
         --allow-post-state-hash \
         -n auto --maxprocesses 10 --dist=loadfile \
+        --durations=20 \
         --basetemp="{{ output_dir }}/bench-gas/json-loader-tmp" \
         bench_gas_fixtures
 
 # Fill benchmark tests with --fixed-opcode-count 1
 [group('benchmark tests')]
-bench-opcode *args:
-    @mkdir -p "{{ output_dir }}/bench-opcode/tmp" "{{ output_dir }}/bench-opcode/logs"
+bench-opcode *args: (_tmp-logs "bench-opcode")
     uv run fill \
         --evm-bin="{{ evm_bin }}" \
         --fixed-opcode-count 1 \
-        --fork Osaka \
-        -m repricing \
+        --fork Amsterdam \
+        -m "repricing and not slow" \
         -n auto --maxprocesses 10 --dist=loadgroup \
         -k "not test_alt_bn128 and not test_bls12_381 and not test_modexp and not uncachable" \
         --output="{{ output_dir }}/bench-opcode/fixtures" \
@@ -260,16 +402,15 @@ bench-opcode *args:
 
 # Run benchmark_parser, then fill benchmark tests using its config
 [group('benchmark tests')]
-bench-opcode-config *args:
-    @mkdir -p "{{ output_dir }}/bench-opcode-config/tmp" "{{ output_dir }}/bench-opcode-config/logs"
+bench-opcode-config *args: (_tmp-logs "bench-opcode-config")
     uv run benchmark_parser
     uv run fill \
         --evm-bin="{{ evm_bin }}" \
         --fixed-opcode-count \
-        --fork Osaka \
-        -m repricing \
+        --fork Amsterdam \
+        -m "repricing and not slow" \
         -n auto --maxprocesses 10 --dist=loadgroup \
-        -k "not test_alt_bn128 and not test_bls12_381 and not test_modexp and not test_point_evaluation_uncachable" \
+        -k "not test_alt_bn128 and not test_bls12_381 and not test_modexp and not uncachable" \
         --output="{{ output_dir }}/bench-opcode-config/fixtures" \
         --basetemp="{{ output_dir }}/bench-opcode-config/tmp" \
         --log-to "{{ output_dir }}/bench-opcode-config/logs" \
@@ -284,13 +425,19 @@ export DYLD_FALLBACK_LIBRARY_PATH := if os() == "macos" { "/opt/homebrew/lib" } 
 
 # Generate documentation for EELS using docc
 [group('docs')]
-docs-spec $DOCC_SKIP_DIFFS="":
+docs-spec $DOCC_SKIP_DIFFS=env_var_or_default("DOCC_SKIP_DIFFS", ""):
     uv run docc --output "{{ output_dir }}/docs-spec"
     uv run python -c 'import pathlib; print("documentation available under file://{0}".format(pathlib.Path(r"{{ output_dir }}") / "docs-spec" / "index.html"))'
 
 # Generate documentation for EELS using docc, skipping the slow per-fork diff render
 [group('docs')]
 docs-spec-fast: (docs-spec "1")
+
+# Build spec docs in parallel shards for fast PR validation
+[group('docs')]
+docs-spec-parallel shards="4":
+    uv run python -m ethereum_spec_tools.docc_shards \
+        -n {{ shards }} -o "{{ output_dir }}/docs-spec-parallel"
 
 # Build HTML site documentation with mkdocs
 [group('docs')]

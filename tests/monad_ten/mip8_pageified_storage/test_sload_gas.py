@@ -327,14 +327,12 @@ def test_tstore_and_sload(
             overhead_cost=overhead,
             extra_stack_items=1,
             sstore_key=slot_gas_measured,
-            stop=False,
         )
         + CodeGasMeasure(
             code=Op.SSTORE(0, 1),
             overhead_cost=sstore_overhead,
             extra_stack_items=0,
             sstore_key=slot_gas_measured_2,
-            stop=False,
         )
         + CodeGasMeasure(
             code=Op.TLOAD(0),
@@ -765,14 +763,12 @@ def test_sload_acl_multipage_warming(
             overhead_cost=overhead,
             extra_stack_items=1,
             sstore_key=p0_meas,
-            stop=False,
         )
         + CodeGasMeasure(
             code=Op.SLOAD(p1_slot),
             overhead_cost=overhead,
             extra_stack_items=1,
             sstore_key=p1_meas,
-            stop=False,
         )
         + CodeGasMeasure(
             code=Op.SLOAD(p2_slot),

@@ -182,6 +182,16 @@ class BlockTransactionExceptionWithMessage(
     pass
 
 
+ClientValidationError = (
+    BlockTransactionExceptionWithMessage | UndefinedException
+)
+"""
+A client's validation error for a rejected block: the mapped exceptions
+with the verbatim message, or `UndefinedException` if the message could
+not be mapped.
+"""
+
+
 class PayloadStatus(CamelModel):
     """Represents the status of a payload after execution."""
 
@@ -189,7 +199,7 @@ class PayloadStatus(CamelModel):
     latest_valid_hash: Hash | None
     validation_error: (
         Annotated[
-            BlockTransactionExceptionWithMessage | UndefinedException,
+            ClientValidationError,
             ExceptionMapperValidator,
         ]
         | None
@@ -214,6 +224,7 @@ class PayloadAttributes(CamelModel):
     target_blobs_per_block: HexNumber | None = None
     max_blobs_per_block: HexNumber | None = None
     slot_number: HexNumber | None = None
+    target_gas_limit: HexNumber | None = None
 
     @classmethod
     def for_fork(
@@ -221,6 +232,8 @@ class PayloadAttributes(CamelModel):
         fork: Fork,
         *,
         timestamp: int,
+        target_gas_limit: int,
+        slot_number: int | None,
         prev_randao: Hash | None = None,
         suggested_fee_recipient: Address | None = None,
         withdrawals: List[Withdrawal] | None = None,
@@ -240,6 +253,11 @@ class PayloadAttributes(CamelModel):
             and fork.header_beacon_root_required()
         ):
             parent_beacon_block_root = Hash(0)
+        attributes_slot_number: HexNumber | None = None
+        if fork.engine_payload_attribute_slot_number():
+            attributes_slot_number = HexNumber(
+                1 if slot_number is None else slot_number
+            )
         return cls(
             timestamp=HexNumber(timestamp),
             prev_randao=prev_randao if prev_randao is not None else Hash(0),
@@ -260,9 +278,10 @@ class PayloadAttributes(CamelModel):
                 if fork.engine_payload_attribute_max_blobs_per_block()
                 else None
             ),
-            slot_number=(
-                HexNumber(0)
-                if fork.engine_payload_attribute_slot_number()
+            slot_number=attributes_slot_number,
+            target_gas_limit=(
+                HexNumber(target_gas_limit)
+                if fork.engine_payload_attribute_target_gas_limit()
                 else None
             ),
         )
@@ -303,6 +322,13 @@ class BlobAndProofV2(CamelModel):
     proofs: List[Bytes]
 
 
+class BlobCellsAndProofsV1(CamelModel):
+    """Represents a partial cell and cell-proof structure (>= Amsterdam)."""
+
+    blob_cells: List[Bytes | None]
+    proofs: List[Bytes | None]
+
+
 class GetPayloadResponse(CamelModel):
     """Represents the response of a get payload request."""
 
@@ -328,6 +354,22 @@ class GetBlobsResponse(
         self, index: int
     ) -> BlobAndProofV1 | BlobAndProofV2 | None:
         """Return the blob at the given index."""
+        return self.root[index]
+
+
+class GetBlobsV4Response(
+    EthereumTestRootModel[List[BlobCellsAndProofsV1 | None]]
+):
+    """Represents the response of an `engine_getBlobsV4` request."""
+
+    root: List[BlobCellsAndProofsV1 | None]
+
+    def __len__(self) -> int:
+        """Return the number of blob entries in the response."""
+        return len(self.root)
+
+    def __getitem__(self, index: int) -> BlobCellsAndProofsV1 | None:
+        """Return the blob cell matrix at the given index."""
         return self.root[index]
 
 

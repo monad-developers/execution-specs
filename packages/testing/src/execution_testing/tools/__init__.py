@@ -16,6 +16,7 @@ from .tools_code import (
     SequentialAddressLayout,
     Switch,
     TransactionWithCost,
+    TxOutcome,
     While,
     WhileGas,
 )
@@ -44,6 +45,7 @@ __all__ = (
     "SequentialAddressLayout",
     "Switch",
     "TransactionWithCost",
+    "TxOutcome",
     "While",
     "WhileGas",
     "extend_with_defaults",

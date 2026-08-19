@@ -2,3 +2,5 @@ eels:
   impl: eels
   repo: null
   ref: null
+  evm-bin: null
+  xdist: auto

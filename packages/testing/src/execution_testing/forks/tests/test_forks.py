@@ -1,18 +1,22 @@
 """Test fork utilities."""
 
-from typing import Dict
+import dataclasses
+from typing import Any, Dict, Iterator, List, Tuple, Type
 
 import pytest
 from pydantic import BaseModel
 
 from execution_testing.base_types import BlobSchedule
+from execution_testing.vm import Opcodes
 
+from ..base_fork import BaseFork, BaseForkMeta
 from ..forks.eips.paris.eip_3675 import EIP3675
 from ..forks.forks import (
     BPO1,
     BPO2,
     BPO3,
     BPO4,
+    BPO5,
     MONAD_EIGHT,
     Amsterdam,
     Berlin,
@@ -413,6 +417,7 @@ def test_monad_eight_disables_blob_transactions_not_headers() -> None:
 @pytest.mark.parametrize(
     "fork",
     [
+        pytest.param(Shanghai, id="Shanghai"),
         pytest.param(Berlin, id="Berlin"),
         pytest.param(Istanbul, id="Istanbul"),
         pytest.param(Homestead, id="Homestead"),
@@ -445,7 +450,8 @@ def test_tx_intrinsic_gas_functions(  # noqa: D103
     if create_tx:
         if fork >= Homestead:
             intrinsic_gas += 32000
-        intrinsic_gas += 2
+        if fork >= Shanghai:
+            intrinsic_gas += 2
     assert (
         fork.transaction_intrinsic_cost_calculator()(
             calldata=calldata,
@@ -695,6 +701,67 @@ class TestSelectedForkSetWithTransitionBoundaries:
         assert BPO1ToBPO2AtTime15k in result
         assert BPO2ToAmsterdamAtTime15k not in result
 
+    def test_until_amsterdam_includes_bpo_siblings(self) -> None:
+        """`--until=Amsterdam` pulls in the parallel BPO branch."""
+        result = get_selected_fork_set(
+            single_fork=set(),
+            forks_from=set(),
+            forks_until={Amsterdam},
+        )
+        normal = self._normal_forks(result)
+        assert {BPO1, BPO2, BPO3, BPO4, BPO5, Amsterdam} <= normal
+        assert BPO2ToBPO3AtTime15k in result
+        assert BPO3ToBPO4AtTime15k in result
+
+    def test_from_osaka_until_amsterdam_spans_bpo_branch(self) -> None:
+        """`--from=Osaka --until=Amsterdam` spans the full BPO branch."""
+        result = get_selected_fork_set(
+            single_fork=set(),
+            forks_from={Osaka},
+            forks_until={Amsterdam},
+        )
+        assert self._normal_forks(result) == {
+            Osaka,
+            BPO1,
+            BPO2,
+            BPO3,
+            BPO4,
+            BPO5,
+            Amsterdam,
+        }
+
+    def test_until_amsterdam_bpo_siblings_disabled(self) -> None:
+        """`bpo_siblings=False` keeps the parallel BPO branch out."""
+        result = get_selected_fork_set(
+            single_fork=set(),
+            forks_from=set(),
+            forks_until={Amsterdam},
+            bpo_siblings=False,
+        )
+        normal = self._normal_forks(result)
+        assert {BPO1, BPO2, Amsterdam} <= normal
+        assert not ({BPO3, BPO4, BPO5} & normal)
+
+    def test_until_bpo2_excludes_later_bpo_siblings(self) -> None:
+        """`--until=BPO2` must not pull in the later BPO branch."""
+        result = get_selected_fork_set(
+            single_fork=set(),
+            forks_from=set(),
+            forks_until={BPO2},
+        )
+        normal = self._normal_forks(result)
+        assert {BPO1, BPO2} <= normal
+        assert not ({BPO3, BPO4, BPO5} & normal)
+
+    def test_from_amsterdam_until_amsterdam_excludes_bpos(self) -> None:
+        """`--from=Amsterdam --until=Amsterdam` stays Amsterdam-only."""
+        result = get_selected_fork_set(
+            single_fork=set(),
+            forks_from={Amsterdam},
+            forks_until={Amsterdam},
+        )
+        assert self._normal_forks(result) == {Amsterdam}
+
 
 def test_blob_constants() -> None:  # noqa: D103
     assert Osaka.get_blob_constant("AMOUNT_CELL_PROOFS") == 128
@@ -744,3 +811,130 @@ def test_eips() -> None:  # noqa: D103
     assert not Paris.is_eip_enabled(3675, 3855)
     assert not Paris.is_eip_enabled(3855, 3675)
     assert Shanghai.is_eip_enabled(3855)
+
+
+def test_oog_budget_lift() -> None:
+    """
+    `Fork.oog_budget_lift` returns zero pre-EIP-8037 and the cumulative
+    SSTORE-set + CREATE + code-deposit state-gas spill on Amsterdam.
+    """
+    # Pre-EIP-8037: state_gas helpers are 0, so any lift is 0.
+    assert Cancun.oog_budget_lift(sstores_before_oog=1) == 0
+    assert Cancun.oog_budget_lift(creates_before_oog=1) == 0
+    assert (
+        Cancun.oog_budget_lift(
+            sstores_before_oog=3, creates_before_oog=2, deploy_code_size=64
+        )
+        == 0
+    )
+    # Amsterdam: lift composes the three state-gas helpers.
+    sstore = Opcodes.SSTORE(new_value=1).state_cost(Amsterdam)
+    create = Amsterdam.create_state_gas()
+    code_64 = Amsterdam.code_deposit_state_gas(code_size=64)
+    assert Amsterdam.oog_budget_lift() == 0
+    assert Amsterdam.oog_budget_lift(sstores_before_oog=1) == sstore
+    assert Amsterdam.oog_budget_lift(creates_before_oog=1) == create
+    assert Amsterdam.oog_budget_lift(deploy_code_size=64) == code_64
+    assert (
+        Amsterdam.oog_budget_lift(
+            sstores_before_oog=3,
+            creates_before_oog=2,
+            deploy_code_size=64,
+        )
+        == 3 * sstore + 2 * create + code_64
+    )
+
+
+@pytest.fixture(scope="module")
+def all_fork_classes() -> List[Type[BaseFork]]:
+    """Return every concrete fork class, transition forks excluded."""
+    return sorted(get_forks(), key=str)
+
+
+def _memoized_caches(
+    fork_classes: List[Type[BaseFork]],
+) -> Iterator[Tuple[Type[Any], str, Any]]:
+    """Yield ``(owner, method_name, cache)`` for every memoized override."""
+    owners: set = set()
+    for fork in fork_classes:
+        owners.update(fork.__mro__)
+    for owner in owners:
+        for method_name in BaseForkMeta.MEMOIZED_FORK_METHODS:
+            member = owner.__dict__.get(method_name)
+            if not isinstance(member, classmethod):
+                continue
+            function = member.__func__
+            if hasattr(function, "cache_clear"):
+                yield owner, method_name, function
+
+
+def test_memoized_fork_methods_are_installed(
+    all_fork_classes: List[Type[BaseFork]],
+) -> None:
+    """Every fork must resolve each memoized name to a cached override."""
+    for fork in all_fork_classes:
+        for method_name in BaseForkMeta.MEMOIZED_FORK_METHODS:
+            resolved = getattr(fork, method_name)
+            assert hasattr(resolved.__func__, "cache_info"), (
+                f"{fork}.{method_name} resolves to an uncached override"
+            )
+
+
+def test_memoized_fork_methods_are_computed_once_per_fork(
+    all_fork_classes: List[Type[BaseFork]],
+) -> None:
+    """The first call per fork computes, and every later one is a hit."""
+    for method_name in BaseForkMeta.MEMOIZED_FORK_METHODS:
+        for _, _, function in _memoized_caches(all_fork_classes):
+            function.cache_clear()
+        for fork in all_fork_classes:
+            cache = getattr(fork, method_name).__func__
+            before = cache.cache_info()
+            getattr(fork, method_name)()
+            getattr(fork, method_name)()
+            after = cache.cache_info()
+            assert after.misses == before.misses + 1, (
+                f"{fork}.{method_name} recomputed on a repeat call"
+            )
+            assert after.hits == before.hits + 1, (
+                f"{fork}.{method_name} was not served from its cache"
+            )
+
+
+def test_memoized_fork_methods_are_not_shared_between_forks(
+    all_fork_classes: List[Type[BaseFork]],
+) -> None:
+    """A cache is keyed on the fork, so no fork may serve another's value."""
+    for method_name in BaseForkMeta.MEMOIZED_FORK_METHODS:
+        warm = {
+            str(fork): getattr(fork, method_name)()
+            for fork in all_fork_classes
+        }
+        for _, _, function in _memoized_caches(all_fork_classes):
+            function.cache_clear()
+        for fork in reversed(all_fork_classes):
+            assert getattr(fork, method_name)() == warm[str(fork)], (
+                f"{fork}.{method_name} changed when recomputed in a "
+                "different order"
+            )
+
+        assert Amsterdam.gas_costs() is not Cancun.gas_costs()
+        assert Amsterdam.gas_costs() != Cancun.gas_costs()
+
+
+def test_memoized_fork_methods_return_immutable_values() -> None:
+    """Callers share one object, so a mutable value could be corrupted."""
+    for method_name in BaseForkMeta.MEMOIZED_FORK_METHODS:
+        value = getattr(Amsterdam, method_name)()
+        assert dataclasses.is_dataclass(value)
+        field_name = next(iter(dataclasses.fields(value))).name
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            setattr(value, field_name, 0)
+
+
+def test_abstract_memoized_declarations_are_left_alone() -> None:
+    """`abc` must still see `BaseFork`'s declarations as unimplemented."""
+    for method_name in BaseForkMeta.MEMOIZED_FORK_METHODS:
+        declaration = BaseFork.__dict__[method_name]
+        assert getattr(declaration, "__isabstractmethod__", False)
+        assert not hasattr(declaration.__func__, "cache_info")

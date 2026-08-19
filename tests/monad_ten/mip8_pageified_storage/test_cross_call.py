@@ -500,7 +500,6 @@ def test_create_does_not_propagate_warm_to_child(
             overhead_cost=Op.PUSH1(0).gas_cost(fork),
             extra_stack_items=1,
             sstore_key=slot_gas_measured,
-            stop=False,
         ),
     )
 
@@ -655,7 +654,6 @@ def test_create_child_warming_lost_on_revert(
             overhead_cost=overhead,
             extra_stack_items=1,
             sstore_key=slot_gas_measured,
-            stop=False,
         )
         # Sanity check to ensure it's not the initcode frame
         # storing the measured cold gas.
@@ -729,7 +727,6 @@ def test_create_child_state_growth_lost_on_revert(
             overhead_cost=overhead,
             extra_stack_items=0,
             sstore_key=slot_gas_measured,
-            stop=False,
         )
         # Sanity check to ensure it's not the initcode frame
         # storing the measured fresh-growth SSTORE cost.
@@ -925,14 +922,12 @@ def test_creation_tx_initcode_sload_warming(
                 overhead_cost=overhead,
                 extra_stack_items=1,
                 sstore_key=slot_gas_measured,
-                stop=False,
             )
             + CodeGasMeasure(
                 code=Op.SLOAD(1),
                 overhead_cost=overhead,
                 extra_stack_items=1,
                 sstore_key=slot_gas_measured_2,
-                stop=False,
             )
         ),
     )
@@ -984,14 +979,12 @@ def test_creation_tx_initcode_sstore_warming(
                 overhead_cost=overhead,
                 extra_stack_items=0,
                 sstore_key=slot_gas_measured,
-                stop=False,
             )
             + CodeGasMeasure(
                 code=Op.SSTORE(1, 1),
                 overhead_cost=overhead,
                 extra_stack_items=0,
                 sstore_key=slot_gas_measured_2,
-                stop=False,
             )
         ),
     )
@@ -1235,7 +1228,6 @@ def test_parent_warming_survives_subcall_revert(
             overhead_cost=overhead,
             extra_stack_items=1,
             sstore_key=slot_gas_measured,
-            stop=False,
         )
         + CodeGasMeasure(
             code=Op.SLOAD(385),
@@ -1497,7 +1489,6 @@ def _state_growth_counters_inside_subcall(
             overhead_cost=overhead,
             extra_stack_items=0,
             sstore_key=measure_offset + i,
-            stop=False,
         )
         expected_storage[measure_offset + i] = cost
     child_code += Op.RETURN(0, 0) if call_op == Op.CREATE else Op.STOP
@@ -1730,7 +1721,6 @@ def _state_growth_counters_after_subcall(
             overhead_cost=overhead,
             extra_stack_items=0,
             sstore_key=measure_offset + i,
-            stop=(i == measured_slots - 1),
         )
         expected_storage[measure_offset + i] = cost
     for i in range(measured_slots):

@@ -3,6 +3,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import (
     Any,
     ClassVar,
@@ -567,6 +568,18 @@ class Alloc(EthereumTestRootModel[Dict[Address, Account | None]]):
     root: Dict[Address, Account | None] = Field(
         default_factory=dict, validate_default=True
     )
+
+
+class StateCommitment(Enum):
+    """
+    The state-commitment scheme used to compute an allocation's state root.
+    """
+
+    MPT = auto()
+    """Merkle-Patricia trie."""
+
+    PAGED = auto()
+    """Account trie with MIP-8 page-based storage roots."""
 
 
 class AccessList(CamelModel, RLPSerializable):

@@ -12,10 +12,10 @@ Entry point for the Ethereum specification.
 """
 
 from dataclasses import dataclass
-from typing import AbstractSet, Dict, Final, List, Optional, Tuple, final
+from typing import Final, List, Optional, Tuple, final
 
 from ethereum_rlp import rlp
-from ethereum_types.bytes import Bytes, Bytes32
+from ethereum_types.bytes import Bytes
 from ethereum_types.numeric import U64, U256, Uint
 
 from ethereum.crypto.hash import Hash32, keccak256
@@ -28,20 +28,11 @@ from ethereum.exceptions import (
     NonceMismatchError,
 )
 from ethereum.merkle_patricia_trie import (
-    EMPTY_TRIE_ROOT,
-    Trie,
-    copy_trie,
     root,
     trie_set,
 )
-from ethereum.paged_storage_trie import storage_root_paged
-from ethereum.state import (
-    EMPTY_CODE_HASH,
-    Account,
-    Address,
-    State,
-    apply_changes_to_state,
-)
+from ethereum.state import EMPTY_CODE_HASH, Address
+from ethereum.state_paged import State, apply_changes_to_state
 
 from . import vm
 from .blocks import Block, Header, Log, Receipt, Withdrawal, encode_receipt
@@ -131,47 +122,6 @@ MAX_BLOCK_SIZE = 10_485_760
 SAFETY_MARGIN = 2_097_152
 MAX_RLP_BLOCK_SIZE = MAX_BLOCK_SIZE - SAFETY_MARGIN
 BLOB_COUNT_LIMIT = 6
-
-
-def compute_paged_state_root(
-    state: State,
-    account_changes: Dict[Address, Optional[Account]],
-    storage_changes: Dict[Address, Dict[Bytes32, U256]],
-    storage_clears: AbstractSet[Address] = frozenset(),
-) -> Hash32:
-    """
-    Compute the state root after applying the block's account and storage
-    changes to ``state``, using MIP-8 paged storage roots.
-
-    ``storage_clears`` lists addresses whose pre-existing storage tries
-    are dropped before ``storage_changes`` is applied.
-    """
-    main_trie = copy_trie(state._main_trie)
-    storage_tries = {
-        k: copy_trie(v)
-        for k, v in state._storage_tries.items()
-        if k not in storage_clears
-    }
-
-    for address, account in account_changes.items():
-        trie_set(main_trie, address, account)
-
-    for address, slots in storage_changes.items():
-        trie = storage_tries.get(address)
-        if trie is None:
-            trie = Trie(secured=True, default=U256(0))
-            storage_tries[address] = trie
-        for key, value in slots.items():
-            trie_set(trie, key, value)
-        if trie._data == {}:
-            del storage_tries[address]
-
-    def get_storage_root(addr: Address) -> Hash32:
-        if addr in storage_tries and storage_tries[addr]._data:
-            return storage_root_paged(storage_tries[addr]._data)
-        return EMPTY_TRIE_ROOT
-
-    return root(main_trie, get_storage_root=get_storage_root)
 
 
 @final
@@ -302,12 +252,7 @@ def state_transition(chain: BlockChain, block: Block) -> None:
         withdrawals=block.withdrawals,
     )
     block_diff = extract_block_diff(block_state)
-    block_state_root = compute_paged_state_root(
-        chain.state,
-        block_diff.account_changes,
-        block_diff.storage_changes,
-        block_diff.storage_clears,
-    )
+    block_state_root = chain.state.compute_state_root(block_diff)
     transactions_root = root(block_output.transactions_trie)
     receipt_root = root(block_output.receipts_trie)
     block_logs_bloom = logs_bloom(block_output.block_logs)
@@ -1061,7 +1006,7 @@ def process_withdrawals(
             rlp.encode(wd),
         )
 
-        create_ether(wd_state, wd.address, wd.amount * U256(10**9))
+        create_ether(wd_state, wd.address, U256(wd.amount) * U256(10**9))
 
     incorporate_tx_into_block(wd_state)
 

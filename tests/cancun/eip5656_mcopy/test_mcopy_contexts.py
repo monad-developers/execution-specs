@@ -13,14 +13,12 @@ from execution_testing import (
     Address,
     Alloc,
     Bytecode,
-    Environment,
     Op,
     StateTestFiller,
     Storage,
     Transaction,
     ceiling_division,
 )
-from execution_testing.forks.helpers import Fork
 
 from .common import REFERENCE_SPEC_GIT_PATH, REFERENCE_SPEC_VERSION
 
@@ -139,20 +137,10 @@ def callee_address(pre: Alloc, callee_bytecode: Bytecode) -> Address:  # noqa: D
 
 
 @pytest.fixture
-def tx(  # noqa: D103
-    pre: Alloc, caller_address: Address, initial_memory: bytes, fork: Fork
-) -> Transaction:
-    gas_costs = fork.gas_costs()
-    # Gas required depends on count and cost of SSTOREs used.
-    sstore_gas = (
-        len(initial_memory)
-        // 0x20
-        * (gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS)
-    )
+def tx(pre: Alloc, caller_address: Address) -> Transaction:  # noqa: D103
     return Transaction(
         sender=pre.fund_eoa(),
         to=caller_address,
-        gas_limit=200_000 + sstore_gas,
     )
 
 
@@ -186,12 +174,7 @@ def test_no_memory_corruption_on_upper_call_stack_levels(
     Perform a subcall with any of the following opcodes, which uses MCOPY
     during its execution, and verify that the caller's memory is unaffected.
     """
-    state_test(
-        env=Environment(),
-        pre=pre,
-        post=post,
-        tx=tx,
-    )
+    state_test(pre=pre, post=post, tx=tx)
 
 
 @pytest.mark.parametrize(
@@ -214,9 +197,4 @@ def test_no_memory_corruption_on_upper_create_stack_levels(
       - `CREATE`
       - `CREATE2`.
     """
-    state_test(
-        env=Environment(),
-        pre=pre,
-        post=post,
-        tx=tx,
-    )
+    state_test(pre=pre, post=post, tx=tx)

@@ -12,7 +12,6 @@ from execution_testing import (
     Storage,
     Transaction,
 )
-from execution_testing.forks.helpers import Fork
 
 from .spec import Spec, ref_spec_145
 
@@ -62,11 +61,7 @@ combinations = list(itertools.product(list_of_args, repeat=2))
 )
 @pytest.mark.eels_base_coverage
 def test_combinations(
-    state_test: StateTestFiller,
-    pre: Alloc,
-    opcode: Op,
-    operation: Callable,
-    fork: Fork,
+    state_test: StateTestFiller, pre: Alloc, opcode: Op, operation: Callable
 ) -> None:
     """Test bitwise shift combinations."""
     result = Storage()
@@ -85,16 +80,9 @@ def test_combinations(
         + Op.STOP,
     )
 
-    gas_costs = fork.gas_costs()
-    # Gas required depends on count and cost of SSTOREs used.
-    sstore_gas = len(combinations) * (
-        gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
-    )
-
     tx = Transaction(
         sender=pre.fund_eoa(),
         to=address_to,
-        gas_limit=200_000 + sstore_gas,
     )
 
     state_test(pre=pre, post={address_to: Account(storage=result)}, tx=tx)
