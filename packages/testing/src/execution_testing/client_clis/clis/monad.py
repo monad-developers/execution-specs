@@ -308,6 +308,11 @@ class MonadFixtureConsumer(
         (e.g. a MONAD_NINE->MONAD_TEN transition) needs both: a slot-encoded
         primary plus an activated page-encoded secondary timeline, so the
         runloop can dual-write across the fork.
+
+        Only the secondary's kind is decided here. `Db::Db` re-stamps the
+        primary to whatever state machine the runloop opens it with, so the
+        `--state-machine` passed for the primary below does not survive
+        into the run.
         """
         monad_mpt = self.binary.parent / "monad-mpt"
         revisions = [revision for revision, _ in schedule]
@@ -320,7 +325,14 @@ class MonadFixtureConsumer(
         # Shrunk chunk capacity / history ring keep per-test time at ~2s
         # (the production defaults dominate runtime). `monad` is the
         # page-encoded state machine, `ethereum` the slot-encoded one.
-        primary = "monad" if uses_page and not uses_slot else "ethereum"
+        # This only sets the kind `--create` stamps; the runloop re-stamps
+        # the primary when it opens the db, so the value is inert. Kept
+        # matched to the schedule so the two agree on disk; it can collapse
+        # to one constant once a TEN-only run confirms nothing reads the
+        # db in between.
+        initial_primary = (
+            "monad" if uses_page and not uses_slot else "ethereum"
+        )
         subprocess.run(
             [
                 str(monad_mpt),
@@ -332,7 +344,7 @@ class MonadFixtureConsumer(
                 "--root-offsets-chunk-count",
                 "2",
                 "--state-machine",
-                primary,
+                initial_primary,
             ],
             capture_output=True,
             text=True,
