@@ -133,21 +133,31 @@ def is_reserve_balance_violated(evm: Evm) -> bool:
         # execution, but this aligns with Monad EVM implementation.
         if code == b"" or is_valid_delegation(code):
             original_balance = get_balance_original(snapshot, addr)
-            if tx_env.origin == addr:
-                # gas_fees already deducted, need to re-add if sender
-                # to match with spec.
-                gas_fees = U256(tx_env.gas_price * tx_env.tx_gas_limit)
-                original_balance += gas_fees
-                reserve = min(RESERVE_BALANCE, original_balance)
-                threshold = reserve - gas_fees
-            else:
-                threshold = RESERVE_BALANCE
 
             is_exception = (
                 message.tx_env.origin == addr
                 and not is_sender_authority(tx_state.parent, addr)
                 and not is_valid_delegation(code)
             )
+
+            if tx_env.origin == addr:
+                # gas_fees already deducted, need to re-add if sender
+                # to match with spec.
+                gas_fees = U256(tx_env.gas_price * tx_env.tx_gas_limit)
+                original_balance += gas_fees
+                reserve = min(RESERVE_BALANCE, original_balance)
+                assert is_exception or gas_fees <= reserve, (
+                    "gas fees exceed the reserve for a sender that "
+                    "cannot empty; consensus only sequences a "
+                    "transaction whose sender's in-flight gas fees "
+                    "fit within the reserve"
+                )
+                # Gas spend does not count against the reserve, so the
+                # gas already deducted from the balance is added back by
+                # lowering the threshold. Clamped at zero for U256.
+                threshold = reserve - min(reserve, gas_fees)
+            else:
+                threshold = RESERVE_BALANCE
 
             if (
                 acc.balance < original_balance
