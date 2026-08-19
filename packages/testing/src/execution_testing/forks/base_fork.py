@@ -431,6 +431,15 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         if base_fork_class != BaseFork:
             base_fork_class._children.add(cls)
             cls._enabled_eips |= base_fork_class._enabled_eips
+        # A fork inheriting from more than one fork enables the union of
+        # their EIPs; the first base alone leads the lineage above.
+        for base_class in cls.__bases__:
+            if (
+                issubclass(base_class, BaseFork)
+                and not base_class.is_eip()
+                and base_class is not BaseFork
+            ):
+                cls._enabled_eips |= base_class._enabled_eips
         eip_bases = [
             base_class
             for base_class in cls.__bases__

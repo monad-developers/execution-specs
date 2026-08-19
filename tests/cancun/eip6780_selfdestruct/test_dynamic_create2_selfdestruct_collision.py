@@ -89,9 +89,7 @@ def test_dynamic_create2_selfdestruct_collision(
     # Constants
     address_zero = Address(0x00)
     create2_salt = 1
-    subcall_gas = 100_000
-    if fork.is_eip_enabled(8037):
-        subcall_gas = 500_000
+    subcall_gas = 100_000 + fork_extra_gas
 
     # Create EOA for sendall destination (receives selfdestruct funds)
     sendall_destination = pre.fund_eoa(0)  # Will be funded by selfdestruct
@@ -317,9 +315,7 @@ def test_dynamic_create2_selfdestruct_collision_two_different_transactions(
     # Constants
     address_zero = Address(0x00)
     create2_salt = 1
-    subcall_gas = 100_000
-    if fork.is_eip_enabled(8037):
-        subcall_gas = 500_000
+    subcall_gas = 100_000 + fork_extra_gas
 
     # Create EOA for sendall destination (receives selfdestruct funds)
     sendall_destination = pre.fund_eoa(0)  # Will be funded by selfdestruct
@@ -593,9 +589,7 @@ def test_dynamic_create2_selfdestruct_collision_multi_tx(
 
     # Constants
     create2_salt = 1
-    subcall_gas = 100_000
-    if fork.is_eip_enabled(8037):
-        subcall_gas = 500_000
+    subcall_gas = 100_000 + fork_extra_gas
 
     # Create EOA for sendall destination (receives selfdestruct funds)
     sendall_destination = pre.fund_eoa(0)  # Will be funded by selfdestruct
