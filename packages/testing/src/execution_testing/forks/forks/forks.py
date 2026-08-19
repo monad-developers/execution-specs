@@ -1905,69 +1905,26 @@ class Amsterdam(
         return True
 
 
-class MONAD_NEXT(MONAD_TEN, Amsterdam):  # noqa: N801
+class MONAD_NEXT(  # noqa: N801
+    eips.EIP7708,
+    eips.EIP7843,
+    eips.EIP8024,
+    MONAD_TEN,
+    follows=Amsterdam,
+):
     """
     MONAD_NEXT fork.
 
-    Amsterdam-based successor to MONAD_TEN. Only the EIP-7708, EIP-7843
-    and EIP-8024 changes are inherited from Amsterdam; every other
-    Amsterdam change is pinned back to the MONAD_TEN parent. The
-    EIP-7928 block access list hash header field is carried, but no
-    block access lists are built, so the field is always zero.
+    Amsterdam-based successor to MONAD_TEN, adopting the EIP-7708,
+    EIP-7843 and EIP-8024 changes. The Amsterdam changes it does not
+    adopt stay out of the fork by not being inherited at all; the fork
+    order still places MONAD_NEXT after Amsterdam through `follows`.
     """
 
     @classmethod
-    def valid_opcodes(cls) -> List[Opcodes]:
+    def header_bal_hash_required(cls) -> bool:
         """
-        Inherit the Amsterdam opcode set: SLOTNUM (EIP-7843) and SWAPN,
-        DUPN, EXCHANGE (EIP-8024) on top of the MONAD_TEN opcodes.
+        MONAD_NEXT headers carry the block access list hash field, fixed
+        at zero, without building block access lists (EIP-7928).
         """
-        return Amsterdam.valid_opcodes()
-
-    @classmethod
-    def max_code_size(cls) -> int:
-        """Return spec from explicit parent (skip EIP-7954)."""
-        return MONAD_TEN.max_code_size()
-
-    @classmethod
-    def calldata_gas_calculator(cls) -> CalldataGasCalculator:
-        """Return spec from explicit parent (skip EIP-7976)."""
-        return MONAD_TEN.calldata_gas_calculator()
-
-    @classmethod
-    def transaction_data_floor_cost_calculator(
-        cls,
-    ) -> TransactionDataFloorCostCalculator:
-        """Return spec from explicit parent (skip EIP-7981)."""
-        return MONAD_TEN.transaction_data_floor_cost_calculator()
-
-    @classmethod
-    def transaction_intrinsic_cost_calculator(
-        cls,
-    ) -> TransactionIntrinsicCostCalculator:
-        """Return spec from explicit parent (skip EIP-7981)."""
-        return MONAD_TEN.transaction_intrinsic_cost_calculator()
-
-    @classmethod
-    def supports_block_access_lists(cls) -> bool:
-        """Return spec from explicit parent (skip EIP-7928)."""
-        return MONAD_TEN.supports_block_access_lists()
-
-    @classmethod
-    def empty_block_bal_item_count(cls) -> int:
-        """Return spec from explicit parent (skip EIP-7928)."""
-        return MONAD_TEN.empty_block_bal_item_count()
-
-    @classmethod
-    def engine_execution_payload_block_access_list(cls) -> bool:
-        """Return spec from explicit parent (skip EIP-7928)."""
-        return MONAD_TEN.engine_execution_payload_block_access_list()
-
-
-# MONAD_NEXT adopts EIP-7708, EIP-7843 and EIP-8024 from Amsterdam through the
-# MRO rather than by inheriting their mixin classes: inheriting them would
-# register MONAD_NEXT as a spurious `enabling_fork` (breaking
-# `valid_at_transition_to`) and pull in EIP-7843's engine version bumps.
-# Record the adopted EIP numbers on `_enabled_eips` directly so that
-# `is_eip_enabled()` reports them without those side effects.
-MONAD_NEXT._enabled_eips = MONAD_TEN._enabled_eips | {7708, 7843, 8024}
+        return True
