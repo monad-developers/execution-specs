@@ -1973,6 +1973,10 @@ def test_pointer_resets_an_empty_code_account_with_storage(
         value=1000,
         nonce=6,
         sender=sender,
+        # The automatic gas limits fill the first block, which raises the
+        # base fee for this block on forks that count the gas limit
+        # rather than the gas used towards the block gas used.
+        max_fee_per_gas=100,
         authorization_list=[
             AuthorizationTuple(
                 address=newly_created_address,
