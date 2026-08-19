@@ -21,7 +21,7 @@ from execution_testing.cli.perf_regression import (
 )
 
 HEADER = (
-    "test,params,fork,block,tx_count,gas,"
+    "test,params,fork,block,tx_count,gas,retries,"
     "tx_exec_us,state_root_us,commit_us,total_us"
 )
 
@@ -45,6 +45,7 @@ def _row(fork: str, total: int, block: int = 1) -> Dict[str, object]:
         "block": block,
         "tx_count": 7,
         "gas": 200_000_000,
+        "retries": 0,
         "tx_exec_us": total // 2,
         "state_root_us": total // 4,
         "commit_us": total // 4,
@@ -336,6 +337,86 @@ def test_report_no_power_warning_when_resolvable(tmp_path: Path) -> None:
         for i in range(10)
     ]
     assert "Underpowered" not in report(tuple(dirs))
+
+
+def _retry_dir(tmp_path: Path, name: str, nine: int, ten: int) -> Path:
+    """Write a run directory whose blocks report differing retry counts."""
+    path = tmp_path / name
+    path.mkdir()
+    rows = []
+    for fork, retries in (("MONAD_NINE", nine), ("MONAD_TEN", ten)):
+        for block, r in enumerate((0, retries), start=1):
+            row = _row(fork, 100, block=block)
+            row["retries"] = r
+            rows.append(row)
+    (path / "timing_consume.csv").write_text(_csv(rows))
+    return path
+
+
+def test_report_shows_retries_of_the_reported_block(tmp_path: Path) -> None:
+    """Retries come from the block whose timing the row reports."""
+    dirs = [_retry_dir(tmp_path, f"r{i}", nine=0, ten=4) for i in range(3)]
+    table = report(tuple(dirs))
+    assert "retries NINE" in table
+    assert "retries TEN" in table
+    cells = [c.strip() for c in _case_row(table).split("|")]
+    # Both blocks tie on total_us, so the earlier one (retries 0) stands.
+    assert cells.count("0 ± 0") >= 2
+
+
+def test_parse_takes_the_counter_from_the_fastest_block(
+    tmp_path: Path,
+) -> None:
+    """The counter follows argmin(REFERENCE_METRIC), not its own extremum."""
+    rows = []
+    for block, (total, retries) in enumerate(
+        [(300, 9), (100, 2), (200, 5)], start=1
+    ):
+        row = _row("MONAD_NINE", total, block=block)
+        row["retries"] = retries
+        rows.append(row)
+    path = tmp_path / "timing_consume.csv"
+    path.write_text(_csv(rows))
+
+    parsed = parse(path)[("page_ops", "sstore_fresh-k0", "MONAD_NINE")]
+
+    assert parsed["total_us"] == 100
+    assert parsed["retries"] == 2  # not 9 (max) and not 5
+
+
+def test_parse_counter_ignores_a_slower_block_with_more_retries(
+    tmp_path: Path,
+) -> None:
+    """A later, slower block does not drag its counter into the row."""
+    rows = []
+    for block, (total, retries) in enumerate([(100, 1), (500, 99)], start=1):
+        row = _row("MONAD_NINE", total, block=block)
+        row["retries"] = retries
+        rows.append(row)
+    path = tmp_path / "timing_consume.csv"
+    path.write_text(_csv(rows))
+
+    parsed = parse(path)[("page_ops", "sstore_fresh-k0", "MONAD_NINE")]
+
+    assert parsed["total_us"] == 100
+    assert parsed["retries"] == 1
+
+
+def test_parse_tolerates_csv_without_retries(tmp_path: Path) -> None:
+    """A csv written before the counter existed still parses."""
+    legacy = HEADER.replace(",retries", "")
+    row = _row("MONAD_NINE", 100)
+    path = tmp_path / "timing_consume.csv"
+    path.write_text(
+        legacy
+        + "\n"
+        + ",".join(str(row.get(c, "")) for c in legacy.split(","))
+        + "\n"
+    )
+    parsed = parse(path)
+    assert (
+        parsed[("page_ops", "sstore_fresh-k0", "MONAD_NINE")]["retries"] == 0
+    )
 
 
 def test_report_needs_two_runs(tmp_path: Path) -> None:

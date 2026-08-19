@@ -35,6 +35,15 @@ CaseKey = Tuple[str, str]
 PairedSamples = List[Tuple[int, int]]
 
 METRICS = ["tx_exec_us", "commit_us", "total_us"]
+# Work counters, reported alongside the durations but not tested: they say
+# whether a slower block did the same work or redid some of it. Taken from
+# the block the reduction picked, not reduced themselves — a retry count
+# is only meaningful next to the timing of the same block.
+COUNTS = ["retries"]
+# The measure whose minimum picks a case's representative block. Block
+# wall time is what a retry count belongs to: retries are a property of
+# executing the whole block, not of one of its phases.
+REFERENCE_METRIC = "total_us"
 FORKS = ["MONAD_NINE", "MONAD_TEN"]
 # A measure is significant at this Benjamini-Hochberg adjusted p-value.
 # The table runs one test per (case, measure), so the unadjusted rate
@@ -70,8 +79,13 @@ def parse(report: Path) -> Run:
     """
     Map (test, params, fork) -> {metric: value} from one csv report.
 
-    The csv holds one row per block (raw, unaggregated); each metric is
-    reduced to the minimum across a case's blocks.
+    The csv holds one row per block (raw, unaggregated); each duration is
+    reduced to the minimum across a case's blocks. Each counter in
+    `COUNTS` is carried over from the block with the lowest
+    `REFERENCE_METRIC`, so it describes the block whose timing is
+    reported rather than a reduction of its own; ties keep the earlier
+    block. A counter the report predates is treated as zero so older csv
+    files still parse.
     """
     rows: Run = {}
     with report.open(newline="") as f:
@@ -80,6 +94,7 @@ def parse(report: Path) -> Run:
                 continue
             try:
                 mv = {m: int(row[m]) for m in METRICS}
+                mv.update({c: int(row.get(c) or 0) for c in COUNTS})
             except (ValueError, TypeError):
                 continue
             test = row["test"].split("::")[-1].removeprefix("test_")
@@ -88,7 +103,17 @@ def parse(report: Path) -> Run:
             if prev is None:
                 rows[key] = mv
             else:
-                rows[key] = {m: min(prev[m], mv[m]) for m in METRICS}
+                # `prev` already holds the running minimum, so its
+                # counters belong to the block that set it.
+                fastest = (
+                    mv
+                    if mv[REFERENCE_METRIC] < prev[REFERENCE_METRIC]
+                    else prev
+                )
+                rows[key] = {
+                    **{m: min(prev[m], mv[m]) for m in METRICS},
+                    **{c: fastest[c] for c in COUNTS},
+                }
     return rows
 
 
@@ -211,7 +236,9 @@ def _paired_samples(
     samples: Dict[CaseKey, Dict[str, PairedSamples]] = {}
     dropped: Dict[CaseKey, int] = {}
     for case in cases:
-        per_metric: Dict[str, PairedSamples] = {m: [] for m in METRICS}
+        per_metric: Dict[str, PairedSamples] = {
+            m: [] for m in (*METRICS, *COUNTS)
+        }
         missing = 0
         for run in runs:
             nine = run.get((*case, FORKS[0]))
@@ -219,7 +246,7 @@ def _paired_samples(
             if nine is None or ten is None:
                 missing += 1
                 continue
-            for m in METRICS:
+            for m in (*METRICS, *COUNTS):
                 per_metric[m].append((nine[m], ten[m]))
         samples[case] = per_metric
         if missing:
@@ -246,12 +273,14 @@ def build(runs: List[Run]) -> List[str]:
     header = ["test-params"]
     for m in METRICS:
         header += [f"{m} NINE", f"{m} TEN", f"{m} q"]
+    for c in COUNTS:
+        header += [f"{c} NINE", f"{c} TEN"]
     header += ["significant", "Δ avg NINE→TEN (sig)"]
 
     lines = [
-        f"Mean ± sd over up to {len(runs)} runs (µs). Bold = measure "
-        f"significant (paired Wilcoxon signed-rank, Benjamini–Hochberg "
-        f"adjusted q ≤ {ALPHA}). "
+        f"Mean ± sd over up to {len(runs)} runs; durations in µs, "
+        f"{'/'.join(COUNTS)} a count. Bold = measure significant (paired "
+        f"Wilcoxon signed-rank, Benjamini–Hochberg adjusted q ≤ {ALPHA}). "
         f"Significant flag: {UP} TEN slower, {DOWN} TEN faster, "
         f"{MIXED} mixed.",
         "",
@@ -281,6 +310,12 @@ def build(runs: List[Run]) -> List[str]:
                 deltas.append(f"{m} {chg:+d}%")
                 chgs.append(chg)
             cells += [ncell, xcell, _pfmt(q)]
+        for c in COUNTS:
+            pairs = samples[case][c]
+            cells += [
+                _stat([nine for nine, _ in pairs]),
+                _stat([ten for _, ten in pairs]),
+            ]
         cells.append(_direction(chgs) if chgs else "-")
         cells.append(", ".join(deltas) if deltas else "-")
         lines.append("| " + " | ".join(cells) + " |")
@@ -290,7 +325,9 @@ def build(runs: List[Run]) -> List[str]:
         "q is the Benjamini–Hochberg adjusted p-value of a two-sided "
         "paired Wilcoxon signed-rank test on the per-run NINE→TEN "
         f"differences for that measure; significant at q ≤ {ALPHA}. "
-        f"Smallest raw p in this table: {_pfmt(min(ps)) if ps else 'n/a'}.",
+        f"Smallest raw p in this table: {_pfmt(min(ps)) if ps else 'n/a'}. "
+        f"{'/'.join(COUNTS)} is reported, not tested: it tells a block "
+        "that did the same work more slowly from one that redid work.",
     ]
 
     lines += _power_note(samples, len(raw))

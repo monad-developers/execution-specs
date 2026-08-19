@@ -191,6 +191,7 @@ class BlockExecutionTiming(TypedDict):
     block: int
     tx_count: int
     gas: int
+    retries: int
     tx_exec_us: int
     state_root_us: int
     commit_us: int
@@ -234,6 +235,7 @@ def _exec_block_row(line: str) -> Optional[BlockExecutionTiming]:
             block=int(fields["bl"]),
             tx_count=int(fields["tx"]),
             gas=int(fields["gas"]),
+            retries=int(fields["rt"]),
             tx_exec_us=us("txe"),
             state_root_us=us("sr"),
             commit_us=us("cmt"),
@@ -249,10 +251,12 @@ def _parse_block_timings(stdout: str) -> List[BlockExecutionTiming]:
     Extract per-block timing from the runloop's `__exec_block` log lines.
 
     The production runloop logs one such line per block, e.g.:
-    `__exec_block,bl=1,...,tx=1,...,sr=5192us,txe=14241us,cmt=879us,
+    `__exec_block,bl=1,...,tx=1,rt=0,...,sr=5192us,txe=14241us,cmt=879us,
     tot=21153us,...,gas=10000000,...`. Fields carry leading padding;
-    durations a chrono unit suffix (see `_duration_us`). Malformed
-    lines are logged and skipped.
+    durations a chrono unit suffix (see `_duration_us`). `rt` is the
+    optimistic-execution retry count, reported as `retries`: it separates
+    a block that did the same work more slowly from one that redid work.
+    Malformed lines are logged and skipped.
     """
     rows = [
         _exec_block_row(line)
