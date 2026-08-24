@@ -156,7 +156,10 @@ def tx_gas_limit_calculator(
         fork.transaction_intrinsic_cost_calculator()
     )
     memory_expansion_gas_calculator = fork.memory_expansion_gas_calculator()
-    extra_gas = 22_500 * len(precompile_gas_list)
+    gas_costs = fork.gas_costs()
+    extra_gas = (
+        10_000 + gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
+    ) * len(precompile_gas_list)
     # Each SSTORE 0->non-zero contributes one state-set under EIP-8037
     # (returns 0 pre-fork).
     sstore_state_gas = Op.SSTORE(new_value=1).state_cost(fork) * len(
