@@ -606,6 +606,13 @@ def test_tx_gas_limit_block_boundary(
 
 
 @pytest.mark.inclusion_test
+@pytest.mark.monad_runloop(
+    pytest.mark.skip(
+        reason="Requires a test-controlled block gas limit; the monad "
+        "runloop fixes every block to the proposal gas limit, so the "
+        "over-limit tx no longer exceeds it."
+    )
+)
 @pytest.mark.parametrize(
     "delta",
     [
