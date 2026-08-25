@@ -1903,7 +1903,6 @@ class Amsterdam(
 class MONAD_NEXT(  # noqa: N801
     eips.EIP7981,
     MONAD_TEN,
-    follows=Amsterdam,
 ):
     """
     MONAD_NEXT fork.
@@ -1913,5 +1912,10 @@ class MONAD_NEXT(  # noqa: N801
     fork by not being inherited at all; the fork order still places
     MONAD_NEXT after Amsterdam through `follows`.
     """
+
+    @classmethod
+    def follows(cls) -> type[BaseFork] | None:
+        """MONAD_NEXT comes after Amsterdam without inheriting it."""
+        return Amsterdam
 
     pass
