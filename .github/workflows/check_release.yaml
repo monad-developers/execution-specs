@@ -1,0 +1,174 @@
+name: Check Fixture Release
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Check Fixture Release ({0}) {1}', inputs.depth, inputs.features) || 'Check Fixture Release' }}
+
+# Rehearse the fixture releases this fork ships, so a fill that a change
+# breaks surfaces on the branch that broke it rather than on the next
+# release attempt.
+#
+# Two tiers, both running on every pull request and on pushes to the
+# branches that release in parallel with the fork branch,
+# `from-upstream` and `eips/**`.
+#
+# `collect` is cheap: it reads the features the branch releases out of
+# `.github/configs/feature.yaml`, builds the release's job matrix
+# from it and collects its tests, catching malformed feature entries,
+# import errors and parametrization errors in a few minutes. It gates
+# `fill`, which is comprehensive: `fill` runs the very fill the release
+# runs, via the release's own action, and is the only tier that catches
+# a test that fills wrong. A manual dispatch can ask for `collect`
+# alone, and can narrow the run to a subset of the features.
+
+on:
+  push:
+    branches:
+      - from-upstream
+      - "eips/**"
+    paths-ignore:
+      - "**.md"
+      - "LICENSE*"
+      - ".gitignore"
+      - ".vscode/**"
+      - "whitelist.txt"
+      - "docs/**"
+      - "mkdocs.yml"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE*"
+      - ".gitignore"
+      - ".vscode/**"
+      - "whitelist.txt"
+      - "docs/**"
+      - "mkdocs.yml"
+  workflow_dispatch:
+    inputs:
+      depth:
+        description: "full = fill every feature (hours); collect = validate the config and collect the tests (minutes)"
+        required: true
+        type: choice
+        options: [full, collect]
+        default: full
+      features:
+        description: "Features to rehearse, e.g. monad_runloop. Empty = an EIP branch's own feature, or every feature elsewhere."
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      features: ${{ steps.matrix.outputs.features }}
+      fill_matrix: ${{ steps.matrix.outputs.fill_matrix }}
+      fill: ${{ steps.depth.outputs.fill }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: false
+      - uses: ./.github/actions/setup-uv
+
+      - name: Select the features to rehearse
+        id: matrix
+        shell: bash
+        env:
+          INPUT_FEATURES: ${{ inputs.features }}
+          # The head branch, so a pull request from an EIP branch
+          # rehearses that branch's feature; `ref_name` is the merge ref
+          # on a pull request and the branch everywhere else.
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          # The feature selection and the per-feature release matrix live
+          # in (and are shared with the release workflow via)
+          # check_release_matrix.py.
+          uv run -q .github/scripts/check_release_matrix.py \
+            "$INPUT_FEATURES" "$BRANCH" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Decide whether to fill
+        id: depth
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          DEPTH: ${{ inputs.depth }}
+        run: |
+          # Every automatic trigger fills; only a dispatch can ask for
+          # the cheap tier alone.
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DEPTH" != "full" ]
+          then
+            fill=false
+          else
+            fill=true
+          fi
+          echo "Fill: $fill"
+          echo "fill=$fill" >> "$GITHUB_OUTPUT"
+
+  collect:
+    name: collect (${{ matrix.feature }})
+    needs: setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      # A rehearsal wants every feature's verdict, not the first failure.
+      fail-fast: false
+      matrix:
+        feature: ${{ fromJson(needs.setup.outputs.features) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: true
+      - uses: ./.github/actions/setup-uv
+      - name: Install EEST
+        run: uv sync --no-progress
+
+      - name: Extract fixture release properties from config
+        id: properties
+        run: |
+          uv run -q .github/scripts/get_release_props.py ${{ matrix.feature }} >> "$GITHUB_OUTPUT"
+
+      - name: Collect the release's tests
+        shell: bash
+        run: |
+          # `fill-params` is interpolated rather than passed through a
+          # variable so its quoting survives, as in `build-fixtures`.
+          # Collecting nothing means an empty release, so pytest's exit
+          # code 5 fails here where a release's fork-range split
+          # tolerates it.
+          status=0
+          uv run fill --collect-only -q \
+            ${{ steps.properties.outputs.fill-params }} > collected.txt \
+            || status=$?
+          tail -n 20 collected.txt
+          exit "$status"
+
+  fill:
+    name: fill (${{ matrix.label || matrix.feature }})
+    needs: [setup, collect]
+    if: needs.setup.outputs.fill == 'true'
+    runs-on: ubuntu-24.04
+    # Hosted runners cap a job at six hours regardless; the explicit
+    # timeout keeps a wedged fill from burning the whole budget.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.setup.outputs.fill_matrix) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: true
+
+      - uses: ./.github/actions/build-fixtures
+        with:
+          release_name: ${{ matrix.feature }}
+          from_fork: ${{ matrix.from_fork }}
+          until_fork: ${{ matrix.until_fork }}
+          split_label: ${{ matrix.label }}
+          # A rehearsal only reports whether the fill succeeds; keeping
+          # its fixtures would cost storage for output nothing consumes.
+          upload: "false"
