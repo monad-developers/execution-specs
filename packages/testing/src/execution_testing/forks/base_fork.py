@@ -577,16 +577,15 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         pass
 
     @classmethod
-    @abstractmethod
     def supports_block_access_lists(cls) -> bool:
         """
         Return true if the fork builds block access lists (EIP-7928).
 
-        A fork can require the block access list hash header field without
-        building block access lists (e.g. Monad); the field is then fixed
-        at zero.
+        A fork can require the block access list hash header field
+        without building the lists, and then fixes the field at zero, so
+        this follows the EIP rather than the header requirement.
         """
-        pass
+        return cls.is_eip_enabled(7928)
 
     @classmethod
     @abstractmethod

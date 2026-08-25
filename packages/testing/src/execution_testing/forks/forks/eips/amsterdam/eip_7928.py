@@ -30,13 +30,6 @@ class EIP7928(
         return True
 
     @classmethod
-    def supports_block_access_lists(cls) -> bool:
-        """
-        From EIP-7928, blocks build block access lists.
-        """
-        return True
-
-    @classmethod
     def gas_costs(cls) -> GasCosts:
         """
         The cost per block access list item is introduced in EIP-7928.

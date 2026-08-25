@@ -955,11 +955,6 @@ class Frontier(BaseFork):
         return False
 
     @classmethod
-    def supports_block_access_lists(cls) -> bool:
-        """At genesis, no block access lists are built."""
-        return False
-
-    @classmethod
     def empty_block_bal_item_count(cls) -> int:
         """Pre-Amsterdam forks have no block access list."""
         return 0
