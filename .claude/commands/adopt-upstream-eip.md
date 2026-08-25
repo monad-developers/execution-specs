@@ -9,9 +9,10 @@ skill before starting such work.
 - **`<MONAD_FORK>`** — the WIP Monad fork that adopts the EIP, and
   **`<MONAD_PARENT>`**, the Monad fork it succeeds. Example: `MONAD_NEXT`
   succeeding `MONAD_TEN`.
-- **`<EIP>`** — one EIP number. Example: `7997`. Bundle several in one
-  branch only when they are interdependent or tightly coupled; otherwise
-  one EIP per branch, so each releases and reviews on its own.
+- **`<EIP>`** — the EIP number, or the numbers joined with `+` for a
+  bundle. Examples: `7997`, `2345+3456`. Bundle several in one branch
+  only when they are interdependent or tightly coupled; otherwise one
+  EIP per branch, so each releases and reviews on its own.
 
 Derived from those, and used as placeholders throughout:
 
@@ -388,8 +389,11 @@ monad_eip<EIP>:
   fill-params: -m blockchain_test --fork=<MONAD_FORK> --chain-id=143 -k "not invalid_header"
 ```
 
-Name it `monad_eip<EIP>` for a single-EIP branch. A branch carrying a
-bundle keeps a descriptive name (`monad_amsterdam`) for continuity.
+The name mirrors the branch, bundles included, so a branch
+`eips/monad_next/eip-2345+3456` declares `monad_eip2345+3456`. The
+`check_release.yaml` rehearsal deduces the feature from the branch name,
+and rehearses every feature the branch declares when it finds none.
+`monad_amsterdam` predates the convention.
 
 ## 9. Validate with a full-suite fill
 
