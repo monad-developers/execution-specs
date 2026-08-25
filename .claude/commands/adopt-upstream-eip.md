@@ -39,7 +39,7 @@ there.
 A change to a file the Monad forks do not own is legitimate in two ways:
 
 - **Permanent** — still correct after the merge: the fork class, the ported
-  spec change, the `follows=` hook, gating for a divergence that is
+  spec change, the `follows()` trait, gating for a divergence that is
   genuinely Monad's.
 - **Scaffolding** — needed only while the branch stands alone, because the
   branch has to fill green by itself: an exclusion for a suite a sibling
@@ -54,11 +54,11 @@ so it neutralises itself where possible (`fork.is_eip_enabled(<n>)`), and
 list it in step 12 so the merge removes it.
 
 1. `<MONAD_FORK>` adopts EIP mixins. It never inherits `<ETH_FORK>`.
-2. Fork order comes from `follows=`, never from inheritance.
+2. Fork order comes from `follows()`, never from inheritance.
 3. Shared test files change only where Monad genuinely diverges, or where
    the branch cannot fill green without it.
 4. What the sibling branches genuinely share is byte-identical between
-   them: the same `follows=` hook, the same marker guard, the same
+   them: the same `follows()` trait, the same marker guard, the same
    exclusion wording, the same test adaptation. Identical additions merge
    silently; wording that drifts conflicts. Apply the alignment to what a
    branch needs anyway — it is never itself a reason to carry a change,
@@ -176,7 +176,6 @@ mixins first:
 class <MONAD_FORK>(  # noqa: N801
     eips.EIP<EIP>,
     <MONAD_PARENT>,
-    follows=<ETH_FORK>,
 ):
     """
     <MONAD_FORK> fork.
@@ -187,10 +186,14 @@ class <MONAD_FORK>(  # noqa: N801
     <MONAD_FORK> after <ETH_FORK> through `follows`.
     """
 
-    pass
+    @classmethod
+    def follows(cls) -> type[BaseFork] | None:
+        """<MONAD_FORK> comes after <ETH_FORK> without inheriting it."""
+        return <ETH_FORK>
 ```
 
-Concretely: `class MONAD_NEXT(eips.EIP7997, MONAD_TEN, follows=Amsterdam)`.
+Concretely: `class MONAD_NEXT(eips.EIP7997, MONAD_TEN)` whose `follows()`
+returns `Amsterdam`.
 
 Why this shape, and not `class <MONAD_FORK>(<MONAD_PARENT>, <ETH_FORK>)`:
 
@@ -205,12 +208,18 @@ Why this shape, and not `class <MONAD_FORK>(<MONAD_PARENT>, <ETH_FORK>)`:
   `TypeError: Cannot create a consistent method resolution order`, because
   that fork already inherits them.
 
-`follows=` is a `BaseFork.__init_subclass__` keyword that records
-succession without inheritance; `BaseForkMeta._is_subclass_of` walks the
-chain so comparisons see it. A successor fork inherits the value, so
-`<MONAD_FORK>`'s own successors stay ordered after `<ETH_FORK>` without
-restating it. If a branch predates the hook, add it with the
-same wording so sibling branches stay textually identical.
+`follows()` is a `BaseFork` classmethod that records succession without
+inheritance. It returns `None` by default, a fork that reuses another
+lineage's ordering overrides it, and `BaseForkMeta._is_subclass_of` walks
+the returned chain so comparisons see it. A successor fork inherits the
+override, so `<MONAD_FORK>`'s own successors stay ordered after
+`<ETH_FORK>` without restating it.
+
+If `<MONAD_BRANCH>` has no `follows()` yet, add it before declaring the
+fork: the default trait on `BaseFork` and the walk in
+`BaseForkMeta._is_subclass_of`. Both are additive — a new classmethod, and
+a loop after the existing `issubclass` check — and every branch that adds
+them should use the same wording so they merge silently.
 
 Verify the shape before going further:
 
@@ -261,7 +270,7 @@ Skip this step entirely when the EIP is framework-only.
 
 ## 5. Keep the unadopted suites off the fork
 
-`follows=` orders the fork after `<ETH_FORK>`, so every suite marked
+`follows()` orders the fork after `<ETH_FORK>`, so every suite marked
 `valid_from("<ETH_FORK>")` or `valid_from("EIP…")` now selects it — for
 EIPs the fork does not implement. For each such suite, add:
 
