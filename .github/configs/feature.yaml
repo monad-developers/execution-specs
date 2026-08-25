@@ -1,8 +1,3 @@
-# Unless filling for special features, all features should fill for previous forks (starting from Frontier) too
-mainnet:
-  evm-type: eels
-  fill-params: --until=BPO4 --generate-all-formats
-
 monad:
   evm-type: eels
   fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=143 -k "not invalid_header"
