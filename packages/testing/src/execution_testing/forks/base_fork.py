@@ -344,11 +344,13 @@ class BaseForkMeta(ABCMeta):
         b = BaseForkMeta._maybe_transitioned(b)
         if issubclass(a, b):
             return True
-        followed = getattr(a, "_follows", None)
+        # The metaclass sees its instances as plain classes, so the
+        # trait is reached through a cast, as elsewhere in this class.
+        followed = cast(Type["BaseFork"], a).follows()
         while followed is not None:
             if issubclass(followed, b):
                 return True
-            followed = followed._follows
+            followed = followed.follows()
         return False
 
     def __gt__(cls, other: "BaseForkMeta") -> bool:
@@ -392,7 +394,6 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
     _fork_by_timestamp: ClassVar[bool] = False
     _blob_constants: ClassVar[Dict[str, int]] = {}
     _deployed: ClassVar[bool] = True
-    _follows: ClassVar[Optional[Type["BaseFork"]]] = None
     _enabled_eips: ClassVar[Set[int]] = set()
     _enabling_forks: ClassVar[Set[Type["BaseFork"]]] = set()
 
@@ -408,7 +409,6 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         transition_tool_name: Optional[str] = None,
         ignore: bool = False,
         bpo_fork: bool = False,
-        follows: Optional[Type["BaseFork"]] = None,
         ruleset_name: Optional[str] = None,
         fork_by_timestamp: Optional[bool] = None,
         deployed: Optional[bool] = None,
@@ -423,7 +423,6 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         forks.
         """
         cls._transition_tool_name = transition_tool_name
-        cls._follows = follows
         cls._ignore = ignore
         cls._bpo_fork = bpo_fork
         cls._ruleset_name = ruleset_name
@@ -1432,6 +1431,17 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         if not cls.is_eip():
             raise Exception(f"Class {cls.__name__} is not an EIP.")
         return cls._enabling_forks
+
+    @classmethod
+    def follows(cls) -> Type["BaseFork"] | None:
+        """
+        Return the fork this one comes after without inheriting it.
+
+        A fork that reuses another lineage's ordering overrides this;
+        comparisons then place it after that fork, and after everything
+        that fork comes after, while its behavior stays its own.
+        """
+        return None
 
     @classmethod
     def parent(cls) -> Type["BaseFork"] | None:
