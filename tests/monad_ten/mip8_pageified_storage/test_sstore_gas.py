@@ -954,3 +954,51 @@ def test_sstore_oog(
         subject_storage=subject_storage,
         expected_gas=expected_gas,
     )
+
+
+@pytest.mark.parametrize("surviving_pages", [1, 2])
+def test_zeroed_page_omitted_from_root(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    surviving_pages: int,
+) -> None:
+    """
+    A page whose every slot is cleared is omitted from the storage
+    commitment rather than committed as an all-zero page.
+    """
+    cleared_page = 1
+    kept_pages = [0, 2][:surviving_pages]
+
+    kept_storage: dict[NumberConvertible, NumberConvertible] = {}
+    for page in kept_pages:
+        base = page * Spec.SLOTS_PER_PAGE
+        kept_storage[base] = 1
+        kept_storage[base + 1] = 2
+        kept_storage[base + Spec.SLOTS_PER_PAGE - 1] = 3
+
+    cleared_slots = range(
+        cleared_page * Spec.SLOTS_PER_PAGE,
+        (cleared_page + 1) * Spec.SLOTS_PER_PAGE,
+    )
+
+    code = Bytecode()
+    for slot in cleared_slots:
+        code += Op.SSTORE(slot, 0)
+
+    contract_address = pre.deploy_contract(
+        code,
+        storage={**kept_storage, **dict.fromkeys(cleared_slots, 0xFF)},
+    )
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork) + full_page_sweep_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={contract_address: Account(storage=kept_storage)},
+        tx=tx,
+    )
