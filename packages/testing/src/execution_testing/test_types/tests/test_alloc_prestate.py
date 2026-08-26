@@ -11,6 +11,8 @@ Covers four invariants of the lifecycle phase machinery:
     4. Building alloc B by `apply_diff`ing a diff onto alloc A produces a
        post-state whose root matches an alloc independently constructed
        to look like the post-state.
+    5. `state_root` follows the alloc's commitment scheme, so the same
+       accounts commit differently under MPT and under MIP-8 paging.
 """
 
 from typing import Dict, Optional
@@ -287,3 +289,18 @@ def test_apply_diff_round_trip_matches_independent_post_state() -> None:
             account_changes={}, storage_changes={}, code_changes={}
         )
     )
+
+
+def test_state_root_follows_commitment_scheme() -> None:
+    """
+    Identical accounts commit to different roots under MPT and paging.
+
+    Guards the `StateCommitment` dispatch in `Alloc._state_module`: a
+    misrouted scheme would silently keep producing pre-MIP-8 roots.
+    """
+    mpt = _fixture_alloc()
+    paged = _fixture_alloc()
+    paged.migrate_state_commitment(StateCommitment.PAGED)
+
+    assert mpt.root == paged.root
+    assert mpt.state_root() != paged.state_root()
