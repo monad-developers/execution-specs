@@ -814,6 +814,55 @@ def test_sstore_no_growth_after_clear(
     )
 
 
+@pytest.mark.parametrize("clears", [1, 3])
+def test_sstore_negative_growth_floor(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    clears: int,
+) -> None:
+    """
+    The per-page growth counter accumulates below zero, so refills stay
+    free until it climbs back above the peak it started at.
+    """
+    page = TxPageState(slots=dict.fromkeys(range(clears), 1))
+
+    code = Bytecode()
+    for slot in range(clears):
+        code += Op.SSTORE(slot, 0)
+        simulate_sstore(page, slot, 0, fork)
+
+    overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
+    expected_storage: dict[int, int] = {}
+    for slot in range(clears + 1):
+        expected_storage[slot] = 1
+        expected_storage[slot_gas_measured + slot] = simulate_sstore(
+            page, slot, 1, fork
+        )
+        code += CodeGasMeasure(
+            code=Op.SSTORE(slot, 1),
+            overhead_cost=overhead,
+            extra_stack_items=0,
+            sstore_key=slot_gas_measured + slot,
+        )
+
+    contract_address = pre.deploy_contract(
+        code, storage=dict.fromkeys(range(clears), 1)
+    )
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={contract_address: Account(storage=expected_storage)},
+        tx=tx,
+    )
+
+
 @pytest.mark.parametrize(
     "warm_slot,measured_slot",
     [
