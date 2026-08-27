@@ -24,7 +24,6 @@ from ...state_tracker import (
     increment_nonce,
     is_account_alive,
     move_ether,
-    set_account_balance,
 )
 from ...utils.address import (
     compute_contract_address,
@@ -35,7 +34,6 @@ from ...vm.eoa_delegation import access_delegation
 from .. import (
     Evm,
     Message,
-    emit_burn_log,
     emit_transfer_log,
     incorporate_child_on_error,
     incorporate_child_on_success,
@@ -586,21 +584,13 @@ def selfdestruct(evm: Evm) -> None:
         originator_balance,
     )
 
-    # EIP-7708: Emit transfer or burn log for the beneficiary transfer
-    if (
-        originator in evm.message.tx_env.state.created_accounts
-        and beneficiary == originator
-    ):
-        emit_burn_log(evm, originator, originator_balance)
-    elif beneficiary != originator:
+    # EIP-7708: Emit a transfer log for the beneficiary transfer
+    if beneficiary != originator:
         emit_transfer_log(evm, originator, beneficiary, originator_balance)
 
     # register account for deletion only if it was created
     # in the same transaction
     if originator in evm.message.tx_env.state.created_accounts:
-        # If beneficiary is the same as originator, then
-        # the ether is burnt.
-        set_account_balance(evm.message.tx_env.state, originator, U256(0))
         evm.accounts_to_delete.add(originator)
 
     # HALT the execution

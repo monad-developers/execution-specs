@@ -18,3 +18,7 @@ monad_eip7981:
 monad_eip7997:
   evm-type: eels
   fill-params: -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header"
+
+monad_eip8246:
+  evm-type: eels
+  fill-params: -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header"
