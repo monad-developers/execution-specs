@@ -61,8 +61,8 @@ from .state_tracker import (
     BlockState,
     TransactionState,
     add_sender_authority,
+    clear_account_preserving_balance,
     create_ether,
-    destroy_account,
     extract_block_diff,
     forget_senders_authorities,
     get_account,
@@ -974,7 +974,7 @@ def process_transaction(
     create_ether(tx_state, block_env.coinbase, U256(transaction_fee))
 
     for address in tx_output.accounts_to_delete:
-        destroy_account(tx_state, address)
+        clear_account_preserving_balance(tx_state, address)
 
     # block_output.block_gas_used += tx_gas_used_after_refund
     block_output.block_gas_used += tx.gas

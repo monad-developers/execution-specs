@@ -1462,6 +1462,15 @@ def test_contract_unrestricted_within_initcode(
 
     new_balance = balance - value + Spec.RESERVE_BALANCE
 
+    # EIP-8246 stops the end-of-transaction cleanup from burning the
+    # balance, so the refill that follows SELFDESTRUCT is left behind on
+    # a cleared account.
+    selfdestructed_account = (
+        Account(nonce=0, balance=Spec.RESERVE_BALANCE, code=b"", storage={})
+        if fork.is_eip_enabled(8246)
+        else None
+    )
+
     txs = [tx_1]
     if new_address_pre_funded:
         txs.insert(
@@ -1491,7 +1500,7 @@ def test_contract_unrestricted_within_initcode(
                 balance=new_balance, code=deploy_code
             )
             if not selfdestruct
-            else None,
+            else selfdestructed_account,
             target: Account(balance=value) if value != 0 else None,
             # SELFDESTRUCT runs during initcode (before factory
             # refill), so it sends balance - value only.
