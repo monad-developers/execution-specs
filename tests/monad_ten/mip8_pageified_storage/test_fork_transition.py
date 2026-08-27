@@ -17,6 +17,7 @@ from execution_testing import (
     Storage,
     Transaction,
 )
+from execution_testing.base_types.conversions import NumberConvertible
 from execution_testing.forks import MONAD_NINE, MONAD_TEN
 from execution_testing.forks.helpers import Fork
 
@@ -26,7 +27,7 @@ from .helpers import (
     generous_gas,
     simulate_sstore,
 )
-from .spec import ref_spec_8
+from .spec import Spec, ref_spec_8
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8.git_path
 REFERENCE_SPEC_VERSION = ref_spec_8.version
@@ -495,3 +496,53 @@ def test_blockhash_stable_across_fork(
         blocks=blocks,
         post={contract_address: Account(storage=storage)},
     )
+
+
+@pytest.mark.parametrize("other_account_touched", [False, True])
+@pytest.mark.valid_at_transition_to("MONAD_TEN")
+def test_state_root_untouched_storage_at_fork(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    other_account_touched: bool,
+) -> None:
+    """
+    Storage untouched by the post-fork block still commits under the
+    MIP-8 page scheme.
+    """
+    sender = pre.fund_eoa()
+
+    storage: dict[NumberConvertible, NumberConvertible] = {
+        0: 1,
+        1: 2**256 - 1,
+        Spec.SLOTS_PER_PAGE - 1: 0x2A,
+        Spec.SLOTS_PER_PAGE: 0x2B,
+        2 * Spec.SLOTS_PER_PAGE - 1: 0x2C,
+        2**256 - 1: 2**255,
+    }
+    contract_address = pre.deploy_contract(Op.STOP, storage=storage)
+
+    timestamps = [14_999, 15_000]
+    post: dict = {contract_address: Account(storage=storage)}
+
+    if other_account_touched:
+        target = pre.deploy_contract(Op.SSTORE(0, Op.TIMESTAMP))
+        post[target] = Account(storage={0: timestamps[-1]})
+    else:
+        target = pre.fund_eoa(amount=0)
+
+    blocks = [
+        Block(
+            timestamp=ts,
+            txs=[
+                Transaction(
+                    to=target,
+                    value=1,
+                    sender=sender,
+                    nonce=nonce,
+                ),
+            ],
+        )
+        for nonce, ts in enumerate(timestamps)
+    ]
+
+    blockchain_test(pre=pre, blocks=blocks, post=post)

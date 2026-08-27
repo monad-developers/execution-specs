@@ -29,9 +29,12 @@ import pytest
 from ethereum.crypto.hash import Hash32, keccak256
 from ethereum.merkle_patricia_trie import (
     EMPTY_TRIE_ROOT,
+    Trie,
     bytes_to_nibble_list,
     encode_internal_node,
     patricialize,
+    root,
+    trie_set,
 )
 from ethereum.paged_storage_trie import (
     PAGE_SIZE,
@@ -202,3 +205,46 @@ def test_single_page_root_matches_manual_reconstruction(
     expected = keccak256(encoded) if len(encoded) < 32 else Hash32(root_node)
 
     assert storage_root_paged(_storage(slot_values)) == expected
+
+
+def _storage_trie(slot_values: Mapping[int, int]) -> Trie[Bytes32, U256]:
+    """Build a secured storage trie holding `{slot: value}`."""
+    trie: Trie[Bytes32, U256] = Trie(secured=True, default=U256(0))
+    for slot, value in slot_values.items():
+        trie_set(trie, U256(slot).to_be_bytes32(), U256(value))
+    return trie
+
+
+@pytest.mark.parametrize(
+    "slot_values",
+    [{0: 1}, {0: 1, 1: 2}, {0: 1, 128: 2}, {2**256 - 1: 1}],
+)
+def test_paged_root_differs_from_keccak_mpt_root(
+    slot_values: Dict[int, int],
+) -> None:
+    """The page commitment does not coincide with a keccak MPT over slots."""
+    assert storage_root_paged(_storage(slot_values)) != root(
+        _storage_trie(slot_values)
+    )
+
+
+def test_fully_cleared_page_root_matches_never_written() -> None:
+    """
+    Clearing every slot of a page restores the root the storage had
+    before that page was written.
+
+    Zeroing a slot drops it from the trie, so the emptied page has no
+    commitment entry at all — `page_commit` rejects an all-zero image.
+    """
+    trie = _storage_trie({0: 1})
+    baseline = storage_root_paged(trie._data)
+
+    for offset in range(WORDS_PER_PAGE):
+        slot = U256(WORDS_PER_PAGE + offset).to_be_bytes32()
+        trie_set(trie, slot, U256(offset + 1))
+    assert storage_root_paged(trie._data) != baseline
+
+    for offset in range(WORDS_PER_PAGE):
+        slot = U256(WORDS_PER_PAGE + offset).to_be_bytes32()
+        trie_set(trie, slot, U256(0))
+    assert storage_root_paged(trie._data) == baseline

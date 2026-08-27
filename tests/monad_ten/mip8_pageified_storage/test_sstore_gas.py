@@ -814,6 +814,55 @@ def test_sstore_no_growth_after_clear(
     )
 
 
+@pytest.mark.parametrize("clears", [1, 3])
+def test_sstore_negative_growth_floor(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    clears: int,
+) -> None:
+    """
+    The per-page growth counter accumulates below zero, so refills stay
+    free until it climbs back above the peak it started at.
+    """
+    page = TxPageState(slots=dict.fromkeys(range(clears), 1))
+
+    code = Bytecode()
+    for slot in range(clears):
+        code += Op.SSTORE(slot, 0)
+        simulate_sstore(page, slot, 0, fork)
+
+    overhead = (Op.PUSH1(0) + Op.PUSH1(0)).gas_cost(fork)
+    expected_storage: dict[int, int] = {}
+    for slot in range(clears + 1):
+        expected_storage[slot] = 1
+        expected_storage[slot_gas_measured + slot] = simulate_sstore(
+            page, slot, 1, fork
+        )
+        code += CodeGasMeasure(
+            code=Op.SSTORE(slot, 1),
+            overhead_cost=overhead,
+            extra_stack_items=0,
+            sstore_key=slot_gas_measured + slot,
+        )
+
+    contract_address = pre.deploy_contract(
+        code, storage=dict.fromkeys(range(clears), 1)
+    )
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={contract_address: Account(storage=expected_storage)},
+        tx=tx,
+    )
+
+
 @pytest.mark.parametrize(
     "warm_slot,measured_slot",
     [
@@ -953,4 +1002,52 @@ def test_sstore_oog(
         subject_code=subject,
         subject_storage=subject_storage,
         expected_gas=expected_gas,
+    )
+
+
+@pytest.mark.parametrize("surviving_pages", [1, 2])
+def test_zeroed_page_omitted_from_root(
+    state_test: StateTestFiller,
+    pre: Alloc,
+    fork: Fork,
+    surviving_pages: int,
+) -> None:
+    """
+    A page whose every slot is cleared is omitted from the storage
+    commitment rather than committed as an all-zero page.
+    """
+    cleared_page = 1
+    kept_pages = [0, 2][:surviving_pages]
+
+    kept_storage: dict[NumberConvertible, NumberConvertible] = {}
+    for page in kept_pages:
+        base = page * Spec.SLOTS_PER_PAGE
+        kept_storage[base] = 1
+        kept_storage[base + 1] = 2
+        kept_storage[base + Spec.SLOTS_PER_PAGE - 1] = 3
+
+    cleared_slots = range(
+        cleared_page * Spec.SLOTS_PER_PAGE,
+        (cleared_page + 1) * Spec.SLOTS_PER_PAGE,
+    )
+
+    code = Bytecode()
+    for slot in cleared_slots:
+        code += Op.SSTORE(slot, 0)
+
+    contract_address = pre.deploy_contract(
+        code,
+        storage={**kept_storage, **dict.fromkeys(cleared_slots, 0xFF)},
+    )
+
+    tx = Transaction(
+        gas_limit=generous_gas(fork) + full_page_sweep_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    state_test(
+        pre=pre,
+        post={contract_address: Account(storage=kept_storage)},
+        tx=tx,
     )
