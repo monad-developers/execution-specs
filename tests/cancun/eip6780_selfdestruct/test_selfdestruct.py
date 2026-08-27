@@ -24,16 +24,12 @@ from execution_testing import (
     StateTestFiller,
     Storage,
     Transaction,
-    TransactionLog,
     TransactionReceipt,
     compute_create_address,
 )
 from execution_testing.forks import MONAD_EIGHT, Cancun
 
-from tests.amsterdam.eip7708_eth_transfer_logs.spec import (
-    burn_log,
-    transfer_log,
-)
+from tests.amsterdam.eip7708_eth_transfer_logs.spec import transfer_log
 
 REFERENCE_SPEC_GIT_PATH = "EIPS/eip-6780.md"
 REFERENCE_SPEC_VERSION = "1b6a0e94cc47e859b9866e570391cf37dc55059a"
@@ -54,25 +50,6 @@ NO_SELFDESTRUCT = Address(0x00)
 PRE_DEPLOY_CONTRACT_1 = "pre_deploy_contract_1"
 PRE_DEPLOY_CONTRACT_2 = "pre_deploy_contract_2"
 PRE_DEPLOY_CONTRACT_3 = "pre_deploy_contract_3"
-
-
-def sweep_log(
-    fork: Fork,
-    contract_address: Address,
-    recipient: Address,
-    amount: int,
-) -> TransactionLog | None:
-    """
-    Return the EIP-7708 log a SELFDESTRUCT sweep emits, if any.
-
-    A sweep to another account transfers. A sweep to self burns the
-    balance, until EIP-8246 keeps it and emits nothing.
-    """
-    if recipient != contract_address:
-        return transfer_log(contract_address, recipient, amount)
-    if fork.is_eip_enabled(8246):
-        return None
-    return burn_log(contract_address, amount)
 
 
 @pytest.fixture
@@ -347,14 +324,14 @@ def test_create_selfdestruct_same_tx(
         # SELFDESTRUCT emits a Transfer log to a different address, or a Burn
         # log when sending to self (contract was created in this tx).
         if selfdestruct_contract_current_balance > 0:
-            sweep = sweep_log(
-                fork,
-                selfdestruct_contract_address,
-                sendall_recipient,
-                selfdestruct_contract_current_balance,
-            )
-            if sweep is not None:
-                expected_logs_after_tx_value.append(sweep)
+            if sendall_recipient != selfdestruct_contract_address:
+                expected_logs_after_tx_value.append(
+                    transfer_log(
+                        selfdestruct_contract_address,
+                        sendall_recipient,
+                        selfdestruct_contract_current_balance,
+                    )
+                )
 
         # Balance is always sent to other contracts
         if sendall_recipient != selfdestruct_contract_address:
@@ -592,14 +569,13 @@ def test_self_destructing_initcode(
             )
         # Initcode SELFDESTRUCT sends pre-existing balance to the recipient.
         if selfdestruct_contract_initial_balance > 0:
-            sweep = sweep_log(
-                fork,
-                selfdestruct_contract_address,
-                sendall_recipient_addresses[0],
-                selfdestruct_contract_initial_balance,
+            expected_logs.append(
+                transfer_log(
+                    selfdestruct_contract_address,
+                    sendall_recipient_addresses[0],
+                    selfdestruct_contract_initial_balance,
+                )
             )
-            if sweep is not None:
-                expected_logs.append(sweep)
         # CALLs to the destroyed contract transfer ETH to it.
         for i in range(call_times):
             if i > 0:
@@ -608,12 +584,6 @@ def test_self_destructing_initcode(
                         entry_code_address, selfdestruct_contract_address, i
                     )
                 )
-        # Whatever the calls left on the account is burned when the
-        # account is deleted, until EIP-8246 keeps it.
-        if entry_code_balance > 0 and not fork.is_eip_enabled(8246):
-            expected_logs.append(
-                burn_log(selfdestruct_contract_address, entry_code_balance)
-            )
     tx.expected_receipt = TransactionReceipt(logs=expected_logs)
 
     state_test(pre=pre, post=post, tx=tx)
@@ -687,14 +657,13 @@ def test_self_destructing_initcode_create_tx(
                 transfer_log(sender, selfdestruct_contract_address, tx_value)
             )
         if sendall_amount > 0:
-            sweep = sweep_log(
-                fork,
-                selfdestruct_contract_address,
-                sendall_recipient_addresses[0],
-                sendall_amount,
+            expected_logs.append(
+                transfer_log(
+                    selfdestruct_contract_address,
+                    sendall_recipient_addresses[0],
+                    sendall_amount,
+                )
             )
-            if sweep is not None:
-                expected_logs.append(sweep)
         tx.expected_receipt = TransactionReceipt(logs=expected_logs)
 
     state_test(pre=pre, post=post, tx=tx)
@@ -817,14 +786,17 @@ def test_recreate_self_destructed_contract_different_txs(
             # address with 0 balance (destroyed+cleared), so no log.
             tx_logs: list = []
             if i == 0 and selfdestruct_contract_initial_balance > 0:
-                sweep = sweep_log(
-                    fork,
-                    selfdestruct_contract_address,
-                    sendall_recipient_addresses[0],
-                    selfdestruct_contract_initial_balance,
-                )
-                if sweep is not None:
-                    tx_logs.append(sweep)
+                if (
+                    sendall_recipient_addresses[0]
+                    != selfdestruct_contract_address
+                ):
+                    tx_logs.append(
+                        transfer_log(
+                            selfdestruct_contract_address,
+                            sendall_recipient_addresses[0],
+                            selfdestruct_contract_initial_balance,
+                        )
+                    )
             expected_receipt = TransactionReceipt(logs=tx_logs)
         txs.append(
             Transaction(
@@ -1016,14 +988,13 @@ def test_selfdestruct_pre_existing(
             sendall_recipient != selfdestruct_contract_address
             and selfdestruct_contract_current_balance > 0
         ):
-            sweep = sweep_log(
-                fork,
-                selfdestruct_contract_address,
-                sendall_recipient,
-                selfdestruct_contract_current_balance,
+            expected_logs_after_tx_value.append(
+                transfer_log(
+                    selfdestruct_contract_address,
+                    sendall_recipient,
+                    selfdestruct_contract_current_balance,
+                )
             )
-            if sweep is not None:
-                expected_logs_after_tx_value.append(sweep)
 
         # Balance is always sent to other contracts
         if sendall_recipient != selfdestruct_contract_address:
@@ -1221,14 +1192,13 @@ def test_selfdestruct_created_same_block_different_tx(
                 )
             running_balance += i
             if running_balance > 0:
-                sweep = sweep_log(
-                    fork,
-                    selfdestruct_contract_address,
-                    sendall_recipient_addresses[0],
-                    running_balance,
+                tx2_logs.append(
+                    transfer_log(
+                        selfdestruct_contract_address,
+                        sendall_recipient_addresses[0],
+                        running_balance,
+                    )
                 )
-                if sweep is not None:
-                    tx2_logs.append(sweep)
             running_balance = 0
         tx2_receipt = TransactionReceipt(logs=tx2_logs)
 
@@ -1414,14 +1384,13 @@ def test_calling_from_new_contract_to_pre_existing_contract(
                 )
             running_balance += i
             if running_balance > 0:
-                sweep = sweep_log(
-                    fork,
-                    selfdestruct_contract_address,
-                    sendall_recipient_addresses[0],
-                    running_balance,
+                expected_logs.append(
+                    transfer_log(
+                        selfdestruct_contract_address,
+                        sendall_recipient_addresses[0],
+                        running_balance,
+                    )
                 )
-                if sweep is not None:
-                    expected_logs.append(sweep)
             running_balance = 0
         tx.expected_receipt = TransactionReceipt(logs=expected_logs)
 
@@ -1759,14 +1728,13 @@ def test_create_selfdestruct_same_tx_increased_nonce(
         # (SELF_ADDRESS is not parametrized here), so a Transfer log is
         # emitted whenever the contract has a nonzero balance.
         if selfdestruct_contract_current_balance > 0:
-            sweep = sweep_log(
-                fork,
-                selfdestruct_contract_address,
-                sendall_recipient,
-                selfdestruct_contract_current_balance,
+            expected_logs_after_tx_value.append(
+                transfer_log(
+                    selfdestruct_contract_address,
+                    sendall_recipient,
+                    selfdestruct_contract_current_balance,
+                )
             )
-            if sweep is not None:
-                expected_logs_after_tx_value.append(sweep)
 
         # Balance is always sent to other contracts
         if sendall_recipient != selfdestruct_contract_address:

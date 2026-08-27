@@ -30,7 +30,6 @@ class Spec:
     TRANSFER_TOPIC: Hash = Hash(
         keccak256(b"Transfer(address,address,uint256)")
     )
-    BURN_TOPIC: Hash = Hash(keccak256(b"Burn(address,uint256)"))
 
 
 def transfer_log(
@@ -43,18 +42,6 @@ def transfer_log(
             Spec.TRANSFER_TOPIC,
             Hash(bytes(sender).rjust(32, b"\x00")),
             Hash(bytes(recipient).rjust(32, b"\x00")),
-        ],
-        data=Bytes(amount.to_bytes(32, "big")),
-    )
-
-
-def burn_log(contract_address: Address, amount: int) -> TransactionLog:
-    """Create an expected Burn log for EIP-7708."""
-    return TransactionLog(
-        address=Spec.SYSTEM_ADDRESS,
-        topics=[
-            Spec.BURN_TOPIC,
-            Hash(bytes(contract_address).rjust(32, b"\x00")),
         ],
         data=Bytes(amount.to_bytes(32, "big")),
     )
