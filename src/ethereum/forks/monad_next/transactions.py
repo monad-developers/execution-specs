@@ -30,6 +30,22 @@ from .fork_types import Authorization, VersionedHash
 
 TX_MAX_GAS_LIMIT = Uint(30_000_000)
 
+ACCESS_LIST_ADDRESS_FLOOR_TOKENS = Uint(80)
+"""
+Floor data tokens contributed by a single access list address per
+[EIP-7981].
+
+[EIP-7981]: https://eips.ethereum.org/EIPS/eip-7981
+"""
+
+ACCESS_LIST_STORAGE_KEY_FLOOR_TOKENS = Uint(128)
+"""
+Floor data tokens contributed by a single access list storage key per
+[EIP-7981].
+
+[EIP-7981]: https://eips.ethereum.org/EIPS/eip-7981
+"""
+
 
 @final
 @slotted_freezable
@@ -587,10 +603,6 @@ def calculate_intrinsic_cost(tx: Transaction) -> Tuple[Uint, Uint]:
     num_non_zeros = ulen(tx.data) - num_zeros
 
     tokens_in_calldata = num_zeros + num_non_zeros * Uint(4)
-    # EIP-7623 floor price (note: no EVM costs)
-    calldata_floor_gas_cost = (
-        tokens_in_calldata * GasCosts.TX_DATA_TOKEN_FLOOR + GasCosts.TX_BASE
-    )
 
     data_cost = tokens_in_calldata * GasCosts.TX_DATA_TOKEN_STANDARD
 
@@ -600,12 +612,28 @@ def calculate_intrinsic_cost(tx: Transaction) -> Tuple[Uint, Uint]:
         create_cost = Uint(0)
 
     access_list_cost = Uint(0)
+    tokens_in_access_list = Uint(0)
     if has_access_list(tx):
         for access in tx.access_list:
             access_list_cost += GasCosts.TX_ACCESS_LIST_ADDRESS
             access_list_cost += (
                 ulen(access.slots) * GasCosts.TX_ACCESS_LIST_STORAGE_KEY
             )
+            tokens_in_access_list += ACCESS_LIST_ADDRESS_FLOOR_TOKENS
+            tokens_in_access_list += (
+                ulen(access.slots) * ACCESS_LIST_STORAGE_KEY_FLOOR_TOKENS
+            )
+
+    # Data token floor cost for access list bytes.
+    access_list_cost += tokens_in_access_list * GasCosts.TX_DATA_TOKEN_FLOOR
+
+    # Total floor tokens.
+    total_floor_tokens = tokens_in_calldata + tokens_in_access_list
+
+    # EIP-7623 floor price (note: no EVM costs)
+    calldata_floor_gas_cost = (
+        total_floor_tokens * GasCosts.TX_DATA_TOKEN_FLOOR + GasCosts.TX_BASE
+    )
 
     auth_cost = Uint(0)
     if isinstance(tx, SetCodeTransaction):
