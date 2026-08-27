@@ -377,7 +377,13 @@ class FixtureHeader(CamelModel):
         if fork.header_requests_required():
             extras["requests_hash"] = Requests()
         if fork.header_bal_hash_required():
-            extras["block_access_list_hash"] = BlockAccessList().rlp_hash
+            # A fork can require the header field without building block
+            # access lists (e.g. Monad); the field is then fixed at zero.
+            extras["block_access_list_hash"] = (
+                BlockAccessList().rlp_hash
+                if fork.supports_block_access_lists()
+                else Hash(0)
+            )
         if fork.header_slot_number_required():
             extras["slot_number"] = (
                 int(env.slot_number) if env.slot_number is not None else 0
