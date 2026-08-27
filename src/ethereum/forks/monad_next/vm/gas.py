@@ -189,11 +189,15 @@ class GasCosts:
     OPCODE_CHAINID: Final[Uint] = BASE
     OPCODE_BASEFEE: Final[Uint] = BASE
     OPCODE_BLOBBASEFEE: Final[Uint] = BASE
+    OPCODE_SLOTNUM: Final[Uint] = BASE
     OPCODE_BLOBHASH: Final[Uint] = Uint(3)
     OPCODE_PUSH: Final[Uint] = VERY_LOW
     OPCODE_PUSH0: Final[Uint] = BASE
     OPCODE_DUP: Final[Uint] = VERY_LOW
     OPCODE_SWAP: Final[Uint] = VERY_LOW
+    OPCODE_DUPN: Final[Uint] = VERY_LOW
+    OPCODE_SWAPN: Final[Uint] = VERY_LOW
+    OPCODE_EXCHANGE: Final[Uint] = VERY_LOW
 
     # Dynamic Opcodes
     OPCODE_RETURNDATACOPY_BASE: Final[Uint] = VERY_LOW
