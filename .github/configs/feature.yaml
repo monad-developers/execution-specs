@@ -7,18 +7,6 @@ monad_runloop:
   # Like `monad`, but `--monad-runloop` and eestnet chain id `30143`
   fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=30143 --monad-runloop -k "not invalid_header"
 
-monad_amsterdam:
-  evm-type: eels
-  fill-params: -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header"
-
-monad_eip7981:
-  evm-type: eels
-  fill-params: -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header"
-
-monad_eip7997:
-  evm-type: eels
-  fill-params: -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header"
-
-monad_eip8246:
+monad_eip7708+7843+7981+7997+8024+8246:
   evm-type: eels
   fill-params: -m blockchain_test --fork=MONAD_NEXT --chain-id=143 -k "not invalid_header"
