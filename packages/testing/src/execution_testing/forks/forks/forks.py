@@ -1904,6 +1904,7 @@ class MONAD_NEXT(  # noqa: N801
     eips.EIP7708,
     eips.EIP7843,
     eips.EIP7981,
+    eips.EIP7997,
     eips.EIP8024,
     MONAD_TEN,
 ):
@@ -1911,10 +1912,10 @@ class MONAD_NEXT(  # noqa: N801
     MONAD_NEXT fork.
 
     Amsterdam-based successor to MONAD_TEN, adopting the EIP-7708,
-    EIP-7843, EIP-7981 and EIP-8024 changes. The Amsterdam changes it
-    does not adopt stay out of the fork by not being inherited at all;
-    the fork order still places MONAD_NEXT after Amsterdam through
-    `follows`.
+    EIP-7843, EIP-7981, EIP-7997 and EIP-8024 changes. The Amsterdam
+    changes it does not adopt stay out of the fork by not being
+    inherited at all; the fork order still places MONAD_NEXT after
+    Amsterdam through `follows`.
     """
 
     @classmethod
