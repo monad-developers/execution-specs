@@ -333,12 +333,25 @@ class BaseForkMeta(ABCMeta):
     @staticmethod
     def _is_subclass_of(a: "BaseForkMeta", b: "BaseForkMeta") -> bool:
         """
-        Check if `a` is a subclass of `b`, taking fork transitions into
-        account.
+        Check if `a` is a subclass of `b`, taking fork transitions and
+        declared succession into account.
+
+        A fork can follow another fork it does not inherit from, which
+        places it after that fork (and after everything that fork comes
+        after) in the fork order without adopting its behavior.
         """
         a = BaseForkMeta._maybe_transitioned(a)
         b = BaseForkMeta._maybe_transitioned(b)
-        return issubclass(a, b)
+        if issubclass(a, b):
+            return True
+        # The metaclass sees its instances as plain classes, so the
+        # trait is reached through a cast, as elsewhere in this class.
+        followed = cast(Type["BaseFork"], a).follows()
+        while followed is not None:
+            if issubclass(followed, b):
+                return True
+            followed = followed.follows()
+        return False
 
     def __gt__(cls, other: "BaseForkMeta") -> bool:
         """Compare if a fork is newer than some other fork (cls > other)."""
@@ -1406,6 +1419,17 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         if not cls.is_eip():
             raise Exception(f"Class {cls.__name__} is not an EIP.")
         return cls._enabling_forks
+
+    @classmethod
+    def follows(cls) -> Type["BaseFork"] | None:
+        """
+        Return the fork this one comes after without inheriting it.
+
+        A fork that reuses another lineage's ordering overrides this;
+        comparisons then place it after that fork, and after everything
+        that fork comes after, while its behavior stays its own.
+        """
+        return None
 
     @classmethod
     def parent(cls) -> Type["BaseFork"] | None:
