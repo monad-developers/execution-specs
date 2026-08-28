@@ -2,9 +2,9 @@
 
 What each test case in
 `tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py`
-actually does at the SLOAD/SSTORE level inside one block. Numbers (pages
-per tx, per-iteration gas) are computed with the module's own sizing
-helpers at `--gas-benchmark-values 200`, `REPEATS = 1`.
+actually does at the SLOAD/SSTORE level inside one block. Counts stay
+symbolic — they follow from `--gas-benchmark-values` and the module's
+sizing helpers. Diagrams show the `REPEATS = 1` block.
 
 ## Legend and shared machinery
 
@@ -35,15 +35,15 @@ page D + i:
 
 Block anatomy shared by `test_page_ops`, `test_block_shape` (few_big),
 `test_tx_halt`, `test_random_sload` and the two `test_bad_block_*` tests
-— one 200M-gas block, 7 equal txs, each from its own sender, to the same
+— one block, 7 equal txs, each from its own sender, to the same
 workload contract (`test_random_sload` cycles a pool of 8 contracts
 instead):
 
 ```
-Block (gas limit 200,000,000)
+Block (gas limit = the benchmark budget)
 ┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐
 │   tx 0   │   tx 1   │   tx 2   │   tx 3   │   tx 4   │   tx 5   │   tx 6   │
-│  28.57M  │  28.57M  │  28.57M  │  28.57M  │  28.57M  │  28.57M  │  28.57M  │
+│ budget/7 │ budget/7 │ budget/7 │ budget/7 │ budget/7 │ budget/7 │ budget/7 │
 └──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
 ```
 
@@ -81,9 +81,9 @@ No parameters. The storage-free baseline: the same 7-tx full block as
 above, each tx running a stack-arithmetic `WhileGas` loop.
 
 ```
-Block (gas limit 200,000,000)
+Block (gas limit = the benchmark budget)
 ┌──────────────────────────────────────────────────┬─── ... ───┬──────────┐
-│ tx 0 (28.57M gas)                                │           │   tx 6   │
+│ tx 0 (budget/7 gas)                              │           │   tx 6   │
 │   loop: POP(ADD(MUL(NUMBER, GAS), CALLVALUE))    │           │  (same)  │
 │   ... repeated until gas nearly spent ...        │           │          │
 │   SSTORE(slot 1, 0x1234)                         │           │          │
@@ -105,24 +105,24 @@ One section per storage operation (`StorageOp`); within each, `k` (page
 occupancy) varies. All variants use the 7-tx full block above. Per-tx
 page counts:
 
-| op                 | k values     | P pages/tx                 |
-|--------------------|--------------|----------------------------|
-| sload_cold_hit     | {1,16,128}   | 3469; k=128: 512¹          |
-| sload_cold_miss    | {1,16,64}    | 3469; k=64: 1024¹          |
-| sload_sweep_k      | {2,16,128}   | k=2:1741 k=16:218 k=128:27 |
-| sload_sweep_page   | {0,1,64}     | 27                         |
-| sload_warm_repeat  | {1}          | 158,946 (iterations)       |
-| sload_empty_page   | {0}          | 3469                       |
-| sstore_fresh       | {0}          | 1009                       |
-| sstore_noop        | {1,16,128}   | 3432; k=128: 512¹          |
-| sstore_grow        | {1,16,64}    | 1009                       |
-| sstore_update      | {1,16,128}   | 2563; k=128: 512¹          |
-| sstore_clear_keep  | {8,16,128}   | 2565; k=128: 512¹          |
-| sstore_clear_empty | {1}          | 2565                       |
+| op                 | k values     | P bounded by                |
+|--------------------|--------------|-----------------------------|
+| sload_cold_hit     | {1,16,128}   | gas; pre-state at high k¹   |
+| sload_cold_miss    | {1,16,64}    | gas; pre-state at high k¹   |
+| sload_sweep_k      | {2,16,128}   | gas (k reads per iteration) |
+| sload_sweep_page   | {0,1,64}     | gas (128 reads per iter)    |
+| sload_warm_repeat  | {1}          | gas (one slot, re-read)     |
+| sload_empty_page   | {0}          | gas                         |
+| sstore_fresh       | {0}          | gas                         |
+| sstore_noop        | {1,16,128}   | gas; pre-state at high k¹   |
+| sstore_grow        | {1,16,64}    | gas                         |
+| sstore_update      | {1,16,128}   | gas; pre-state at high k¹   |
+| sstore_clear_keep  | {8,16,128}   | gas; pre-state at high k¹   |
+| sstore_clear_empty | {1}          | pre-state                   |
 
-¹ capped by `PRE_SLOT_CAP = 65,536` pre-state slots per block
-(`P = 65,536 / k`); those blocks do less than 200M of real work by
-design — the pre-state, not gas, is the bound.
+¹ `PRE_SLOT_CAP` bounds the pre-populated slots per block, so at high k
+the page count falls to `PRE_SLOT_CAP / k` and the block does less work
+than its gas budget allows by design.
 
 ### Storage operation `sload_cold_hit`
 
@@ -175,7 +175,7 @@ tx 0..6, iteration i (page D + i):
   offset:  0    1    2   ...  k-1 | k .. 127
           R(0) R(1) R(2) ... R(k-1)| untouched     k cold reads
 
-per tx: P pages × k reads   (k=2: 1741×2, k=16: 218×16, k=128: 27×128)
+per tx: P pages × k reads
 checksum = P × k per tx
 ```
 
@@ -196,7 +196,7 @@ tx 0..6, iteration i (page D + i):
           R(0) ... R(k-1)| R(k) ... R(127)     128 cold reads
            \_ k hits ___/ \_ 128-k misses _/
 
-per tx: P = 27 pages × 128 reads;  checksum = P × k
+per tx: P pages × 128 reads;  checksum = P × k
 (k=0: checksum 0 → the tail SSTORE writes 0, no state trace)
 ```
 
@@ -213,12 +213,12 @@ slot arrives via calldata and is read directly (not page-shifted).
 ```
 pre-state:  slot W = 1
 
-tx 0:  SLOAD(W) ×158,946      1st read cold, remaining 158,945 warm
-tx 1:  SLOAD(W) ×158,946      cold again once (warm set reset), then warm
+tx 0:  SLOAD(W) ×P           1st read cold, the rest warm
+tx 1:  SLOAD(W) ×P           cold again once (warm set reset), then warm
  ...
-tx 6:  SLOAD(W) ×158,946
+tx 6:  SLOAD(W) ×P
 
-checksum = 158,946 per tx;  block total ≈ 1.11M reads of one hot slot
+checksum = P per tx;  the block re-reads one hot slot 7 × P times
 ```
 
 The warm-path baseline: page/slot caching should make fork choice
@@ -235,7 +235,7 @@ populated**. Every read is a whole-page miss.
              page D    page D+1        page D+(P-1)
 tx 0..6:     R(0)      R(0)      ...   R(0)        page does not exist
 
-P = 3469 per tx; checksum = 0 (zero write in the tail, no state trace)
+checksum = 0 (zero write in the tail, no state trace)
 ```
 
 Measures lookups that fall off the page index entirely.
@@ -257,7 +257,7 @@ F         F+P          F+2P                 F+6P         F+7P
 
 tx t, iteration i:  W(0)=1  on page F + t·P + i         state growth
 
-P = 1009  →  block creates 7 × 1009 = 7063 new pages
+the block creates 7 × P new pages
 ```
 
 ### Storage operation `sstore_noop`
@@ -271,7 +271,7 @@ its current value — 1→1, no state change ever.
 tx 0..6, iteration i (page D + i):
   offset 0: [ 1 ]  ◄── W(0)=1     cold page access, value unchanged
 
-post-state == pre-state (plus markers); P = 3432 (512 at k=128)
+post-state == pre-state (plus markers)
 ```
 
 Pays the write path without any page mutation.
@@ -292,7 +292,7 @@ page D + i, one column per tx:
   writer:           | tx0  tx1  tx2  tx3  tx4  tx5  tx6 |
   after:  [ 1 .. 1 ]|  1    1    1    1    1    1    1  |  0
 
-each tx: P = 1009 cold W(k+t)=1 writes, one per pool page
+each tx: P cold W(k+t)=1 writes, one per pool page
 ```
 
 ### Storage operation `sstore_update`
@@ -308,7 +308,7 @@ page D + i, offset 0 over the block:
   pre    tx0     tx1     tx2     tx3     tx4     tx5     tx6
    1  ─► W(0)=2 ─► =3  ─► =4  ─► =5  ─► =6  ─► =7  ─► =8
 
-each tx: P = 2563 cold writes (512 at k=128); slot 0 ends at 8
+each tx: P cold writes; slot 0 ends at 1 + 7
 ```
 
 ### Storage operation `sstore_clear_keep`
@@ -325,7 +325,7 @@ page D + i:
   clearer: tx0  tx1  tx2  tx3  tx4  tx5  tx6 | untouched |
   after:    0    0    0    0    0    0    0  |  1 .. 1   |  0
 
-each tx: P = 2565 cold W(t)=0 writes (512 at k=128)
+each tx: P cold W(t)=0 writes
 ```
 
 ### Storage operation `sstore_clear_empty`
@@ -347,7 +347,7 @@ F         F+P          F+2P                F+6P         F+7P
 tx t, iteration i:  W(0)=0  on page F + t·P + i
   before: [1][0..0]  →  after: [0][0..0]  →  page removed
 
-P = 2565  →  block removes 7 × 2565 = 17,955 pages
+the block removes 7 × P pages
 ```
 
 ---
@@ -364,51 +364,51 @@ Each contract runs the same loop contract with empty storage. Every
 contract writes page indices `F + 0 .. F + (m/n − 1)` — the *same*
 indices for all contracts, but in n distinct account storages, so
 nothing collides. A contract's share becomes one tx while it fits the
-30M tx cap (≤ 1060 pages); `m/n = 4096` splits into 4 txs.
+per-tx gas cap, and splits into several txs when it does not.
 
 ```
-Block (one per fixture; txs sized to the work, not to fill 200M)
+Block (one per fixture; txs sized to the work, not to the budget)
 
-n = 1, m = 4096 (4 txs, one contract):
+n = 1, large m (one contract, share split across txs):
 ┌ contract C0 ──────────────────────────────────────────────────────┐
-│ tx0: W(0)=1 on pages F+0     .. F+1059     (1060 pages, 30.0M)     │
-│ tx1: W(0)=1 on pages F+1060  .. F+2119     (1060 pages, 30.0M)     │
-│ tx2: W(0)=1 on pages F+2120  .. F+3179     (1060 pages, 30.0M)     │
-│ tx3: W(0)=1 on pages F+3180  .. F+4095     ( 916 pages, 25.9M)     │
+│ tx0: W(0)=1 on pages F+0    .. F+c-1    (a gas-cap-sized share)    │
+│ tx1: W(0)=1 on pages F+c    .. F+2c-1                              │
+│  ...                                                               │
+│ txN: W(0)=1 on pages F+Nc   .. F+m-1    (the remainder)            │
 └───────────────────────────────────────────────────────────────────┘
 
-n = 8, m = 4096 (8 txs, 512 pages each):
+n = 8 (8 txs, m/8 pages each):
 ┌ C0 ┐┌ C1 ┐┌ C2 ┐┌ C3 ┐┌ C4 ┐┌ C5 ┐┌ C6 ┐┌ C7 ┐
-│tx0 ││tx1 ││tx2 ││tx3 ││tx4 ││tx5 ││tx6 ││tx7 │   each: 512 × W(0)=1
-└────┘└────┘└────┘└────┘└────┘└────┘└────┘└────┘   14.55M gas each
+│tx0 ││tx1 ││tx2 ││tx3 ││tx4 ││tx5 ││tx6 ││tx7 │   each: m/8 × W(0)=1
+└────┘└────┘└────┘└────┘└────┘└────┘└────┘└────┘
 
-n = 512, m = 4096 (512 txs, 8 pages each):
-┌C0┐┌C1┐┌C2┐ ... ┌C511┐          each: 8 × W(0)=1, 345,504 gas
-└──┘└──┘└──┘     └────┘          block ≈ 177M gas
+n = 512 (512 txs, m/512 pages each):
+┌C0┐┌C1┐┌C2┐ ... ┌C511┐          each: m/512 × W(0)=1
+└──┘└──┘└──┘     └────┘
 ```
 
 Variants: `m ∈ {1,4,16,64,256,1024,4096} × n=1` (total-size sweep),
 `m=4096 × n ∈ {8,64,512}` (distribution sweep). Same total I/O at
-`m = 4096` regardless of `n` — only the account fan-out changes.
+a given `m` regardless of `n` — only the account fan-out changes.
 
 ---
 
 ## `test_block_shape`
 
-A few big vs many small (~300) transactions, each cold-SLOAD one occupied slot or SSTORE 0->1 into fresh slots.
+A few big vs many small transactions, each cold-SLOAD one occupied slot or SSTORE 0->1 into fresh slots.
 
-Same total work packed as **7 big** txs vs **300 small** txs. Two
+Same total work packed as a few big txs vs many small ones. Two
 workloads, each filled twice — once with a sender per tx and once with
 one sender for the whole block (`distinct_senders`), giving 8 cases. The
 sender mode changes no count below, only whether the block also carries
 a nonce chain:
 
-| op, k             | shape      | txs | tx gas    | iters/tx | block work         |
-|-------------------|------------|-----|-----------|----------|--------------------|
-| sstore_fresh, k=0 | few_big    | 7   | 28.57M    | 1009     | 7063 new pages     |
-| sstore_fresh, k=0 | many_small | 300 | 666,666   | 19       | 5700 new pages     |
-| sload_cold_hit, 8 | few_big    | 7   | 28.57M    | 3469     | 7×3469 cold reads  |
-| sload_cold_hit, 8 | many_small | 300 | 666,666   | 66       | 300×66 cold reads  |
+| op, k             | shape      | txs  | tx gas    | block work        |
+|-------------------|------------|------|-----------|-------------------|
+| sstore_fresh, k=0 | few_big    | 7    | budget/7  | txs × P new pages |
+| sstore_fresh, k=0 | many_small | many | budget/N  | txs × P new pages |
+| sload_cold_hit, 8 | few_big    | 7    | budget/7  | txs × P cold reads|
+| sload_cold_hit, 8 | many_small | many | budget/N  | txs × P cold reads|
 
 ```
 few_big:     ┌──────────┬──────────┬──────────┬──── ... ───┬──────────┐
@@ -416,12 +416,12 @@ few_big:     ┌──────────┬──────────�
              └──────────┴──────────┴──────────┴──── ... ───┴──────────┘
 
 many_small:  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬── ... ──┬──┬──┬──┬──┬──┬──┐
-             │t0│t1│t2│t3│t4│t5│t6│t7│t8│         │  │  │  │  │t299│
+             │t0│t1│t2│t3│t4│t5│t6│t7│t8│         │  │  │  │  │tN-1│
              └──┴──┴──┴──┴──┴──┴──┴──┴──┴── ... ──┴──┴──┴──┴──┴──┴──┘
 ```
 
 The reads reuse one shared pre-populated pool sized to a single tx
-(3469 pages for few_big, 66 pages for many_small, k = 8 slots each);
+(P pages per tx, k = 8 slots each);
 every tx is a fresh cold pass over it. The fresh writes tile disjoint
 per-tx ranges exactly like `sstore_fresh` above. What varies is per-tx
 fixed overhead (intrinsic gas, markers, cold pool re-touch) relative
@@ -433,21 +433,21 @@ to loop work.
 
 Seven transactions SSTORE 0->1 into fresh slots and either succeed, hit INVALID reverting all writes, or alternate.
 
-The `sstore_fresh` full block (7 txs × 1009 fresh pages, disjoint
+The `sstore_fresh` full block (7 txs × P fresh pages, disjoint
 ranges), with a `halt` calldata flag per tx. A halting tx performs all
 of its writes **and** its marker, then executes `INVALID`: everything
-reverts and the tx consumes its entire 28.57M gas limit.
+reverts and the tx consumes its entire gas limit.
 
 ```
 mode=success:  ┌ tx0 ✓ ┬ tx1 ✓ ┬ tx2 ✓ ┬ tx3 ✓ ┬ tx4 ✓ ┬ tx5 ✓ ┬ tx6 ✓ ┐
-               all writes land: 7063 pages + 7 markers
+               all writes land: 7 × P pages + 7 markers
 
 mode=halt:     ┌ tx0 ✗ ┬ tx1 ✗ ┬ tx2 ✗ ┬ tx3 ✗ ┬ tx4 ✗ ┬ tx5 ✗ ┬ tx6 ✗ ┐
-               every tx: 1009 × W(0)=1, marker, then INVALID
-               → post-state empty, block still burns the full 200M
+               every tx: P × W(0)=1, marker, then INVALID
+               → post-state empty, block still burns its full budget
 
 mode=mix:      ┌ tx0 ✓ ┬ tx1 ✗ ┬ tx2 ✓ ┬ tx3 ✗ ┬ tx4 ✓ ┬ tx5 ✗ ┬ tx6 ✓ ┐
-               only even txs' pages + markers survive (4 × 1009 pages)
+               only even txs' pages + markers survive (4 × P pages)
 ```
 
 Measures the cost of executing (and then discarding) storage writes —
@@ -468,27 +468,27 @@ the per-tx page set) × `k ∈ {0, 1}` (each read page is 1-slot occupied,
 or never populated).
 
 A pool of 8 identical contracts is deployed; tx `g` calls contract
-`g mod 8` and carries a base page key `1 + 1024·g`, giving every tx a
+`g mod 8` and carries a base page key strided by `g`, giving every tx a
 disjoint set of pages inside "its" contract:
 
 ```
 Block:   tx0→C0   tx1→C1   tx2→C2   tx3→C3   tx4→C4   tx5→C5   tx6→C6
 
-tx g:  page set = { (base_g + i) << 7 : i < slots },  base_g = 1 + 1024·g
+tx g:  page set = { (base_g + i) << 7 : i < slots },  base_g strided by g
        every page key hashed by the MPT → random disk position
 
-       iteration j (of 3469) reads page (base_g + (j mod slots)) << 7:
-       j:     0        1       ...  slots−1 │ slots ...       3468
+       iteration j (of P) reads page (base_g + (j mod slots)) << 7:
+       j:     0        1       ...  slots−1 │ slots ...        P-1
              base+0   base+1   ...          │ (set cycles again)
              cold     cold     ...  cold    │ warm ...         warm
 ```
 
-Each tx makes 3469 reads, but only the first pass over the set
+Each tx makes P reads, but only the first pass over the set
 (`slots` reads) is genuinely cold — sizing charges every iteration as
-cold (8160 gas), so these blocks are heavily gas-underfull by design;
+cold, so these blocks do far less work than the budget by design;
 the subject is random-locality I/O, not volume. With `k = 1` the set's
 pages are pre-populated (one slot = 1) in that contract's genesis and
-the checksum is 3469; with `k = 0` every read is a whole-page miss and
+the checksum is P; with `k = 0` every read is a whole-page miss and
 the tail checksum SSTORE writes 0 (no state trace). Markers/checksums
 land in the storage of whichever contract the tx called.
 
@@ -509,14 +509,14 @@ shared slot range: base = 2^40, slots base+0 .. base+782
 
 per iteration i:  SLOAD(base+i), then SSTORE(base+i, read+1)
 
-           slot: base+0   base+1   base+2  ...  base+782
+           slot: base+0   base+1   base+2  ...  base+P-1
 tx 0:             0→1      0→1      0→1          0→1     fresh writes
 tx 1:             1→2      1→2      1→2          1→2   ▲ must see the
  ...                                                   │ previous tx's
 tx 6:             6→7      6→7      6→7          6→7   │ writes: serial
 ```
 
-783 read+write pairs per tx (36,254 gas each, sized to the fresh 0→1
+P read+write pairs per tx (sized to the fresh 0→1
 cost — the later increment txs are nonzero→nonzero updates and run
 cheaper, leaving the block somewhat gas-underfull). Post-state: every
 shared slot ends at 7, plus the 7 markers (no checksum tail here).
@@ -528,7 +528,7 @@ shared slot ends at 7, plus the 7 markers (no checksum tail here).
 Each SLOAD returns the next SLOAD's slot (SLOAD(SLOAD(...))), a data-dependent pointer chase over distinct pages that serialises the reads within a tx.
 
 No parameters. The data-dependency adversarial block: the genesis
-storage holds a pre-built ring of 3482 **distinct pages** (keys
+storage holds a pre-built ring of P **distinct pages** (keys
 `(base+j) << 7`) where each page's stored value is the key of the next
 page. A tx starts from its calldata base and hops the ring with
 `slot := SLOAD(slot)` — every read's address comes from the previous
@@ -536,18 +536,18 @@ read, so the reads serialize within the tx, and because the MPT hashes
 each page key, every hop is an unpredictable disk position.
 
 ```
-genesis ring (3482 distinct pages, keys (base+j) << 7):
+genesis ring (P distinct pages, keys (base+j) << 7):
 
-   ring[0] ──► ring[1] ──► ring[2] ──► ... ──► ring[3481] ──┐
+   ring[0] ──► ring[1] ──► ring[2] ──► ... ──► ring[P-1] ──┐
       ▲                                                     │
       └─────────────────────────────────────────────────────┘
              SLOAD(ring[j]) returns ring[j+1]
 
-tx t (t = 0..6):  start at ring[t], then 3482 hops
+tx t (t = 0..6):  start at ring[t], then P hops
                   = one full lap, staggered one step per tx
 ```
 
 All 7 txs traverse the same ring; per-tx warmth reset makes each lap
-fully cold, so the block performs 7 × 3482 cold, address-dependent
+fully cold, so the block performs 7 × P cold, address-dependent
 reads. Nothing is written except the 7
 markers — post-state is the untouched ring plus markers.
