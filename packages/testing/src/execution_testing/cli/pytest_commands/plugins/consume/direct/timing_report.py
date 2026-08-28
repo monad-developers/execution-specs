@@ -4,10 +4,8 @@ CSV artifact alongside the HTML report.
 
 A consumer that implements the `BlockTimingReporter` capability (e.g. the
 monad runloop) exposes per-block timing for the fixture it just ran. This
-plugin reads it off the finished test, writes one part file per test *in
-the process that ran it* (so it never depends on xdist forwarding data to
-the controller), then the controller collects every part into a single raw
-per-block CSV at session end.
+plugin reads it off the finished test and writes every block it collected
+as one raw per-block CSV at session end.
 
 The metric columns are whatever keys the consumer reported, so the plugin
 stays agnostic of which execution phases a given client can measure.
@@ -22,8 +20,6 @@ from __future__ import annotations
 
 import csv
 import io
-import json
-import uuid
 from pathlib import Path
 from typing import (
     Any,
@@ -250,10 +246,11 @@ def _render_csv(rows: List[Dict[str, Any]]) -> str:
 
 
 class TimingReportPlugin:
-    """Collect per-test timing parts and write the raw per-block CSV."""
+    """Collect each test's timing and write the raw per-block CSV."""
 
     def __init__(self, config: pytest.Config):  # noqa: D107
         self.config = config
+        self.rows: List[Dict[str, Any]] = []
         self.written: List[Path] = []
 
     def _output_dir(self) -> Path:
@@ -273,29 +270,6 @@ class TimingReportPlugin:
         source = self.config.fixtures_source  # type: ignore[attr-defined]
         return Path(source.path) / ".meta"
 
-    def _parts_dir(self) -> Path:
-        """
-        Directory holding this session's part files.
-
-        Namespaced by session id so a killed or crashed run's leftovers
-        are never folded into a later run's CSV. Under xdist the workers
-        inherit the controller's id through `workerinput`.
-        """
-        return self._output_dir() / ".timing_parts" / self._session_id()
-
-    def _session_id(self) -> str:
-        """Id shared by the controller and, under xdist, its workers."""
-        workerinput = getattr(self.config, "workerinput", None)
-        if workerinput is not None:
-            return str(workerinput["timing_report_session"])
-        if not hasattr(self.config, "_timing_report_session"):
-            self.config._timing_report_session = uuid.uuid4().hex  # type: ignore[attr-defined]
-        return str(self.config._timing_report_session)  # type: ignore[attr-defined]
-
-    def pytest_configure_node(self, node: Any) -> None:
-        """Pass the session id to an xdist worker as it starts."""
-        node.workerinput["timing_report_session"] = self._session_id()
-
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_makereport(
         self,
@@ -303,13 +277,12 @@ class TimingReportPlugin:
         call: pytest.CallInfo[None],
     ) -> Generator[None, Any, None]:
         """
-        Persist this test's timing to a part file, in the running process.
+        Keep this test's timing for the report.
 
         The consumer and test case are read straight off the finished
-        item, so the generic test function stays untouched. Writing here
-        rather than on the controller avoids relying on xdist to marshal
-        anything back; each test writes its own uniquely-named file, so
-        parallel workers never race.
+        item, so the generic test function stays untouched. `--timing-report`
+        rejects xdist, so one process sees every test and the rows can be
+        held in memory until session end.
         """
         outcome = yield
         if call.when != "call":
@@ -323,45 +296,22 @@ class TimingReportPlugin:
         if consumer is None or test_case is None:
             return
         payload = timing_payload(consumer, test_case)
-        if not payload:
-            return
-        parts_dir = self._parts_dir()
-        parts_dir.mkdir(parents=True, exist_ok=True)
-        (parts_dir / f"{uuid.uuid4().hex}.json").write_text(
-            json.dumps(payload)
-        )
+        if payload:
+            self.rows.extend(_rows_from_payload(payload))
 
     def pytest_sessionfinish(
         self,
-        session: pytest.Session,
+        session: pytest.Session,  # noqa: ARG002
         exitstatus: int,  # noqa: ARG002
     ) -> None:
-        """Collect all part files into the CSV report (controller only)."""
-        if hasattr(session.config, "workerinput"):
-            return  # xdist worker: parts already written by makereport
-        parts_dir = self._parts_dir()
-        if not parts_dir.is_dir():
+        """Write the collected rows as the CSV report."""
+        if not self.rows:
             return
-        rows: List[Dict[str, Any]] = []
-        for part in parts_dir.glob("*.json"):
-            rows.extend(_rows_from_payload(json.loads(part.read_text())))
-        if not rows:
-            return
-        rows = _sorted_rows(rows)
-
         output_dir = self._output_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / "timing_consume.csv"
-        path.write_text(_render_csv(rows))
+        path.write_text(_render_csv(_sorted_rows(self.rows)))
         self.written.append(path)
-
-        for part in parts_dir.glob("*.json"):
-            part.unlink()
-        parts_dir.rmdir()
-        try:
-            parts_dir.parent.rmdir()
-        except OSError:
-            pass  # another session's parts are still there
 
     def pytest_terminal_summary(
         self,
