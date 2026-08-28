@@ -325,7 +325,7 @@ def test_report_warns_when_underpowered(tmp_path: Path) -> None:
         for i in range(4)
     ]
     table = report(tuple(dirs))
-    assert "Underpowered for isolated effects" in table
+    assert "cannot reach q" in table
     assert _case_row(table).endswith("| - | - |")
 
 
@@ -336,7 +336,7 @@ def test_report_no_power_warning_when_resolvable(tmp_path: Path) -> None:
         _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
         for i in range(10)
     ]
-    assert "Underpowered" not in report(tuple(dirs))
+    assert "cannot reach q" not in report(tuple(dirs))
 
 
 def _retry_dir(tmp_path: Path, name: str, nine: int, ten: int) -> Path:
@@ -438,22 +438,19 @@ def test_report_warns_about_dirs_without_csv(
     assert "skipping 1 run dir(s)" in capsys.readouterr().err
 
 
-def test_cli_writes_markdown_and_html(tmp_path: Path) -> None:
-    """The CLI writes both renderings and the provenance header."""
+def test_cli_writes_markdown(tmp_path: Path) -> None:
+    """The CLI writes the report and the provenance header."""
     dirs = [
         _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
         for i in range(9)
     ]
     md_path = tmp_path / "table.md"
-    html_path = tmp_path / "table.html"
 
     result = CliRunner().invoke(
         main,
         [
             "--md",
             str(md_path),
-            "--html",
-            str(html_path),
             "--now",
             "2026-08-18T00:00:00Z",
             "--repo",
@@ -467,9 +464,6 @@ def test_cli_writes_markdown_and_html(tmp_path: Path) -> None:
     assert "Cycle 2026-08-18T00:00:00Z" in md
     assert "| execution-specs | deadbeef |" in md
     assert "blob/deadbeef/MIP8_PERF_TESTS_DIAGRAMS.md" in md
-    html = html_path.read_text()
-    assert "<table>" in html
-    assert "<strong>" in html
 
 
 def test_cli_requires_run_dirs() -> None:

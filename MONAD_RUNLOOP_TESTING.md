@@ -97,7 +97,7 @@ tmux new -s perf 'TAG=v4 scripts/perf_cycle.sh'
 ```
 
 Fills once, consumes `RUNS` times, and writes the NINE-vs-TEN table to
-`../timing_${TAG}_<utc>_table.{html,md}` (the `.md` is headed with the
+`../timing_${TAG}_<utc>_table.md` (headed with the
 cycle time and the four repo SHAs). Knobs:
 
 - `TAG` (required) names every artifact; use a fresh one per experiment.

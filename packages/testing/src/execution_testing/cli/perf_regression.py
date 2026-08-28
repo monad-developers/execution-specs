@@ -7,15 +7,13 @@ Reads the `timing_consume.csv` produced by `consume direct
 both forks, the two-sided Mann-Whitney U p-value comparing the forks,
 and (for significant measures) the NINE->TEN average change.
 
-Writes GitHub-flavored Markdown to `--md` (or stdout if omitted); when
-`--now` is given, prefixes a provenance header. With `--html` also writes
-a standalone HTML rendering whose table spans the full window width.
+Writes GitHub-flavored Markdown to `--md`, or stdout if omitted; when
+`--now` is given, prefixes a provenance header.
 """
 
 from __future__ import annotations
 
 import csv
-import html
 from itertools import product
 from math import erfc, sqrt
 from pathlib import Path
@@ -343,32 +341,25 @@ def _power_note(
     samples: Dict[CaseKey, Dict[str, PairedSamples]], tests: int
 ) -> List[str]:
     """
-    Note the smallest q the run count can produce.
+    Warn when the run count cannot resolve an isolated effect.
 
-    A paired signed-rank test on `n` pairs has 2^n equally likely sign
-    assignments, so no effect — however large — can push its raw p below
-    2/2^n. Multiplied by the table's test count that becomes a floor on q,
-    and a cycle run with too few passes reports nothing as significant no
-    matter how much the forks differ.
+    A signed-rank test on `n` pairs has 2^n sign assignments, so no raw p
+    can fall below 2/2^n whatever the effect size; times the table's test
+    count that is a floor on q.
     """
     paired = [len(m[METRICS[0]]) for m in samples.values() if m[METRICS[0]]]
     if not paired or not tests:
         return []
     n = max(paired)
-    floor = 2 / 2**n
-    if floor * tests <= ALPHA:
+    if 2 / 2**n * tests <= ALPHA:
         return []
     needed = 1
     while 2 / 2**needed * tests > ALPHA:
         needed += 1
     return [
         "",
-        f"⚠️ **Underpowered for isolated effects.** With {n} paired runs no "
-        f"raw p can fall below {floor:.2g}, so an effect appearing in only "
-        f"one measure cannot reach q ≤ {ALPHA} across {tests} tests "
-        f"(it would need ≥ {needed} runs). Measures that move together "
-        "still reach significance, because the adjustment divides by their "
-        "rank.",
+        f"⚠️ {n} paired runs cannot reach q ≤ {ALPHA} for an effect in one "
+        f"measure alone across {tests} tests; that needs ≥ {needed} runs.",
     ]
 
 
@@ -415,104 +406,6 @@ def _coverage_notes(
             f"({len({c for c, _ in raw})} cases × {len(METRICS)} measures).",
         ]
     return notes
-
-
-HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MIP-8 perf: NINE vs TEN significance</title>
-<style>
-  html, body { margin: 0; padding: 16px; }
-  body {
-    font-family: system-ui, -apple-system, sans-serif;
-    color: #1a1a1a;
-    background: #fff;
-  }
-  p { font-size: 14px; line-height: 1.4; max-width: 60em; }
-  .table-wrap { overflow-x: auto; }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  th, td {
-    border: 1px solid #d0d0d0;
-    padding: 3px 6px;
-    text-align: left;
-    overflow-wrap: anywhere;
-  }
-  th { background: #f2f2f2; position: sticky; top: 0; }
-  td:first-child, th:first-child { white-space: nowrap; }
-  tbody tr:nth-child(even) { background: #fafafa; }
-  strong { font-weight: 700; }
-  ul { font-size: 13px; line-height: 1.5; max-width: 80em; }
-  @media (prefers-color-scheme: dark) {
-    body { color: #e6e6e6; background: #1a1a1a; }
-    th { background: #2a2a2a; }
-    th, td { border-color: #444; }
-    tbody tr:nth-child(even) { background: #222; }
-  }
-</style>
-</head>
-<body>
-__BODY__
-</body>
-</html>
-"""
-
-
-def _inline(text: str) -> str:
-    """Render inline **bold** markdown to HTML, escaping the rest."""
-    out = []
-    for i, part in enumerate(text.split("**")):
-        esc = html.escape(part)
-        out.append(f"<strong>{esc}</strong>" if i % 2 else esc)
-    return "".join(out)
-
-
-def _table_html(block: List[str]) -> str:
-    """Render a markdown table (list of `|`-rows) as an HTML table."""
-    rows = [
-        [c.strip() for c in r.strip().strip("|").split("|")] for r in block
-    ]
-    head = "".join(f"<th>{_inline(c)}</th>" for c in rows[0])
-    body = [
-        "<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in row) + "</tr>"
-        for row in rows[2:]
-    ]
-    return (
-        '<div class="table-wrap"><table>\n'
-        f"<thead><tr>{head}</tr></thead>\n<tbody>\n"
-        + "\n".join(body)
-        + "\n</tbody></table></div>"
-    )
-
-
-def md_to_html(md: str) -> str:
-    """Render the generated markdown report as a standalone HTML page."""
-    lines = md.split("\n")
-    blocks: list[str] = []
-    i = 0
-    while i < len(lines):
-        if lines[i].startswith("|"):
-            table = []
-            while i < len(lines) and lines[i].startswith("|"):
-                table.append(lines[i])
-                i += 1
-            blocks.append(_table_html(table))
-        elif lines[i].startswith("- "):
-            items = []
-            while i < len(lines) and lines[i].startswith("- "):
-                items.append(f"<li>{_inline(lines[i][2:])}</li>")
-                i += 1
-            blocks.append("<ul>\n" + "\n".join(items) + "\n</ul>")
-        else:
-            if lines[i].strip():
-                blocks.append(f"<p>{_inline(lines[i])}</p>")
-            i += 1
-    return HTML_TEMPLATE.replace("__BODY__", "\n".join(blocks))
 
 
 def _provenance(now: str, shas: List[Optional[str]]) -> str:
@@ -584,13 +477,6 @@ def report(
     help="Write the Markdown report here instead of stdout.",
 )
 @click.option(
-    "--html",
-    "html_path",
-    type=click.Path(dir_okay=False, path_type=Path),
-    default=None,
-    help="Also write a standalone HTML rendering here.",
-)
-@click.option(
     "--now",
     default=None,
     help="Cycle timestamp; prefixes the report with a provenance header.",
@@ -602,7 +488,6 @@ def report(
 def main(
     run_dirs: Tuple[Path, ...],
     md_path: Optional[Path],
-    html_path: Optional[Path],
     now: Optional[str],
     repo: Optional[str],
     harness: Optional[str],
@@ -616,8 +501,6 @@ def main(
     directory holding a `timing_consume.csv`.
     """
     md = report(run_dirs, now, [repo, harness, monad_bft, monad])
-    if html_path:
-        html_path.write_text(md_to_html(md), encoding="utf-8")
     if md_path:
         md_path.write_text(md + "\n", encoding="utf-8")
     else:
