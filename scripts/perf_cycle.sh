@@ -4,9 +4,11 @@ set -euo pipefail
 
 TAG="${TAG:?set TAG (names all artifacts, e.g. TAG=v4)}"
 # The table pairs runs and adjusts for its own test count, so no raw
-# p-value can fall below 2/2^RUNS; below ~12 runs only measures that move
-# together can reach significance (the table says so when it applies).
-RUNS="${RUNS:-12}"
+# p-value can fall below 2/2^RUNS. At the table's current size 13 is the
+# fewest that lets an isolated effect clear the 5% threshold; below it
+# only measures that move together reach significance (the table says so
+# when it applies).
+RUNS="${RUNS:-13}"
 REPEATS="${REPEATS:-20}"
 # Block gas budget in millions, as --gas-benchmark-values takes it. The
 # runloop stamps every monad block at 200M.
