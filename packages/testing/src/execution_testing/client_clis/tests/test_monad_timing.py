@@ -64,6 +64,29 @@ def test_duration_suffix(suffix: str) -> None:
     ]
 
 
+def test_missing_retry_field_degrades_with_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A runloop without `rt` still yields timings, and says so once."""
+    line = _line("us").replace("rt=   0,", "")
+    with caplog.at_level("WARNING"):
+        rows = _parse_block_timings(f"{line}\n{line}\n")
+
+    assert [row["retries"] for row in rows] == [0, 0]
+    assert "2 of 2 __exec_block lines carry no `rt` field" in caplog.text
+
+
+def test_retry_field_present_logs_no_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A complete line reports its retries without a warning."""
+    with caplog.at_level("WARNING"):
+        rows = _parse_block_timings(_line("us"))
+
+    assert rows[0]["retries"] == 0
+    assert caplog.text == ""
+
+
 def test_malformed_line_logged(caplog: pytest.LogCaptureFixture) -> None:
     """A malformed line is skipped and reported, not silently dropped."""
     line = "LOG_INFO    __exec_block,bl=       1,tx=    7,gas=oops"

@@ -235,7 +235,7 @@ def _exec_block_row(line: str) -> Optional[BlockExecutionTiming]:
             block=int(fields["bl"]),
             tx_count=int(fields["tx"]),
             gas=int(fields["gas"]),
-            retries=int(fields["rt"]),
+            retries=int(fields.get("rt", 0)),
             tx_exec_us=us("txe"),
             state_root_us=us("sr"),
             commit_us=us("cmt"),
@@ -256,13 +256,19 @@ def _parse_block_timings(stdout: str) -> List[BlockExecutionTiming]:
     durations a chrono unit suffix (see `_duration_us`). `rt` is the
     optimistic-execution retry count, reported as `retries`: it separates
     a block that did the same work more slowly from one that redid work.
+    A runloop that does not log `rt` still yields timings, with `retries`
+    reported as zero and one warning naming how many blocks it covered.
     Malformed lines are logged and skipped.
     """
-    rows = [
-        _exec_block_row(line)
-        for line in stdout.splitlines()
-        if "__exec_block" in line
-    ]
+    lines = [line for line in stdout.splitlines() if "__exec_block" in line]
+    without_retries = sum(1 for line in lines if "rt=" not in line)
+    if without_retries:
+        logger.warning(
+            f"{without_retries} of {len(lines)} __exec_block lines carry no "
+            "`rt` field; retries are reported as 0 for those blocks and "
+            "cannot be told apart from a block that really retried none"
+        )
+    rows = [_exec_block_row(line) for line in lines]
     return [row for row in rows if row is not None]
 
 
