@@ -1908,6 +1908,7 @@ class MONAD_NEXT(  # noqa: N801
     eips.EIP8024,
     eips.EIP8246,
     MONAD_TEN,
+    deployed=False,
 ):
     """
     MONAD_NEXT fork.

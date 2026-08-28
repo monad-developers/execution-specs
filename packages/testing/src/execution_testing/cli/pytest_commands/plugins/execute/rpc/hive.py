@@ -183,7 +183,11 @@ def build_genesis_header(
         requests_hash=Requests()
         if genesis_fork.header_requests_required()
         else None,
-        block_access_list_hash=BlockAccessList().rlp_hash
+        block_access_list_hash=(
+            BlockAccessList().rlp_hash
+            if genesis_fork.supports_block_access_lists()
+            else Hash(0)
+        )
         if genesis_fork.header_bal_hash_required()
         else None,
         slot_number=0 if genesis_fork.header_slot_number_required() else None,

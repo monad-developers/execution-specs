@@ -417,6 +417,7 @@ def test_sc_wallet_send_value(
 @pytest.mark.parametrize("pre_delegated", [True, False])
 @pytest.mark.parametrize("delegate", [True, False])
 @pytest.mark.parametrize("undelegate", [True, False])
+@pytest.mark.parametrize("selfdestruct_to_self", [True, False])
 def test_sc_wallet_selfdestruct(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -427,14 +428,23 @@ def test_sc_wallet_selfdestruct(
     pre_delegated: bool,
     delegate: bool,
     undelegate: bool,
+    selfdestruct_to_self: bool,
     fork: Fork,
 ) -> None:
     """
     Test dippedIntoReserve() for a delegated EOA whose wallet code
     SELFDESTRUCTs on behalf of the EOA.
+
+    Naming the EOA itself moves no value, so the reserve balance is only
+    at stake when the beneficiary is another account.
     """
     refill_call = refill_factory()
-    wallet_address = pre.deploy_contract(code=Op.SELFDESTRUCT(Op.ADDRESS))
+    selfdestruct_target = Address(0x5656)
+    wallet_address = pre.deploy_contract(
+        code=Op.SELFDESTRUCT(
+            Op.ADDRESS if selfdestruct_to_self else selfdestruct_target
+        )
+    )
 
     if pre_delegated:
         sender = pre.fund_eoa(balance, delegation=wallet_address)
@@ -475,7 +485,17 @@ def test_sc_wallet_selfdestruct(
     )
 
     any_delegation = pre_delegated or delegate or undelegate
-    expected_violation = 1 if (violation and any_delegation) else 0
+    # The authorizations apply before execution, so an undelegation
+    # leaves nothing for the call to run.
+    wallet_runs = (pre_delegated or delegate) and not undelegate
+    # Sweeping the sender to another account empties a delegated EOA,
+    # which the probe reports whatever the transaction's own value does.
+    expected_violation = (
+        1
+        if (violation and any_delegation)
+        or (wallet_runs and not selfdestruct_to_self)
+        else 0
+    )
 
     storage = {
         slot_violation_result: expected_violation,
@@ -484,7 +504,14 @@ def test_sc_wallet_selfdestruct(
 
     blockchain_test(
         pre=pre,
-        post={contract_address: Account(storage=storage, balance=value)},
+        post={
+            contract_address: Account(storage=storage, balance=value),
+            # What the sweep sends depends on the gas billed, so only
+            # its presence is pinned.
+            selfdestruct_target: Account()
+            if wallet_runs and not selfdestruct_to_self
+            else None,
+        },
         blocks=[Block(txs=[tx_1])],
     )
 
@@ -1078,7 +1105,10 @@ def test_contract_unrestricted(
 )
 @pytest.mark.parametrize("pre_delegated", [True, False])
 @pytest.mark.parametrize("pre_funded", [True, False])
-@pytest.mark.parametrize("selfdestruct", [True, False])
+@pytest.mark.parametrize(
+    "selfdestruct,selfdestruct_to_self",
+    [(True, False), (True, True), (False, False)],
+)
 @pytest.mark.with_all_create_opcodes
 def test_contract_unrestricted_with_create(
     blockchain_test: BlockchainTestFiller,
@@ -1088,6 +1118,7 @@ def test_contract_unrestricted_with_create(
     pre_delegated: bool,
     pre_funded: bool,
     selfdestruct: bool,
+    selfdestruct_to_self: bool,
     create_opcode: Op,
     fork: Fork,
 ) -> None:
@@ -1105,7 +1136,9 @@ def test_contract_unrestricted_with_create(
     selfdestruct_target = Address(0x5656)
 
     initcode = (
-        Op.SELFDESTRUCT(address=selfdestruct_target)
+        Op.SELFDESTRUCT(
+            address=Op.ADDRESS if selfdestruct_to_self else selfdestruct_target
+        )
         if selfdestruct
         else Initcode(deploy_code=Op.STOP)
     )
@@ -1136,15 +1169,26 @@ def test_contract_unrestricted_with_create(
     )
     storage = {slot_code_worked: value_code_worked, slot_violation_result: 0}
 
+    # A SELFDESTRUCT to the destructing account itself moves nothing, so
+    # what it leaves behind is what EIP-8246 changes: before it, the
+    # balance is burnt and the account destroyed; after it, the account
+    # is cleared and keeps the balance it retained. A zero balance still
+    # leaves the account empty, and so pruned.
+    selfdestructed_account = (
+        Account(nonce=0, balance=value, code=b"", storage={})
+        if selfdestruct_to_self and fork.is_eip_enabled(8246) and value != 0
+        else None
+    )
+
     blockchain_test(
         pre=pre,
         post={
             factory_address: Account(storage=storage, balance=balance - value),
             new_contract_address: Account(balance=value, code=Op.STOP)
             if not selfdestruct
-            else None,
+            else selfdestructed_account,
             selfdestruct_target: Account(balance=value)
-            if selfdestruct and value != 0
+            if selfdestruct and value != 0 and not selfdestruct_to_self
             else None,
         },
         blocks=[Block(txs=[tx_1])],
@@ -1155,8 +1199,19 @@ def test_contract_unrestricted_with_create(
 @pytest.mark.parametrize("create_balance", [0, Spec.RESERVE_BALANCE // 2])
 @pytest.mark.parametrize("call_balance", [0, Spec.RESERVE_BALANCE // 2])
 @pytest.mark.parametrize("pull_balance", [0, Spec.RESERVE_BALANCE // 2])
-@pytest.mark.parametrize("same_tx", [True, False])
-@pytest.mark.parametrize("through_delegation", [True, False])
+@pytest.mark.parametrize(
+    "same_tx,through_delegation,selfdestruct_to_self",
+    [
+        # Only a same-transaction creation reaches EIP-8246's branch, and
+        # a delegated frame destructs the delegating account rather than
+        # the created one, so the self target varies in one case alone.
+        (True, False, False),
+        (True, False, True),
+        (True, True, False),
+        (False, False, False),
+        (False, True, False),
+    ],
+)
 @pytest.mark.with_all_create_opcodes
 def test_contract_unrestricted_with_selfdestruct(
     blockchain_test: BlockchainTestFiller,
@@ -1176,6 +1231,8 @@ def test_contract_unrestricted_with_selfdestruct(
     # Whether the SELFDESTRUCT should be called on behalf of
     # a delegating account
     through_delegation: bool,
+    # Whether SELFDESTRUCT names the destructing account itself
+    selfdestruct_to_self: bool,
     create_opcode: Op,
     fork: Fork,
 ) -> None:
@@ -1205,7 +1262,7 @@ def test_contract_unrestricted_with_selfdestruct(
     )
 
     deploy_code = Op.CALL(address=pull_funder_address) + Op.SELFDESTRUCT(
-        address=selfdestruct_target
+        address=Op.ADDRESS if selfdestruct_to_self else selfdestruct_target
     )
     initcode = Initcode(deploy_code=deploy_code)
 
@@ -1309,6 +1366,16 @@ def test_contract_unrestricted_with_selfdestruct(
     if same_tx:
         factory_storage[slot_violation_result] = expected_violation
 
+    # A SELFDESTRUCT to the destructing account itself moves nothing, so
+    # what it leaves behind is what EIP-8246 changes: before it, the
+    # balance is burnt and the account destroyed; after it, the account
+    # is cleared and keeps the balance it retained.
+    selfdestructed_account = (
+        Account(nonce=0, balance=value, code=b"", storage={})
+        if selfdestruct_to_self and fork.is_eip_enabled(8246) and value != 0
+        else None
+    )
+
     post = {
         # Factory is the caller to store result if same_tx
         # Factory is always left with no balance.
@@ -1327,9 +1394,11 @@ def test_contract_unrestricted_with_selfdestruct(
             code=deploy_code,
         )
         if not same_tx or through_delegation
-        else None,
+        else selfdestructed_account,
         # SELFDESTRUCT target is deleted if source was empty
-        selfdestruct_target: Account(balance=value) if value != 0 else None,
+        selfdestruct_target: Account(balance=value)
+        if value != 0 and not selfdestruct_to_self
+        else None,
     }
 
     blockchain_test(
@@ -1350,8 +1419,13 @@ def test_contract_unrestricted_with_selfdestruct(
 @pytest.mark.with_all_create_opcodes
 @pytest.mark.parametrize("new_address_pre_funded", [True, False])
 @pytest.mark.parametrize(
-    "selfdestruct,deploy_code",
-    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+    "selfdestruct,selfdestruct_to_self,deploy_code",
+    [
+        (True, False, None),
+        (True, True, None),
+        (False, False, Bytecode()),
+        (False, False, Op.STOP),
+    ],
 )
 def test_contract_unrestricted_within_initcode(
     blockchain_test: BlockchainTestFiller,
@@ -1362,6 +1436,7 @@ def test_contract_unrestricted_within_initcode(
     create_opcode: Op,
     new_address_pre_funded: bool,
     selfdestruct: bool,
+    selfdestruct_to_self: bool,
     deploy_code: Bytecode | None,
     fork: Fork,
 ) -> None:
@@ -1392,7 +1467,7 @@ def test_contract_unrestricted_within_initcode(
     )
     if selfdestruct:
         initcode = common_initcode + Op.SELFDESTRUCT(
-            address=selfdestruct_target
+            address=Op.ADDRESS if selfdestruct_to_self else selfdestruct_target
         )
     else:
         initcode = Initcode(
@@ -1462,11 +1537,18 @@ def test_contract_unrestricted_within_initcode(
 
     new_balance = balance - value + Spec.RESERVE_BALANCE
 
-    # EIP-8246 stops the end-of-transaction cleanup from burning the
-    # balance, so the refill that follows SELFDESTRUCT is left behind on
-    # a cleared account.
+    # A SELFDESTRUCT to the destructing account itself moves nothing, so
+    # what it leaves behind is what EIP-8246 changes: before it, the
+    # balance is burnt and the account destroyed; after it, the account
+    # is cleared and keeps both the retained balance and the refill.
+    retained = balance - value if selfdestruct_to_self else 0
     selfdestructed_account = (
-        Account(nonce=0, balance=Spec.RESERVE_BALANCE, code=b"", storage={})
+        Account(
+            nonce=0,
+            balance=retained + Spec.RESERVE_BALANCE,
+            code=b"",
+            storage={},
+        )
         if fork.is_eip_enabled(8246)
         else None
     )
@@ -1505,7 +1587,7 @@ def test_contract_unrestricted_within_initcode(
             # SELFDESTRUCT runs during initcode (before factory
             # refill), so it sends balance - value only.
             selfdestruct_target: Account(balance=balance - value)
-            if selfdestruct
+            if selfdestruct and not selfdestruct_to_self
             else None,
         },
         blocks=[Block(txs=txs)],
@@ -1522,8 +1604,13 @@ def test_contract_unrestricted_within_initcode(
 )
 @pytest.mark.parametrize("new_address_pre_funded", [True, False])
 @pytest.mark.parametrize(
-    "selfdestruct,deploy_code",
-    [(True, None), (False, Bytecode()), (False, Op.STOP)],
+    "selfdestruct,selfdestruct_to_self,deploy_code",
+    [
+        (True, False, None),
+        (True, True, None),
+        (False, False, Bytecode()),
+        (False, False, Op.STOP),
+    ],
 )
 @pytest.mark.with_all_contract_creating_tx_types
 def test_unrestricted_in_creation_tx_initcode(
@@ -1534,6 +1621,7 @@ def test_unrestricted_in_creation_tx_initcode(
     balance: int,
     new_address_pre_funded: bool,
     selfdestruct: bool,
+    selfdestruct_to_self: bool,
     deploy_code: Bytecode | None,
     tx_type: int,
     fork: Fork,
@@ -1574,7 +1662,7 @@ def test_unrestricted_in_creation_tx_initcode(
     )
     if selfdestruct:
         initcode = common_initcode + Op.SELFDESTRUCT(
-            address=selfdestruct_target
+            address=Op.ADDRESS if selfdestruct_to_self else selfdestruct_target
         )
     else:
         initcode = Initcode(
@@ -1605,6 +1693,16 @@ def test_unrestricted_in_creation_tx_initcode(
 
     new_balance = balance - value + Spec.RESERVE_BALANCE
 
+    # A SELFDESTRUCT to the destructing account itself moves nothing, so
+    # what it leaves behind is what EIP-8246 changes: before it, the
+    # balance is burnt and the account destroyed; after it, the account
+    # is cleared and keeps the balance it retained.
+    selfdestructed_account = (
+        Account(nonce=0, balance=new_balance, code=b"", storage={})
+        if selfdestruct_to_self and fork.is_eip_enabled(8246)
+        else None
+    )
+
     blockchain_test(
         pre=pre,
         post={
@@ -1615,10 +1713,10 @@ def test_unrestricted_in_creation_tx_initcode(
             ),
             new_address: Account(code=deploy_code, balance=new_balance)
             if not selfdestruct
-            else None,
+            else selfdestructed_account,
             target: Account(balance=value) if value != 0 else None,
             selfdestruct_target: Account(balance=new_balance)
-            if selfdestruct
+            if selfdestruct and not selfdestruct_to_self
             else None,
         },
         blocks=[Block(txs=txs)],

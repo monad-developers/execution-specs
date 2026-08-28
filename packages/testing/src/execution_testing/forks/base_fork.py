@@ -338,14 +338,19 @@ class BaseForkMeta(ABCMeta):
 
         A fork can follow another fork it does not inherit from, which
         places it after that fork (and after everything that fork comes
-        after) in the fork order without adopting its behavior.
+        after) in the fork order without adopting its behavior. The
+        EIPs of a followed fork stay out of that ordering.
         """
         a = BaseForkMeta._maybe_transitioned(a)
         b = BaseForkMeta._maybe_transitioned(b)
         if issubclass(a, b):
             return True
         # The metaclass sees its instances as plain classes, so the
-        # trait is reached through a cast, as elsewhere in this class.
+        # traits are reached through a cast, as elsewhere in this class.
+        # Succession places a fork after another fork, not after that
+        # fork's EIPs; an adopted EIP is reached by inheritance above.
+        if cast(Type["BaseFork"], b).is_eip():
+            return False
         followed = cast(Type["BaseFork"], a).follows()
         while followed is not None:
             if issubclass(followed, b):
