@@ -77,18 +77,22 @@ cold copy. Diagrams below show the `r = 0` block.
 
 ## `test_compute_loop`
 
-No parameters. The storage-free baseline: one block, one
-10M-gas tx running a stack-arithmetic `WhileGas` loop.
+No parameters. The storage-free baseline: the same 7-tx full block as
+above, each tx running a stack-arithmetic `WhileGas` loop.
 
 ```
-Block
-┌───────────────────────────────────────────────┐
-│ tx 0 (10M gas)                                │
-│   loop: POP(ADD(MUL(NUMBER, GAS), CALLVALUE)) │   no storage access
-│   ... repeated until gas nearly spent ...     │
-│   SSTORE(slot 1, 0x1234)                      │   the only write
-└───────────────────────────────────────────────┘
+Block (gas limit 200,000,000)
+┌──────────────────────────────────────────────────┬─── ... ───┬──────────┐
+│ tx 0 (28.57M gas)                                │           │   tx 6   │
+│   loop: POP(ADD(MUL(NUMBER, GAS), CALLVALUE))    │           │  (same)  │
+│   ... repeated until gas nearly spent ...        │           │          │
+│   SSTORE(slot 1, 0x1234)                         │           │          │
+└──────────────────────────────────────────────────┴─── ... ───┴──────────┘
 ```
+
+All 7 txs write the same marker slot, so only one slot is touched however
+many run. As the suite's control, the loop is sized against a fixed fork,
+which keeps the deployed bytecode byte-identical on both sides.
 
 Only the final marker touches storage, so the block isolates pure
 execution overhead from any MIP-8 effect.
@@ -394,7 +398,10 @@ Variants: `m ∈ {1,4,16,64,256,1024,4096} × n=1` (total-size sweep),
 A few big vs many small (~300) transactions, each cold-SLOAD one occupied slot or SSTORE 0->1 into fresh slots.
 
 Same total work packed as **7 big** txs vs **300 small** txs. Two
-workloads:
+workloads, each filled twice — once with a sender per tx and once with
+one sender for the whole block (`distinct_senders`), giving 8 cases. The
+sender mode changes no count below, only whether the block also carries
+a nonce chain:
 
 | op, k             | shape      | txs | tx gas    | iters/tx | block work         |
 |-------------------|------------|-----|-----------|----------|--------------------|
