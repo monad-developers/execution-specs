@@ -6,3 +6,13 @@ monad_runloop:
   evm-type: eels
   # Like `monad`, but `--monad-runloop` and eestnet chain id `30143`
   fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=30143 --monad-runloop -k "not invalid_header"
+
+monad_benchmark:
+  evm-type: eels
+  # The MIP-8 perf suite, which lives outside the default collection and
+  # so is named explicitly. Filled at the smallest block gas every case
+  # supports: below 10M the 128-read sweeps cannot fit one iteration in a
+  # transaction. The excluded `page_spread` cases size their work from `m`
+  # rather than the gas budget, so they need ~29M and ~177M whatever is
+  # passed here.
+  fill-params: -m blockchain_test tests/benchmark/stateful/mip8_pageified_storage/ --from=MONAD_NINE --until=MONAD_TEN --chain-id=30143 --monad-runloop --gas-benchmark-values=10 -k "not m4096 and not m1024"
