@@ -47,8 +47,12 @@ REFERENCE_METRIC = "total_us"
 FORKS = ["MONAD_NINE", "MONAD_TEN"]
 # A measure is significant at this Benjamini-Hochberg adjusted p-value.
 # The table runs one test per (case, measure), so the unadjusted rate
-# would produce a steady trickle of false positives across a cycle.
-ALPHA = 0.01
+# would produce a steady trickle of false positives across a cycle. The
+# adjustment bounds the false discovery rate across the whole table, so
+# 5% here caps the expected share of false flags among the measures the
+# table does flag. Tightening it costs paired runs, since the floor a
+# signed-rank test can reach scales with 2^RUNS.
+ALPHA = 0.05
 
 UP = "🔴⬆️"  # significant measures all rise NINE->TEN (TEN slower)
 DOWN = "🟢⬇️"  # significant measures all fall NINE->TEN (TEN faster)

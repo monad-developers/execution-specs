@@ -331,7 +331,7 @@ def test_report_warns_when_underpowered(tmp_path: Path) -> None:
 
 def test_report_no_power_warning_when_resolvable(tmp_path: Path) -> None:
     """Enough pairs to clear the floor leaves the warning out."""
-    # 3 measures at 2/2**10 clears q <= 0.01; 9 runs would not.
+    # 3 measures at 2/2**10 clears q <= 0.05; 6 runs would not.
     dirs = [
         _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
         for i in range(10)

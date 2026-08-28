@@ -101,7 +101,7 @@ Fills once, consumes `RUNS` times, and writes the NINE-vs-TEN table to
 cycle time and the four repo SHAs). Knobs:
 
 - `TAG` (required) names every artifact; use a fresh one per experiment.
-- `RUNS` consume passes (default 12), `REPEATS` page-disjoint copies per
+- `RUNS` consume passes (default 13), `REPEATS` page-disjoint copies per
   fixture (cold samples reduced to a `min` within each pass).
 - `BLOCK_GAS_M=N` sets the block gas budget in millions, passed through
   as `--gas-benchmark-values`; the default 200 matches the gas the
