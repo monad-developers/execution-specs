@@ -19,7 +19,16 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, TypedDict
+from typing import (
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypedDict,
+)
 
 import ijson  # type: ignore[import-untyped]
 import pytest
@@ -67,19 +76,28 @@ def _set_pdeathsig() -> None:
         _LIBC.prctl(1, signal.SIGTERM)
 
 
-def _load_fixture(
+def _iter_fixtures(
     fixture_path: Path, fixture_name: Optional[str]
-) -> Dict[str, Any]:
+) -> Iterator[Dict[str, Any]]:
     """
-    Load a single fixture from a (possibly multi-fixture) JSON file.
+    Yield the fixtures to run from a (possibly multi-fixture) JSON file.
 
-    ijson streams the file so memory use stays low on large fixtures.
+    A `fixture_name` selects one; without it every fixture in the file is
+    yielded, which is what the fixture-verification path asks for when it
+    hands over a merged file (`evm blocktest` behaves the same way, by
+    omitting `--run`). ijson streams the file so memory use stays low on
+    large fixtures.
     """
+    found = False
     with open(fixture_path, "rb") as f:
         for name, fixture in ijson.kvitems(f, ""):
             if fixture_name is None or name == fixture_name:
-                return fixture
-    raise KeyError(f"fixture {fixture_name!r} not found in {fixture_path}")
+                found = True
+                yield fixture
+                if fixture_name is not None:
+                    return
+    if not found:
+        raise KeyError(f"fixture {fixture_name!r} not found in {fixture_path}")
 
 
 def _hex32(value: str) -> str:
@@ -435,12 +453,25 @@ class MonadFixtureConsumer(
         fixture_name: Optional[str] = None,
         debug_output_path: Optional[Path] = None,
     ) -> None:
-        """Execute a blockchain fixture on the monad runloop and verify."""
+        """
+        Execute blockchain fixtures on the monad runloop and verify.
+
+        Runs the named fixture, or every fixture in the file when no name
+        is given, and reports the timing of all their blocks together.
+        """
         assert fixture_format == BlockchainFixture
+        timings: List[BlockExecutionTiming] = []
         self._block_timings = ()
+        for fixture in _iter_fixtures(fixture_path, fixture_name):
+            timings.extend(self._consume_one(fixture, debug_output_path))
+        self._block_timings = timings
 
-        fixture = _load_fixture(fixture_path, fixture_name)
-
+    def _consume_one(
+        self,
+        fixture: Dict[str, Any],
+        debug_output_path: Optional[Path],
+    ) -> Sequence[BlockExecutionTiming]:
+        """Run one fixture and verify its post state and state root."""
         network = fixture["network"]
         assert network in FORK_REVISION_SCHEDULES, (
             f"no monad revision schedule for network {network}"
@@ -493,7 +524,7 @@ class MonadFixtureConsumer(
                 )
 
             output = json.loads(output_path.read_text())
-            self._block_timings = _parse_block_timings(stdout)
+            block_timings = _parse_block_timings(stdout)
 
         # The state root below is the authoritative check: it commits to
         # the whole state, so any divergence changes it. `postState`, when
@@ -528,3 +559,5 @@ class MonadFixtureConsumer(
                 "post-state mismatch on the monad runloop:\n"
                 + "\n".join(mismatches)
             )
+
+        return block_timings
