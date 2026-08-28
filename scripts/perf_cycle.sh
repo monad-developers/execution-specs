@@ -59,11 +59,11 @@ for i in $(seq 1 "$RUNS"); do
 done
 
 sha() { git -C "$1" rev-parse --short HEAD 2>/dev/null || echo '?'; }
-uv run perf_regression --md "${TABLE}.md" --html "${TABLE}.html" \
+uv run perf_regression --md "${TABLE}.md" \
     --now "$NOW" \
     --repo "$(sha "$REPO")" \
     --harness "$(sha "$HARNESS")" \
     --monad-bft "$(sha "$HARNESS/monad-bft")" \
     --monad "$(sha "$HARNESS/monad-bft/monad-execution")" \
     "${PREFIX}"_[0-9]* || { echo "perf_regression failed, no table" >&2; exit 1; }
-echo "=== table: $(cd .. && pwd)/$(basename "$TABLE").html ==="
+echo "=== table: $(cd .. && pwd)/$(basename "$TABLE").md ==="
