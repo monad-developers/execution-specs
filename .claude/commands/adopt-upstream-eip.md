@@ -168,6 +168,12 @@ stay independent until a deliberate merge.
 
 ## 3. Adopt the EIP in the framework
 
+Create the fork before adopting anything into it. Where `<MONAD_FORK>`
+has no directory under `src/ethereum/forks/` yet, or no class in the
+testing package, add them as exact replicas of `<MONAD_PARENT>` in a
+separate commit. The adoption then shows the EIPs as the only deviations
+from the parent Monad fork, which is what the diff has to make visible.
+
 In `packages/testing/src/execution_testing/forks/forks/forks.py`, declare
 `<MONAD_FORK>` **after** `<ETH_FORK>` (so the name resolves) with the EIP
 mixins first:
