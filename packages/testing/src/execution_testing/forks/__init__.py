@@ -78,6 +78,7 @@ from .helpers import (
     get_transition_fork_predecessor,
     get_transition_fork_successor,
     get_transition_forks,
+    ssz_schema_fork_key,
     transition_fork_from_to,
     transition_fork_to,
 )
@@ -155,6 +156,7 @@ __all__ = [
     "get_from_until_fork_set",
     "get_last_descendants",
     "get_selected_fork_set",
+    "ssz_schema_fork_key",
     "transition_fork_from_to",
     "transition_fork_to",
     "GasCosts",
