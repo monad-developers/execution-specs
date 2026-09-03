@@ -1,0 +1,25 @@
+[package]
+name = "eest-runner"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "eest-runner"
+path = "./src/main.rs"
+
+[dependencies]
+ledger = { workspace = true }
+runloop = { workspace = true }
+
+monad-chain-config = { workspace = true }
+monad-types = { workspace = true }
+
+alloy-consensus = { workspace = true, features = ["k256"] }
+alloy-eips = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

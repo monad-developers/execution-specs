@@ -10,10 +10,13 @@ executed result.
 
 | Repo / branch | Role |
 |---|---|
-| `monad-exp/monad-eest-rust-harness` | `eest-runner` harness: builds consensus blocks from a fixture and runs them on the runloop |
-| `monad-bft` @ `execute-with-eestnet` (submodule of the above) | consensus block types + ledger writer; pins monad-execution below |
-| `monad` @ `execute-with-eestnet` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
-| this repo | `MonadFixtureConsumer` (`packages/testing/.../client_clis/clis/monad.py`) wired into `consume direct` |
+| this repo | the `eest-runner` harness under `monad-runloop/`, plus the `MonadFixtureConsumer` (`packages/testing/.../client_clis/clis/monad.py`) wired into `consume direct` |
+| `monad-bft` @ `eestnet/master` (submodule `monad-runloop/monad-bft`) | consensus block types + ledger writer; pins monad-execution below |
+| `monad` @ `eestnet/main` (submodule of monad-bft) | execution client with the `EestNet` chain (id 30143, per-fixture revision schedule, runtime genesis) and the extended `monad_runloop_*` FFI |
+
+Both submodule branches are upstream (`category-labs/monad-bft@master`,
+`category-labs/monad@main`) plus, on monad only, the one commit that adds
+the EEST entry points.
 
 ## One-time setup
 
@@ -21,28 +24,21 @@ Requirements: docker, ~10 GB disk for the builder image and build
 artifacts, ~6 GB RAM for hugepages.
 
 ```sh
-git clone --branch main \
-    git@github.com:monad-exp/monad-eest-rust-harness.git
-cd monad-eest-rust-harness
-git submodule update --init --recursive
+git submodule update --init --recursive monad-runloop/monad-bft
 
-# Toolchain image (gcc-15 + rust), from monad-bft's Dockerfile:
-curl -fsSL https://raw.githubusercontent.com/category-labs/monad-bft/master/docker/builder/Dockerfile \
-    | docker build -t monad-builder:latest -
+# Toolchain image (gcc-15 + rust), from the vendored Dockerfile:
+docker build -t monad-builder:latest \
+    - < monad-runloop/docker/builder/Dockerfile
 
-./build.sh             # builds + syncs binaries/libs into install/
-bin/eest-runner --version
-```
+./monad-runloop/build.sh   # builds + syncs binaries/libs into install/
+monad-runloop/bin/eest-runner --version
 
-In this repo:
-
-```sh
 uv sync
 ```
 
-Always rebuild with `./build.sh`; it syncs `libmonad_execution.so`
-alongside the binary (copying only the binary leaves a stale library
-that fails silently).
+Always rebuild with `./monad-runloop/build.sh`; it syncs
+`libmonad_execution.so` alongside the binary (copying only the binary
+leaves a stale library that fails silently).
 
 ## Fill + consume
 
@@ -52,7 +48,7 @@ uv run fill --clean -m blockchain_test <test paths...> \
     --output ../fixtures_eestnet
 
 uv run consume direct --input ../fixtures_eestnet \
-    --bin ../monad-eest-rust-harness/bin/eest-runner
+    --bin monad-runloop/bin/eest-runner
 ```
 
 - `--monad-runloop` stamps monad blocks with the consensus-derived
