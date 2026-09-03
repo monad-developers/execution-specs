@@ -1116,6 +1116,58 @@ def test_credit_after_call_frame(
 
 
 @pytest.mark.parametrize(
+    "exit_op",
+    [Op.STOP, Op.RETURN(0, 0), Op.REVERT(0, 0), Op.INVALID],
+)
+@pytest.mark.parametrize("enclosing_frame_reverts", [True, False])
+def test_violating_call_frame_rolled_back(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    exit_op: Bytecode,
+    enclosing_frame_reverts: bool,
+    fork: Fork,
+) -> None:
+    """
+    Test that a reserve balance violation reverts with the frame.
+    """
+    sink_address = pre.deploy_contract(Op.STOP)
+    wallet_address = pre.deploy_contract(
+        Op.CALL(address=sink_address, value=1) + exit_op
+    )
+    sender = pre.fund_eoa(Spec.RESERVE_BALANCE, delegation=wallet_address)
+
+    debiting_call = Op.CALL(address=sender)
+    if enclosing_frame_reverts:
+        debiting_call = Op.CALL(
+            address=pre.deploy_contract(debiting_call + Op.REVERT(0, 0))
+        )
+
+    contract_address = pre.deploy_contract(
+        Op.SSTORE(slot_code_worked, value_code_worked) + debiting_call
+    )
+
+    tx_1 = Transaction(
+        gas_limit=generous_gas(fork),
+        to=contract_address,
+        sender=pre.fund_eoa(),
+    )
+
+    debit_survives = exit_op in (Op.STOP, Op.RETURN(0, 0))
+    reverted = debit_survives and not enclosing_frame_reverts
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={
+            contract_address: Account(storage=storage),
+            sender: Account(balance=Spec.RESERVE_BALANCE),
+            sink_address: Account(balance=0),
+        },
+        blocks=[Block(txs=[tx_1])],
+    )
+
+
+@pytest.mark.parametrize(
     ["value", "balance", "violation"],
     [
         pytest.param(0, Spec.RESERVE_BALANCE, False, id="zero_value"),
