@@ -54,6 +54,8 @@ skills as `/name` commands through symlinked folders in `.claude/skills/`.
 - Writing or modifying pytester-based plugin tests → run `/pytester` first
 - Filling test fixtures → run `/fill-tests` first
 - Implementing an EIP or modifying fork code in `src/` → run `/implement-eip` first
+- Adopting a single upstream EIP into a work-in-progress Monad fork → run `/adopt-upstream-eip` first
+- Merging upstream changes into `from-upstream` → run `/merge-from-upstream` first
 - Modifying GitHub Actions workflows → run `/edit-workflow` first
 - Assessing EIP complexity or scope → run `/assess-eip`
 - Working on EIP test coverage or checklists → run `/eip-checklist` first
@@ -68,6 +70,8 @@ skills as `/name` commands through symlinked folders in `.claude/skills/`.
 - `/pytester` — pytester execution modes, isolation, output handling for plugin tests
 - `/fill-tests` — `fill` CLI reference, flags, debugging, benchmark tests
 - `/implement-eip` — fork structure, import rules, adding opcodes/precompiles/tx types
+- `/adopt-upstream-eip` — adopt one upstream EIP into a work-in-progress Monad fork and release its fixtures
+- `/merge-from-upstream` — merge upstream, propagate the changes to the Monad forks, verify the fixture set
 - `/edit-workflow` — GitHub Actions conventions and version pinning
 - `/assess-eip` — structured EIP complexity assessment
 - `/eip-checklist` — EIP testing checklist system for tracking coverage
