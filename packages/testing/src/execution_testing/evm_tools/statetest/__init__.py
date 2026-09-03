@@ -142,6 +142,7 @@ def run_test_case(
             {
                 "env": env,
                 "alloc": alloc,
+                "senders_authorities": {},
                 "txs": txs,
             }
         )
@@ -154,7 +155,7 @@ def run_test_case(
         "--input.alloc",
         "stdin",
         "--input.senders_authorities",
-        "--stdin",
+        "stdin",
         "--input.env",
         "stdin",
         "--input.txs",
