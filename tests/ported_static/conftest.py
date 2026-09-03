@@ -34,7 +34,6 @@ def _fixture_format_tokens() -> tuple[str, ...]:
     return tuple(f"-{name}" for name in sorted(names, key=len, reverse=True))
 
 
-<<<<<<< HEAD
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Mark all tests in this subdir as not valid for Monad forks."""
     metafunc.definition.add_marker(
@@ -42,10 +41,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     )
 
 
-def _normalize_nodeid(nodeid: str) -> str:
-=======
 def _normalize_nodeid(nodeid: str, tokens: tuple[str, ...]) -> str:
->>>>>>> upstream/forks/amsterdam
     """Strip pytest fixture-format suffixes to match the skip list format."""
     for token in tokens:
         nodeid = nodeid.replace(token, "")

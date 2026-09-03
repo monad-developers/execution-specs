@@ -952,7 +952,7 @@ class BlockchainTest(BaseTest):
             block_number=env.number, timestamp=env.timestamp
         )
         env = env.set_fork_requirements(fork)
-<<<<<<< HEAD
+        env.check_fork_fields(fork)
 
         # When filling with --monad-runloop, monad blocks must carry the
         # consensus-derived header fields the production runloop produces.
@@ -972,9 +972,6 @@ class BlockchainTest(BaseTest):
                 prev_randao=MonadRunloopDefaults.prev_randao,
             )
 
-=======
-        env.check_fork_fields(fork)
->>>>>>> upstream/forks/amsterdam
         txs = block.txs[:]
         if any("gas_limit" not in tx.model_fields_set for tx in block.txs):
             max_tx_gas_limit = Transaction.calculate_max_gas_limit(

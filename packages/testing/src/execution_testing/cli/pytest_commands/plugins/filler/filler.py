@@ -73,14 +73,11 @@ from execution_testing.forks import (
 )
 from execution_testing.specs import BaseTest
 from execution_testing.specs.base import FillResult, OpMode
-<<<<<<< HEAD
 from execution_testing.test_types import (
+    AllocGroupHash,
     EnvironmentDefaults,
     MonadRunloopDefaults,
 )
-=======
-from execution_testing.test_types import AllocGroupHash, EnvironmentDefaults
->>>>>>> upstream/forks/amsterdam
 from execution_testing.test_types.chain_config_types import (
     DEFAULT_CHAIN_ID,
     ChainConfigDefaults,

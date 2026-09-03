@@ -4,10 +4,8 @@ import pytest
 
 from execution_testing.vm import Bytecode, Op
 
-<<<<<<< HEAD
-from ..forks.forks import MONAD_TEN, Homestead, Osaka
-=======
 from ..forks.forks import (
+    MONAD_TEN,
     Berlin,
     ConstantinopleFix,
     Homestead,
@@ -15,7 +13,6 @@ from ..forks.forks import (
     Osaka,
     SpuriousDragon,
 )
->>>>>>> upstream/forks/amsterdam
 from ..helpers import Fork
 
 

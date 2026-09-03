@@ -1,3 +1,8 @@
+---
+name: adopt-upstream-eip
+description: Adopt a single upstream EIP into a work-in-progress Monad fork.
+---
+
 # Adopt Upstream EIP
 
 Adopt a single upstream EIP into a work-in-progress Monad fork and release
