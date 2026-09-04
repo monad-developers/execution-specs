@@ -69,7 +69,9 @@ class TestGasConsumption:
                 True,
                 None,
                 id="type_3",
-                marks=pytest.mark.skip(reason="Not supported in Monad"),
+                marks=pytest.mark.not_valid_for(
+                    "MONAD_EIGHT", subsequent_forks=True
+                ),
             ),
             pytest.param(4, True, [Address(1)], id="type_4"),
         ],
@@ -153,7 +155,9 @@ class TestGasConsumptionBelowDataFloor:
                 True,
                 None,
                 id="type_3",
-                marks=pytest.mark.skip(reason="Not supported in Monad"),
+                marks=pytest.mark.not_valid_for(
+                    "MONAD_EIGHT", subsequent_forks=True
+                ),
             ),
             pytest.param(4, True, [Address(1)], id="type_4"),
         ],

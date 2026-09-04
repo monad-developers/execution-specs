@@ -258,6 +258,9 @@ def test_mixed_zero_nonzero_bytes_floor_cost(
             3,
             [],
             id="type_3_empty_access_list",
+            marks=pytest.mark.not_valid_for(
+                "MONAD_EIGHT", subsequent_forks=True
+            ),
         ),
         pytest.param(
             4,
