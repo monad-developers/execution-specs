@@ -511,15 +511,14 @@ def decode_transaction(tx: LegacyTransaction | Bytes) -> Transaction:
     Needed because non-legacy transactions aren't RLP.
 
     Legacy transactions are returned as-is, while other transaction types
-    are decoded based on their type identifier prefix.
+    are decoded based on their type identifier prefix. Blob transactions
+    are not accepted, so their type byte is unknown here.
     """
     if isinstance(tx, Bytes):
         if tx[0] == 1:
             return rlp.decode_to(AccessListTransaction, tx[1:])
         elif tx[0] == 2:
             return rlp.decode_to(FeeMarketTransaction, tx[1:])
-        elif tx[0] == 3:
-            return rlp.decode_to(BlobTransaction, tx[1:])
         elif tx[0] == 4:
             return rlp.decode_to(SetCodeTransaction, tx[1:])
         else:
@@ -557,6 +556,9 @@ def validate_transaction(tx: Transaction) -> Tuple[Uint, Uint]:
     [EIP-2681]: https://eips.ethereum.org/EIPS/eip-2681
     [EIP-7623]: https://eips.ethereum.org/EIPS/eip-7623
     """
+    if isinstance(tx, BlobTransaction):
+        raise TransactionTypeError(3)
+
     from .vm.interpreter import MAX_INIT_CODE_SIZE
 
     intrinsic_gas, calldata_floor_gas_cost = calculate_intrinsic_cost(tx)
