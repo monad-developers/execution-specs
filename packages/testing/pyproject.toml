@@ -102,6 +102,7 @@ groupstats = "execution_testing.cli.show_pre_alloc_group_stats:main"
 extract_config = "execution_testing.cli.extract_config:extract_config"
 compare_fixtures = "execution_testing.cli.compare_fixtures:main"
 benchmark_parser = "execution_testing.cli.benchmark_parser:main"
+perf_regression = "execution_testing.cli.perf_regression:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

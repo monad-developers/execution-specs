@@ -21,6 +21,7 @@ Requirements: docker, ~10 GB disk for the builder image and build
 artifacts, ~6 GB RAM for hugepages.
 
 ```sh
+snap install astral-uv --classic
 git clone --branch main \
     git@github.com:monad-exp/monad-eest-rust-harness.git
 cd monad-eest-rust-harness
@@ -67,6 +68,48 @@ uv run consume direct --input ../fixtures_eestnet \
 - `consume` parallelism is CPU-bound: one runloop peaks near 4 cores (~386% CPU
   across ~14 threads), so budget ~5 vCPUs per worker (`-n N` needs
   roughly `5 * N` cores).
+
+## MIP-8 perf-regression tests
+
+`tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py`
+fills SLOAD/SSTORE workloads at both forks and times block execution on
+the runloop to compare MONAD_NINE (slot-encoded) vs MONAD_TEN
+(page-encoded).
+
+### Setup
+
+```sh
+sudo tee /etc/sysctl.d/99-benchmark.conf >/dev/null <<'EOF'
+kernel.randomize_va_space = 0
+kernel.perf_event_paranoid = 1
+vm.nr_hugepages = 3072
+EOF
+sudo sysctl --system
+sudo cpupower idle-set -D 1
+```
+
+### Run
+
+From the repo root:
+
+```sh
+tmux new -s perf 'TAG=v4 scripts/perf_cycle.sh'
+```
+
+Fills once, consumes `RUNS` times, and writes the NINE-vs-TEN table to
+`../timing_${TAG}_<utc>_table.md` (headed with the
+cycle time and the four repo SHAs). Knobs:
+
+- `TAG` (required) names every artifact; use a fresh one per experiment.
+- `RUNS` consume passes (default 13), `REPEATS` page-disjoint copies per
+  fixture (cold samples reduced to a `min` within each pass).
+- `BLOCK_GAS_M=N` sets the block gas budget in millions, passed through
+  as `--gas-benchmark-values`; the default 200 matches the gas the
+  runloop stamps. Fixtures land under `for_{fork}_at_0200M/`, so the
+  budget a fixture was built with is visible in its path.
+  `SKIP_FILL=1` reuses an existing `../fixtures_${TAG}`.
+
+Run on a quiet host; timings are noisy under contention.
 
 ## Behavior and known limits
 

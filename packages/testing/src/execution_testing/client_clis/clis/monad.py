@@ -19,14 +19,27 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import (
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypedDict,
+)
 
+import ijson  # type: ignore[import-untyped]
 import pytest
 
 from execution_testing.fixtures import BlockchainFixture, FixtureFormat
+from execution_testing.logging import get_logger
 from execution_testing.test_types import Transaction
 
 from ..fixture_consumer_tool import FixtureConsumerTool
+
+logger = get_logger(__name__)
 
 # Monad revision schedule per fixture `network`, as
 # (monad_revision, activation timestamp) pairs. Non-transition
@@ -61,6 +74,30 @@ def _set_pdeathsig() -> None:
     """
     if _LIBC is not None:
         _LIBC.prctl(1, signal.SIGTERM)
+
+
+def _iter_fixtures(
+    fixture_path: Path, fixture_name: Optional[str]
+) -> Iterator[Dict[str, Any]]:
+    """
+    Yield the fixtures to run from a (possibly multi-fixture) JSON file.
+
+    A `fixture_name` selects one; without it every fixture in the file is
+    yielded, which is what the fixture-verification path asks for when it
+    hands over a merged file (`evm blocktest` behaves the same way, by
+    omitting `--run`). ijson streams the file so memory use stays low on
+    large fixtures.
+    """
+    found = False
+    with open(fixture_path, "rb") as f:
+        for name, fixture in ijson.kvitems(f, ""):
+            if fixture_name is None or name == fixture_name:
+                found = True
+                yield fixture
+                if fixture_name is not None:
+                    return
+    if not found:
+        raise KeyError(f"fixture {fixture_name!r} not found in {fixture_path}")
 
 
 def _hex32(value: str) -> str:
@@ -160,6 +197,99 @@ def _compare_account(
     return mismatches
 
 
+class BlockExecutionTiming(TypedDict):
+    """
+    Per-block execution timing reported by the monad runloop.
+
+    All durations are in microseconds. The keys name the runloop's own
+    execution phases, and are the columns `consume direct
+    --timing-report` writes for this consumer.
+    """
+
+    block: int
+    tx_count: int
+    gas: int
+    retries: int
+    tx_exec_us: int
+    state_root_us: int
+    commit_us: int
+    total_us: int
+
+
+# A runloop duration: a decimal number and a chrono unit suffix, with
+# optional whitespace.
+_DURATION_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ns|[µμu]s|ms|s)\s*$")
+_UNIT_US = {"ns": 1e-3, "us": 1.0, "ms": 1e3, "s": 1e6}
+
+
+def _duration_us(value: str) -> int:
+    """
+    Convert a duration like `5745us`, `5.7 ms` or `0.01s` to integer
+    microseconds; raise ValueError on any unrecognized format.
+    """
+    match = _DURATION_RE.match(value)
+    if match is None:
+        raise ValueError(f"unrecognized duration {value!r}")
+    number, unit = match.groups()
+    if unit in ("µs", "μs"):
+        unit = "us"
+    return round(float(number) * _UNIT_US[unit])
+
+
+def _exec_block_row(line: str) -> Optional[BlockExecutionTiming]:
+    """Parse one `__exec_block` log line, or None (logged) if malformed."""
+    body = line.split("__exec_block", 1)[1]
+    fields: Dict[str, str] = {}
+    for part in body.split(","):
+        key, sep, value = part.partition("=")
+        if sep:
+            fields[key.strip()] = value.strip()
+
+    def us(key: str) -> int:
+        return _duration_us(fields[key])
+
+    try:
+        return BlockExecutionTiming(
+            block=int(fields["bl"]),
+            tx_count=int(fields["tx"]),
+            gas=int(fields["gas"]),
+            retries=int(fields.get("rt", 0)),
+            tx_exec_us=us("txe"),
+            state_root_us=us("sr"),
+            commit_us=us("cmt"),
+            total_us=us("tot"),
+        )
+    except (KeyError, ValueError) as e:
+        logger.error(f"unparsable __exec_block line ({e!r}): {line.strip()}")
+        return None
+
+
+def _parse_block_timings(stdout: str) -> List[BlockExecutionTiming]:
+    """
+    Extract per-block timing from the runloop's `__exec_block` log lines.
+
+    The production runloop logs one such line per block, e.g.:
+    `__exec_block,bl=1,...,tx=1,rt=0,...,sr=5192us,txe=14241us,cmt=879us,
+    tot=21153us,...,gas=10000000,...`. Fields carry leading padding;
+    durations a chrono unit suffix (see `_duration_us`). `rt` is the
+    optimistic-execution retry count, reported as `retries`: it separates
+    a block that did the same work more slowly from one that redid work.
+    A runloop that does not log `rt` still yields timings, with `retries`
+    reported as zero and one warning naming how many blocks it covered.
+    Malformed lines are logged and skipped.
+    """
+    lines = [line for line in stdout.splitlines() if "__exec_block" in line]
+    without_retries = sum(1 for line in lines if "rt=" not in line)
+    if without_retries:
+        logger.warning(
+            f"{without_retries} of {len(lines)} __exec_block lines carry no "
+            "`rt` field; retries are reported as 0 for those blocks and "
+            "cannot be told apart from a block that really retried none"
+        )
+    rows = [_exec_block_row(line) for line in lines]
+    return [row for row in rows if row is not None]
+
+
 class MonadFixtureConsumer(
     FixtureConsumerTool,
     fixture_formats=[BlockchainFixture],
@@ -178,6 +308,17 @@ class MonadFixtureConsumer(
         """Initialize the MonadFixtureConsumer."""
         super().__init__(binary=binary)
         self.trace = trace
+        self._block_timings: Sequence[BlockExecutionTiming] = ()
+
+    def last_block_timings(self) -> Sequence[BlockExecutionTiming]:
+        """
+        Return the per-block timing parsed from the last consumed fixture.
+
+        Implements the `BlockTimingReporter` capability. Reset at the start
+        of every `consume_fixture` call, so a fixture the runloop reported
+        nothing for never inherits the previous one's timing.
+        """
+        return self._block_timings
 
     def _init_triedb(
         self, db_path: Path, schedule: List[Tuple[int, int]]
@@ -191,6 +332,11 @@ class MonadFixtureConsumer(
         (e.g. a MONAD_NINE->MONAD_TEN transition) needs both: a slot-encoded
         primary plus an activated page-encoded secondary timeline, so the
         runloop can dual-write across the fork.
+
+        Only the secondary's kind is decided here. `Db::Db` re-stamps the
+        primary to whatever state machine the runloop opens it with, so the
+        `--state-machine` passed for the primary below does not survive
+        into the run.
         """
         monad_mpt = self.binary.parent / "monad-mpt"
         revisions = [revision for revision, _ in schedule]
@@ -203,7 +349,14 @@ class MonadFixtureConsumer(
         # Shrunk chunk capacity / history ring keep per-test time at ~2s
         # (the production defaults dominate runtime). `monad` is the
         # page-encoded state machine, `ethereum` the slot-encoded one.
-        primary = "monad" if uses_page and not uses_slot else "ethereum"
+        # This only sets the kind `--create` stamps; the runloop re-stamps
+        # the primary when it opens the db, so the value is inert. Kept
+        # matched to the schedule so the two agree on disk; it can collapse
+        # to one constant once a TEN-only run confirms nothing reads the
+        # db in between.
+        initial_primary = (
+            "monad" if uses_page and not uses_slot else "ethereum"
+        )
         subprocess.run(
             [
                 str(monad_mpt),
@@ -215,7 +368,7 @@ class MonadFixtureConsumer(
                 "--root-offsets-chunk-count",
                 "2",
                 "--state-machine",
-                primary,
+                initial_primary,
             ],
             capture_output=True,
             text=True,
@@ -300,16 +453,25 @@ class MonadFixtureConsumer(
         fixture_name: Optional[str] = None,
         debug_output_path: Optional[Path] = None,
     ) -> None:
-        """Execute a blockchain fixture on the monad runloop and verify."""
+        """
+        Execute blockchain fixtures on the monad runloop and verify.
+
+        Runs the named fixture, or every fixture in the file when no name
+        is given, and reports the timing of all their blocks together.
+        """
         assert fixture_format == BlockchainFixture
+        timings: List[BlockExecutionTiming] = []
+        self._block_timings = ()
+        for fixture in _iter_fixtures(fixture_path, fixture_name):
+            timings.extend(self._consume_one(fixture, debug_output_path))
+        self._block_timings = timings
 
-        with open(fixture_path) as f:
-            fixtures = json.load(f)
-        if fixture_name is None:
-            assert len(fixtures) == 1, "fixture_name required"
-            fixture_name = next(iter(fixtures))
-        fixture = fixtures[fixture_name]
-
+    def _consume_one(
+        self,
+        fixture: Dict[str, Any],
+        debug_output_path: Optional[Path],
+    ) -> Sequence[BlockExecutionTiming]:
+        """Run one fixture and verify its post state and state root."""
         network = fixture["network"]
         assert network in FORK_REVISION_SCHEDULES, (
             f"no monad revision schedule for network {network}"
@@ -362,20 +524,23 @@ class MonadFixtureConsumer(
                 )
 
             output = json.loads(output_path.read_text())
+            block_timings = _parse_block_timings(stdout)
 
-        actual_post = {
-            address.lower(): account
-            for address, account in output["post_state"].items()
-        }
-        post_state = fixture.get("postState")
-        assert post_state is not None, (
-            "fixture has no postState (hash-only fixtures not supported)"
-        )
-
+        # The state root below is the authoritative check: it commits to
+        # the whole state, so any divergence changes it. `postState`, when
+        # the fixture carries it, only adds per-account detail to the
+        # failure message; fixtures that omit it (benchmark fixtures do,
+        # keeping them small) are verified by the root alone.
         mismatches = []
-        for address, expected in post_state.items():
-            actual = actual_post.get(address.lower())
-            mismatches.extend(_compare_account(address, expected, actual))
+        post_state = fixture.get("postState")
+        if post_state is not None:
+            actual_post = {
+                address.lower(): account
+                for address, account in output["post_state"].items()
+            }
+            for address, expected in post_state.items():
+                actual = actual_post.get(address.lower())
+                mismatches.extend(_compare_account(address, expected, actual))
 
         # Assert the final state root, the last executed block's root. Under
         # monad's synchronous execution it equals the fixture's last block
@@ -394,3 +559,5 @@ class MonadFixtureConsumer(
                 "post-state mismatch on the monad runloop:\n"
                 + "\n".join(mismatches)
             )
+
+        return block_timings
