@@ -263,6 +263,7 @@ def test_bal_noop_write_filtering(
     )
 
 
+@pytest.mark.no_bal_dependency
 def test_bal_intra_tx_round_trip_after_prior_tx_write(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,

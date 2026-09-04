@@ -32,7 +32,7 @@ REFERENCE_SPEC_VERSION = ref_spec_7997.version
 FORK_TIMESTAMP = 15_000
 
 
-@pytest.mark.valid_at_transition_to("Amsterdam")
+@pytest.mark.valid_at_transition_to("EIP7997")
 @pytest.mark.pre_alloc_mutable
 @pytest.mark.parametrize("pre_fork_nonce", [1, 2, 32])
 def test_factory_deploys_across_transition(
@@ -106,7 +106,7 @@ def test_factory_deploys_across_transition(
     )
 
 
-@pytest.mark.valid_at_transition_to("Amsterdam")
+@pytest.mark.valid_at_transition_to("EIP7997")
 @pytest.mark.pre_alloc_mutable
 def test_factory_absent_across_transition(
     blockchain_test: BlockchainTestFiller,

@@ -61,8 +61,8 @@ from .state_tracker import (
     BlockState,
     TransactionState,
     add_sender_authority,
+    clear_account_preserving_balance,
     create_ether,
-    destroy_account,
     extract_block_diff,
     forget_senders_authorities,
     get_account,
@@ -246,6 +246,7 @@ def state_transition(chain: BlockChain, block: Block) -> None:
         prev_randao=block.header.prev_randao,
         excess_blob_gas=block.header.excess_blob_gas,
         parent_beacon_block_root=block.header.parent_beacon_block_root,
+        slot_number=block.header.slot_number,
     )
 
     block_output = apply_body(
@@ -401,6 +402,8 @@ def validate_header(chain: BlockChain, header: Header) -> None:
     if header.nonce != b"\x00\x00\x00\x00\x00\x00\x00\x00":
         raise InvalidBlock
     if header.ommers_hash != EMPTY_OMMER_HASH:
+        raise InvalidBlock
+    if header.block_access_list_hash != Hash32(b"\x00" * 32):
         raise InvalidBlock
 
     block_parent_hash = keccak256(rlp.encode(parent_header))
@@ -973,9 +976,6 @@ def process_transaction(
     # transfer miner fees
     create_ether(tx_state, block_env.coinbase, U256(transaction_fee))
 
-    for address in tx_output.accounts_to_delete:
-        destroy_account(tx_state, address)
-
     # block_output.block_gas_used += tx_gas_used_after_refund
     block_output.block_gas_used += tx.gas
     block_output.blob_gas_used += tx_blob_gas_used
@@ -994,6 +994,9 @@ def process_transaction(
     )
 
     block_output.block_logs += tx_output.logs
+
+    for address in tx_output.accounts_to_delete:
+        clear_account_preserving_balance(tx_state, address)
 
     incorporate_tx_into_block(tx_state)
 

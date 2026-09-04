@@ -10,6 +10,7 @@ from execution_testing.base_types import BlobSchedule
 from execution_testing.vm import Opcodes
 
 from ..base_fork import BaseFork, BaseForkMeta
+from ..forks.eips import EIP2780, EIP7708, EIP8024
 from ..forks.eips.paris.eip_3675 import EIP3675
 from ..forks.forks import (
     BPO1,
@@ -18,6 +19,8 @@ from ..forks.forks import (
     BPO4,
     BPO5,
     MONAD_EIGHT,
+    MONAD_NEXT,
+    MONAD_TEN,
     Amsterdam,
     Berlin,
     Cancun,
@@ -296,6 +299,25 @@ def test_fork_comparison() -> None:
     assert fork == Berlin
 
 
+def test_succession_does_not_imply_eip_membership() -> None:
+    """
+    A fork placed after another by `follows` does not gain its EIPs.
+
+    Succession orders MONAD_NEXT after Amsterdam so the Amsterdam
+    suites can select it, while the EIPs it declines must still compare
+    as absent. An adopted EIP is reached through inheritance instead, so
+    it keeps comparing as present.
+    """
+    assert MONAD_NEXT > Amsterdam
+    assert MONAD_NEXT > MONAD_TEN
+
+    assert MONAD_NEXT >= EIP7708
+    assert MONAD_NEXT.is_eip_enabled(7708)
+
+    assert not MONAD_NEXT >= EIP2780
+    assert not MONAD_NEXT.is_eip_enabled(2780)
+
+
 def test_transition_fork_comparison() -> None:
     """
     Test comparing to a transition fork.
@@ -380,6 +402,39 @@ class PreAllocTransitionFork(TransitionBaseClass):
     """PrePreAllocFork to PreAllocFork transition at Timestamp 15k."""
 
     pass
+
+
+def test_monad_next_is_not_deployed() -> None:
+    """
+    A fork under development must stay out of the deployed fork range.
+    """
+    deployed_forks = get_deployed_forks()
+    assert MONAD_TEN in deployed_forks
+    assert MONAD_NEXT not in deployed_forks
+
+
+def opcode_names(fork: Type[BaseFork]) -> set[str]:
+    """Return the names of the opcodes a fork declares valid."""
+    return {str(opcode) for opcode in fork.valid_opcodes()}
+
+
+def test_adopted_opcodes_depend_on_mixin_order() -> None:
+    """
+        The adopted opcodes reach MONAD_NEXT through its mixin order.
+
+    MONAD_NINE returning Osaka's list directly is what ends the chain
+        there, which is what lets a mixin placed ahead of the Monad forks
+        contribute on the way out. Making that call cooperative, or
+        reordering MONAD_NEXT's bases, drops these opcodes silently.
+    """
+    adopted = {"DUPN", "SWAPN", "EXCHANGE"}
+    assert adopted <= opcode_names(MONAD_NEXT)
+    assert not adopted & opcode_names(MONAD_TEN)
+
+    class MixinAfterFork(MONAD_TEN, EIP8024):  # noqa: N801
+        """Dummy fork ordering an EIP mixin after the Monad fork."""
+
+    assert not adopted & opcode_names(MixinAfterFork)
 
 
 def test_pre_alloc() -> None:  # noqa: D103
