@@ -61,15 +61,15 @@ jobs:
           fi
           [ "$fail" -eq 0 ]
 
-      # The monad stack arrives with the repo. actions/checkout handles
-      # submodule auth, so no manual credential setup is needed; the PAT
-      # is only required if either submodule repo is private.
-      - name: Checkout consumer and the monad stack
+      - name: Checkout consumer
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
           fetch-depth: 0
-          token: ${{ secrets.MONAD_STACK_TOKEN || github.token }}
+
+      # actions/checkout's own `submodules: recursive` would pull too much.
+      - name: Check out the monad stack
+        shell: bash
+        run: ./monad-runloop/init-stack.sh
 
       # Optional submodule overrides. Set a *_repo to pull that submodule
       # from a different fork at *_ref (default branch if ref is empty);
@@ -83,13 +83,12 @@ jobs:
         env:
           REPO: ${{ inputs.monad_bft_repo }}
           REF: ${{ inputs.monad_bft_ref }}
-          TOKEN: ${{ secrets.MONAD_STACK_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          url="https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+          url="https://github.com/${REPO}.git"
           git -C monad-runloop/monad-bft fetch --depth=1 "$url" "${REF:-HEAD}"
           git -C monad-runloop/monad-bft checkout --detach FETCH_HEAD
-          git -C monad-runloop/monad-bft submodule update --init --recursive
+          ./monad-runloop/init-stack.sh
 
       - name: Override monad-execution
         if: ${{ inputs.monad_execution_repo != '' }}
@@ -97,14 +96,13 @@ jobs:
         env:
           REPO: ${{ inputs.monad_execution_repo }}
           REF: ${{ inputs.monad_execution_ref }}
-          TOKEN: ${{ secrets.MONAD_STACK_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          url="https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+          url="https://github.com/${REPO}.git"
           exec_dir=monad-runloop/monad-bft/monad-execution
           git -C "$exec_dir" fetch --depth=1 "$url" "${REF:-HEAD}"
           git -C "$exec_dir" checkout --detach FETCH_HEAD
-          git -C "$exec_dir" submodule update --init --recursive
+          ./monad-runloop/init-stack.sh
 
       - name: Log pinned stack
         id: stack

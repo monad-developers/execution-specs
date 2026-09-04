@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 if [ ! -f "$ROOT/monad-bft/Cargo.toml" ] ||
    [ ! -f "$ROOT/monad-bft/monad-execution/CMakeLists.txt" ]; then
     echo "error: the monad stack is not checked out. Run:" >&2
-    echo "  git submodule update --init --recursive monad-runloop/monad-bft" >&2
+    echo "  ./monad-runloop/init-stack.sh" >&2
     exit 1
 fi
 

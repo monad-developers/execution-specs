@@ -24,7 +24,7 @@ Requirements: docker, ~10 GB disk for the builder image and build
 artifacts, ~6 GB RAM for hugepages.
 
 ```sh
-git submodule update --init --recursive monad-runloop/monad-bft
+./monad-runloop/init-stack.sh   # monad-bft + monad-execution, ~300 MB
 
 # Toolchain image (gcc-15 + rust), from the vendored Dockerfile:
 docker build -t monad-builder:latest \

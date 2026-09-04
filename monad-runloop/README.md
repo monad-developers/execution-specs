@@ -23,6 +23,8 @@ carry Category Labs GPL-3 headers, so this subtree keeps its own
     post-state as JSON.
 - `monad-bft` — submodule; its own `monad-execution` submodule carries
   the `EestNet` chain and the extended runloop FFI.
+- `init-stack.sh` — checks out monad-bft, monad-execution, and the needed
+  third_party submodules, skipping test data and prose.
 - `docker/builder/Dockerfile` — vendored byte-identical from
   monad-bft, so the toolchain image builds with no network fetch and
   the CI cache key can hash it directly.
@@ -92,16 +94,17 @@ after the last block:
 From the repo root:
 
 ```sh
-git submodule update --init --recursive monad-runloop/monad-bft
+./monad-runloop/init-stack.sh
 docker build -t monad-builder:latest - < monad-runloop/docker/builder/Dockerfile
 ./monad-runloop/build.sh
 monad-runloop/bin/eest-runner --version
 ```
 
-The `--recursive` is required here: `monad-bft/monad-execution` holds
-the execution client and its own third-party submodules. Cloning the
-superproject without `--recurse-submodules` leaves all of this empty,
-which costs nothing for contributors who never run the harness.
+A plain `git clone` leaves all of this empty, which costs nothing for
+contributors who never run the harness. `git clone --recurse-submodules`
+does populate it, but pulls the full 3.6 GB rather than the 300 MB
+`init-stack.sh` selects; re-running the script afterwards is harmless
+but will not shrink an already-fetched checkout.
 
 Requirements: docker, ~10 GB disk for the builder image and build
 artifacts, ~6 GB RAM for hugepages.
