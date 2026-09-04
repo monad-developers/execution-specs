@@ -9,7 +9,32 @@
 # fails as a confusing CMake error deep into the build, while an extra
 # one only costs disk, so anything monad adds later is checked out by
 # default and only entries verified unreferenced are listed here.
+#
+# `git submodule update` resets a submodule to the recorded gitlink, so
+# a caller that has deliberately checked one out elsewhere must say so:
+#
+#   --keep bft    monad-bft is already where it should be; still apply
+#                 its own monad-execution pin
+#   --keep exec   monad-bft and monad-execution are both already where
+#                 they should be
+#
+# Without this the consume workflow's stack overrides would be reverted
+# to the pinned stack, and the run would silently test the wrong code.
 set -euo pipefail
+
+KEEP=none
+case "${1:-}" in
+    "") ;;
+    --keep)
+        KEEP="${2:?--keep needs an argument: bft or exec}"
+        case "$KEEP" in
+            bft | exec) ;;
+            *) echo "error: --keep takes bft or exec, got '$KEEP'" >&2
+               exit 1 ;;
+        esac
+        ;;
+    *) echo "usage: $(basename "$0") [--keep bft|exec]" >&2; exit 1 ;;
+esac
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(git -C "$ROOT" rev-parse --show-toplevel)"
@@ -21,8 +46,12 @@ SKIP=(
     third_party/zkevm-standards
 )
 
-git -C "$REPO" submodule update --init monad-runloop/monad-bft
-git -C "$ROOT/monad-bft" submodule update --init monad-execution
+if [ "$KEEP" = none ]; then
+    git -C "$REPO" submodule update --init monad-runloop/monad-bft
+fi
+if [ "$KEEP" != exec ]; then
+    git -C "$ROOT/monad-bft" submodule update --init monad-execution
+fi
 
 # Guard the denylist against upstream drift. The scope mirrors what the
 # top-level CMakeLists descends into, which excludes zkvm/ — that is why
