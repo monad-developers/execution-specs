@@ -179,7 +179,7 @@ def test_transaction_validity_type_1_type_2(
     )
 
 
-@pytest.mark.skip(reason="Not supported in Monad")
+@pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
 @pytest.mark.parametrize(
     "access_list",
     [
