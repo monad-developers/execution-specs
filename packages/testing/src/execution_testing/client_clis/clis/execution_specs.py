@@ -197,6 +197,7 @@ class ExecutionSpecsExceptionMapper(ExceptionMapper):
     """
 
     mapping_substring: ClassVar[Dict[ExceptionBase, str]] = {
+        TransactionException.TYPE_NOT_SUPPORTED: "TransactionTypeError",
         TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST: (
             "EmptyAuthorizationListError"
         ),

@@ -17,8 +17,8 @@ REFERENCE_SPEC_VERSION = "02e46aebc80e6e5006ab4d2daa41876139f9a9e2"
 
 
 @pytest.mark.with_all_typed_transactions(
-    marks=lambda tx_type: pytest.mark.skip(
-        reason="type 3 transactions aren't supported in Monad"
+    marks=lambda tx_type: pytest.mark.not_valid_for(
+        "MONAD_EIGHT", subsequent_forks=True
     )
     if tx_type == 3
     else None
