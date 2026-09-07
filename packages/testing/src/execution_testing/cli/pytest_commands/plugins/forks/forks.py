@@ -1265,7 +1265,9 @@ class ValidAtTransitionTo(
                 "Missing fork argument with 'valid_at_transition_to' marker."
             )
 
-        if len(forks) > 1:
+        # A single EIP argument expands to one fork per enabling fork, so
+        # the limit is on the arguments rather than on the resolved forks.
+        if len(fork_args) > 1:
             raise Exception(
                 "Too many forks specified to 'valid_at_transition_to' marker."
             )
