@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [ "ledger", "runloop", "eest-runner" ]
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+debug = true
+lto = "thin"
+panic = "abort"
+
+[workspace.dependencies]
+ledger = { path = "./ledger" }
+runloop = { path = "./runloop" }
+
+monad-bls = { path = "../monad-bft/monad-bls" }
+monad-chain-config = { path = "../monad-bft/monad-chain-config" }
+monad-consensus-types = { path = "../monad-bft/monad-consensus-types" }
+monad-crypto = { path = "../monad-bft/monad-crypto" }
+monad-cxx = { path = "../monad-bft/monad-execution/rust/crates/monad-cxx" }
+monad-eth-block-policy = { path = "../monad-bft/monad-eth-block-policy" }
+monad-eth-block-validator = { path = "../monad-bft/monad-eth-block-validator" }
+monad-eth-types = { path = "../monad-bft/monad-eth-types" }
+monad-executor = { path = "../monad-bft/monad-executor" }
+monad-executor-glue = { path = "../monad-bft/monad-executor-glue" }
+monad-ledger = { path = "../monad-bft/monad-ledger" }
+monad-secp = { path = "../monad-bft/monad-secp" }
+monad-execution-state-read = { path = "../monad-bft/monad-execution-state-read" }
+monad-tfm = { path = "../monad-bft/monad-tfm" }
+monad-types = { path = "../monad-bft/monad-types" }
+monad-validator = { path = "../monad-bft/monad-validator" }
+
+alloy-consensus = "2.0"
+alloy-eips = "2.0"
+alloy-primitives = "1.5"
+alloy-rlp = "0.3"
+alloy-signer = "2.0"
+alloy-signer-local = "2.0"
+clap = { version = "=4.5", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

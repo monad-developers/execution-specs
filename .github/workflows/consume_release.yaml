@@ -1,5 +1,7 @@
 # Manually run a filled fixtures release against a pinned monad stack via
-# `consume direct` + the eest-runner runloop client.
+# `consume direct` + the eest-runner runloop client. The harness lives in
+# this repo under monad-runloop/; the monad stack comes in as the
+# monad-runloop/monad-bft submodule and its own monad-execution submodule.
 
 name: Consume Release (monad runloop)
 
@@ -10,12 +12,8 @@ on:
         description: "Fixtures source: release spec (e.g. tests-monad_runloop@v1.1.1-rc2), a fixtures.tar.gz URL, or latest"
         required: true
         default: "tests-monad_runloop@latest"
-      harness_ref:
-        description: "monad-eest-rust-harness ref (branch/tag/SHA)"
-        required: false
-        default: "main"
       monad_bft_repo:
-        description: "Override monad-bft from this owner/repo (e.g. category-labs/monad-bft); empty = keep the harness's pinned commit"
+        description: "Override monad-bft from this owner/repo (e.g. category-labs/monad-bft); empty = keep the pinned commit"
         required: false
         default: ""
       monad_bft_ref:
@@ -23,7 +21,7 @@ on:
         required: false
         default: ""
       monad_execution_repo:
-        description: "Override monad-execution from this owner/repo; empty = keep the harness's pinned commit"
+        description: "Override monad-execution from this owner/repo; empty = keep the pinned commit"
         required: false
         default: ""
       monad_execution_ref:
@@ -63,58 +61,60 @@ jobs:
           fi
           [ "$fail" -eq 0 ]
 
-      - name: Checkout consumer (execution-specs)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Checkout monad-eest-rust-harness (build input)
+      - name: Checkout consumer
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: monad-exp/monad-eest-rust-harness
-          ref: ${{ inputs.harness_ref }}
-          path: monad-eest-rust-harness
-          submodules: recursive
           fetch-depth: 0
-          token: ${{ secrets.MONAD_STACK_TOKEN }}
 
-      # Optional submodule overrides. Set a *_repo to pull that submodule from
-      # a different fork at *_ref (default branch if ref is empty); leave it
-      # empty to keep the harness's pinned commit. actions/checkout handles
-      # auth, so no manual credential setup is needed. The monad-bft override
-      # recurses (so monad-execution lands at the new bft's pin); the
-      # monad-execution override runs after, so it is not reset.
+      # actions/checkout's own `submodules: recursive` would pull too much.
+      - name: Check out the monad stack
+        shell: bash
+        run: ./monad-runloop/init-stack.sh
+
+      # Optional submodule overrides. Set a *_repo to pull that submodule
+      # from a different fork at *_ref (default branch if ref is empty);
+      # leave it empty to keep the pinned commit. The monad-bft override
+      # runs first and re-inits its nested monad-execution at the new
+      # bft's pin; the monad-execution override runs after, so it is not
+      # reset.
       - name: Override monad-bft
         if: ${{ inputs.monad_bft_repo != '' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          repository: ${{ inputs.monad_bft_repo }}
-          ref: ${{ inputs.monad_bft_ref }}
-          path: monad-eest-rust-harness/monad-bft
-          submodules: recursive
-          fetch-depth: 0
-          token: ${{ secrets.MONAD_STACK_TOKEN }}
+        shell: bash
+        env:
+          REPO: ${{ inputs.monad_bft_repo }}
+          REF: ${{ inputs.monad_bft_ref }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/${REPO}.git"
+          git -C monad-runloop/monad-bft fetch --depth=1 "$url" "${REF:-HEAD}"
+          git -C monad-runloop/monad-bft checkout --detach FETCH_HEAD
+          ./monad-runloop/init-stack.sh --keep bft
 
       - name: Override monad-execution
         if: ${{ inputs.monad_execution_repo != '' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          repository: ${{ inputs.monad_execution_repo }}
-          ref: ${{ inputs.monad_execution_ref }}
-          path: monad-eest-rust-harness/monad-bft/monad-execution
-          submodules: recursive
-          fetch-depth: 0
-          token: ${{ secrets.MONAD_STACK_TOKEN }}
+        shell: bash
+        env:
+          REPO: ${{ inputs.monad_execution_repo }}
+          REF: ${{ inputs.monad_execution_ref }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/${REPO}.git"
+          exec_dir=monad-runloop/monad-bft/monad-execution
+          git -C "$exec_dir" fetch --depth=1 "$url" "${REF:-HEAD}"
+          git -C "$exec_dir" checkout --detach FETCH_HEAD
+          ./monad-runloop/init-stack.sh --keep exec
 
       - name: Log pinned stack
         id: stack
-        working-directory: monad-eest-rust-harness
         shell: bash
         run: |
-          harness=$(git rev-parse HEAD)
-          bft=$(git -C monad-bft rev-parse HEAD)
-          exec=$(git -C monad-bft/monad-execution rev-parse HEAD)
-          echo "harness:         $harness"
-          echo "monad-bft:       $bft"
-          echo "monad-execution: $exec"
+          set -euo pipefail
+          harness=$(git rev-parse HEAD:monad-runloop)
+          bft=$(git -C monad-runloop/monad-bft rev-parse HEAD)
+          exec=$(git -C monad-runloop/monad-bft/monad-execution rev-parse HEAD)
+          echo "monad-runloop tree: $harness"
+          echo "monad-bft:          $bft"
+          echo "monad-execution:    $exec"
           {
             echo "harness=$harness"
             echo "bft=$bft"
@@ -124,24 +124,23 @@ jobs:
       # The monad-builder image is a fixed toolchain built from a bare
       # Dockerfile (no build context), and it is needed both by build.sh
       # and at consume time (the bin/ wrappers run the binary inside it).
-      # Cache it as a tarball keyed on the Dockerfile so it rebuilds only
-      # when the toolchain changes.
+      # Cache it as a tarball keyed on the vendored Dockerfile so it
+      # rebuilds only when the toolchain changes.
       - name: Restore monad-builder image
         id: image-cache
         uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: /tmp/monad-builder.tar
-          key: monad-builder-${{ runner.os }}-${{ hashFiles('monad-eest-rust-harness/monad-bft/docker/builder/Dockerfile') }}
+          key: monad-builder-${{ runner.os }}-${{ hashFiles('monad-runloop/docker/builder/Dockerfile') }}
 
       - name: Build or load the monad-builder image
-        working-directory: monad-eest-rust-harness
         shell: bash
         run: |
           if [ -f /tmp/monad-builder.tar ]; then
             docker load -i /tmp/monad-builder.tar
           else
             docker build -t monad-builder:latest \
-              - < monad-bft/docker/builder/Dockerfile
+              - < monad-runloop/docker/builder/Dockerfile
             docker save -o /tmp/monad-builder.tar monad-builder:latest
           fi
 
@@ -152,29 +151,29 @@ jobs:
           path: /tmp/monad-builder.tar
           key: ${{ steps.image-cache.outputs.cache-primary-key }}
 
-      # build.sh bind-mounts the harness root, so cargo/cmake output lands
-      # on the host under install/. Cache it keyed on the exact resolved
-      # stack (harness + monad-bft + monad-execution) plus the toolchain,
-      # so re-running the same stack skips the ~10 min build. Exact match
+      # build.sh bind-mounts monad-runloop/, so cargo/cmake output lands on
+      # the host under monad-runloop/install/. Cache it keyed on the exact
+      # resolved stack (harness tree + monad-bft + monad-execution) plus the
+      # toolchain, so re-running the same stack skips the ~10 min build and
+      # docs-only commits elsewhere in the repo do not bust it. Exact match
       # only: an install/ from a different stack would be wrong.
       - name: Restore eest-runner install/
         id: install-cache
         uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
-          path: monad-eest-rust-harness/install
-          key: eest-install-${{ runner.os }}-${{ hashFiles('monad-eest-rust-harness/monad-bft/docker/builder/Dockerfile') }}-${{ steps.stack.outputs.harness }}-${{ steps.stack.outputs.bft }}-${{ steps.stack.outputs.exec }}
+          path: monad-runloop/install
+          key: eest-install-${{ runner.os }}-${{ hashFiles('monad-runloop/docker/builder/Dockerfile') }}-${{ steps.stack.outputs.harness }}-${{ steps.stack.outputs.bft }}-${{ steps.stack.outputs.exec }}
 
       - name: Build the eest-runner stack (build.sh)
         if: steps.install-cache.outputs.cache-hit != 'true'
-        working-directory: monad-eest-rust-harness
         shell: bash
-        run: ./build.sh
+        run: ./monad-runloop/build.sh
 
       - name: Save eest-runner install/
         if: steps.install-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
-          path: monad-eest-rust-harness/install
+          path: monad-runloop/install
           key: ${{ steps.install-cache.outputs.cache-primary-key }}
 
       - name: Setup uv
@@ -201,7 +200,7 @@ jobs:
           fi
           uv run consume direct \
             --input "$RELEASE" \
-            --bin "$GITHUB_WORKSPACE/monad-eest-rust-harness/bin/eest-runner" \
+            --bin "$GITHUB_WORKSPACE/monad-runloop/bin/eest-runner" \
             "${FILTER_ARG[@]}" -v | tee consume.log
 
       - name: Summary
@@ -210,7 +209,7 @@ jobs:
         env:
           RELEASE: ${{ inputs.release }}
           FILTER: ${{ inputs.filter || '(none)' }}
-          HARNESS_REF: ${{ inputs.harness_ref }}
+          HARNESS_TREE: ${{ steps.stack.outputs.harness }}
           BFT_SHA: ${{ steps.stack.outputs.bft }}
           EXEC_SHA: ${{ steps.stack.outputs.exec }}
         run: |
@@ -219,7 +218,7 @@ jobs:
             echo ""
             echo "| input | value |"
             echo "|---|---|"
-            echo "| harness_ref | \`${HARNESS_REF}\` |"
+            echo "| monad-runloop tree | \`${HARNESS_TREE:-(unknown)}\` |"
             echo "| monad-bft | \`${BFT_SHA:-(unknown)}\` |"
             echo "| monad-execution | \`${EXEC_SHA:-(unknown)}\` |"
             echo "| filter | \`${FILTER:-(none)}\` |"

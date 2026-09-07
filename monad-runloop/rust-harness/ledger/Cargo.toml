@@ -1,0 +1,27 @@
+[package]
+name = "ledger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+runloop = { workspace = true }
+
+monad-bls = { workspace = true }
+monad-chain-config = { workspace = true }
+monad-consensus-types = { workspace = true }
+monad-crypto = { workspace = true }
+monad-eth-block-policy = { workspace = true }
+monad-eth-block-validator = { workspace = true }
+monad-eth-types = { workspace = true }
+monad-executor = { workspace = true }
+monad-executor-glue = { workspace = true }
+monad-ledger = { workspace = true }
+monad-secp = { workspace = true }
+monad-execution-state-read = { workspace = true }
+monad-types = { workspace = true }
+monad-validator = { workspace = true }
+
+alloy-consensus = { workspace = true, features = ["k256"] }
+alloy-primitives = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
