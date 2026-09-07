@@ -45,6 +45,7 @@ def _test_case(fixture_id: str = FIXTURE_ID) -> TestCaseIndexFile:
     """Build an index test case for `fixture_id` at MONAD_NINE."""
     return TestCaseIndexFile(
         id=fixture_id,
+        fixture_hash=0x1234,
         fork=MONAD_NINE,
         format=BlockchainFixture,
         json_path=Path("dummy.json"),

@@ -14,8 +14,8 @@ REPEATS="${REPEATS:-20}"
 # runloop stamps every monad block at 200M.
 BLOCK_GAS_M="${BLOCK_GAS_M:-200}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HARNESS="${HARNESS:-$REPO/../monad-eest-rust-harness}"
-BIN="${BIN:-$HARNESS/bin/eest-runner}"
+RUNLOOP="${RUNLOOP:-$REPO/monad-runloop}"
+BIN="${BIN:-$RUNLOOP/bin/eest-runner}"
 TEST="${TEST:-tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py}"
 
 cd "$REPO" || exit 1
@@ -62,8 +62,7 @@ sha() { git -C "$1" rev-parse --short HEAD 2>/dev/null || echo '?'; }
 uv run perf_regression --md "${TABLE}.md" \
     --now "$NOW" \
     --repo "$(sha "$REPO")" \
-    --harness "$(sha "$HARNESS")" \
-    --monad-bft "$(sha "$HARNESS/monad-bft")" \
-    --monad "$(sha "$HARNESS/monad-bft/monad-execution")" \
+    --monad-bft "$(sha "$RUNLOOP/monad-bft")" \
+    --monad "$(sha "$RUNLOOP/monad-bft/monad-execution")" \
     "${PREFIX}"_[0-9]* || { echo "perf_regression failed, no table" >&2; exit 1; }
 echo "=== table: $(cd .. && pwd)/$(basename "$TABLE").md ==="

@@ -410,12 +410,9 @@ def _coverage_notes(
 
 def _provenance(now: str, shas: List[Optional[str]]) -> str:
     """Markdown header: descriptions link, cycle time, and repo shas."""
-    repos = [
-        "execution-specs",
-        "monad-eest-rust-harness",
-        "monad-bft",
-        "monad",
-    ]
+    # The harness lives in this repo under `monad-runloop/`, so its sha is
+    # the execution-specs sha; only the two submodules are separate.
+    repos = ["execution-specs", "monad-bft", "monad"]
     ref = DIAGRAMS_URL.format(ref=shas[0] or "HEAD")
     lines = [
         f"Test-case descriptions: {ref}",
@@ -482,7 +479,6 @@ def report(
     help="Cycle timestamp; prefixes the report with a provenance header.",
 )
 @click.option("--repo", default=None, help="execution-specs sha.")
-@click.option("--harness", default=None, help="monad-eest-rust-harness sha.")
 @click.option("--monad-bft", default=None, help="monad-bft sha.")
 @click.option("--monad", default=None, help="monad-execution sha.")
 def main(
@@ -490,7 +486,6 @@ def main(
     md_path: Optional[Path],
     now: Optional[str],
     repo: Optional[str],
-    harness: Optional[str],
     monad_bft: Optional[str],
     monad: Optional[str],
 ) -> None:
@@ -500,7 +495,7 @@ def main(
     Each RUN_DIRS argument is one `consume direct --timing-report` output
     directory holding a `timing_consume.csv`.
     """
-    md = report(run_dirs, now, [repo, harness, monad_bft, monad])
+    md = report(run_dirs, now, [repo, monad_bft, monad])
     if md_path:
         md_path.write_text(md + "\n", encoding="utf-8")
     else:
