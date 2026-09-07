@@ -7,12 +7,13 @@ transactions in a pre-fork block and a post-fork block (straddling the
 transition timestamp) and pin the per-transaction gas paid on each side,
 plus the validity flip for gas limits inside the uplift gap.
 
-The post-fork intrinsic composes three repricings; the hand-derived
+The post-fork intrinsic composes up to three repricings; the hand-derived
 expectations below keep each term explicit so the EIP-7981 surcharge is
 individually visible:
 
-- EIP-2780 decomposes the flat pre-fork `TX_BASE` into the lowered base
-  plus the `COLD_ACCOUNT_ACCESS` recipient charge.
+- EIP-2780, on the forks that enable it, decomposes the flat pre-fork
+  `TX_BASE` into the lowered base plus the `COLD_ACCOUNT_ACCESS`
+  recipient charge.
 - EIP-8038 reprices the per-address and per-storage-key access list
   charges to the fork's cold access costs.
 - EIP-7981 adds four floor tokens per access list byte, charged at
@@ -116,11 +117,12 @@ def test_access_list_intrinsic_across_amsterdam_transition(
     )
     expected_post = (
         post_costs.TX_BASE
-        + post_costs.COLD_ACCOUNT_ACCESS
         + addresses * post_costs.TX_ACCESS_LIST_ADDRESS
         + total_keys * post_costs.TX_ACCESS_LIST_STORAGE_KEY
         + surcharge
     )
+    if post_fork.is_eip_enabled(2780):
+        expected_post += post_costs.COLD_ACCOUNT_ACCESS
 
     timestamps = [PRE_FORK_TIMESTAMP, POST_FORK_TIMESTAMP]
     expected_intrinsics = [expected_pre, expected_post]
@@ -322,10 +324,10 @@ def test_access_list_floor_across_amsterdam_transition(
         post_costs.TX_DATA_TOKEN_STANDARD
     ) + calculate_access_list_floor_tokens(access_list)
     expected_post = int(
-        post_costs.TX_BASE
-        + post_costs.COLD_ACCOUNT_ACCESS
-        + post_tokens * post_costs.TX_DATA_TOKEN_FLOOR
+        post_costs.TX_BASE + post_tokens * post_costs.TX_DATA_TOKEN_FLOOR
     )
+    if post_fork.is_eip_enabled(2780):
+        expected_post += int(post_costs.COLD_ACCOUNT_ACCESS)
 
     timestamps = [PRE_FORK_TIMESTAMP, POST_FORK_TIMESTAMP]
     expected_floors = [expected_pre, expected_post]
