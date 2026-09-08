@@ -55,6 +55,7 @@ skills as `/name` commands through symlinked folders in `.claude/skills/`.
 - Filling test fixtures → run `/fill-tests` first
 - Implementing an EIP or modifying fork code in `src/` → run `/implement-eip` first
 - Adopting a single upstream EIP into a work-in-progress Monad fork → run `/adopt-upstream-eip` first
+- Consolidating the single-EIP adoption branches onto one fork → run `/merge-eip-branches` first
 - Merging upstream changes into `from-upstream` → run `/merge-from-upstream` first
 - Modifying GitHub Actions workflows → run `/edit-workflow` first
 - Assessing EIP complexity or scope → run `/assess-eip`
@@ -71,6 +72,7 @@ skills as `/name` commands through symlinked folders in `.claude/skills/`.
 - `/fill-tests` — `fill` CLI reference, flags, debugging, benchmark tests
 - `/implement-eip` — fork structure, import rules, adding opcodes/precompiles/tx types
 - `/adopt-upstream-eip` — adopt one upstream EIP into a work-in-progress Monad fork and release its fixtures
+- `/merge-eip-branches` — consolidate the single-EIP adoption branches onto one fork
 - `/merge-from-upstream` — merge upstream, propagate the changes to the Monad forks, verify the fixture set
 - `/edit-workflow` — GitHub Actions conventions and version pinning
 - `/assess-eip` — structured EIP complexity assessment
