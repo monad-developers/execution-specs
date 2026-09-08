@@ -478,6 +478,11 @@ skip = [
     "tmp",
     "*.coverage*",
     "uv.lock",
+    # Vendored monad runloop stack: the submodule checkout, the Rust
+    # sources (identifiers, not prose) and the build outputs
+    "./monad-runloop/monad-bft",
+    "./monad-runloop/rust-harness",
+    "./monad-runloop/install",
 ]
 ignore-words = "whitelist.txt"  # Custom whitelist file
 count = true                    # Display counts of errors

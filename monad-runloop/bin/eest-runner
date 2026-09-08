@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Wrapper: run the eest-runner harness inside the monad-builder
+# container (io_uring + hugepages + ubuntu-26.04 libs required).
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Hugepages reset to 0 on codespace restart; re-provision if needed
+# (needs a root privileged container; the main one runs as $USER).
+if [ "$(cat /proc/sys/vm/nr_hugepages)" -lt 2048 ]; then
+    docker run --rm --privileged monad-builder:latest \
+        sysctl -q -w vm.nr_hugepages=3072 >/dev/null
+fi
+
+# --init: tini as PID 1 forwards signals and reaps the binary, so it
+# stops on a forwarded SIGINT/SIGTERM instead of ignoring it as PID 1.
+# --name (when the caller sets it): a stable handle so the consumer can
+# `docker kill` the container if its client is killed without forwarding
+# a stop, which would otherwise leave the runloop spinning past pytest.
+exec docker run --rm --init \
+    ${EEST_RUNNER_CONTAINER_NAME:+--name "$EEST_RUNNER_CONTAINER_NAME"} \
+    --privileged --ulimit nofile=16384:16384 --ulimit memlock=-1:-1 --user $(id -u):$(id -g) \
+    -v /tmp:/tmp \
+    -v "$ROOT":"$ROOT" \
+    -e LD_LIBRARY_PATH="$ROOT"/install/lib \
+    monad-builder:latest \
+    "$ROOT"/install/bin/eest-runner.real "$@"

@@ -4,10 +4,11 @@ Monad `eest-runner` fixture consumer.
 Executes blockchain fixtures against the production monad runloop via
 the `eest-runner` harness binary (built from monad-bft + monad
 execution, EestNet chain). The fixture is digested into a simple input
-document (genesis allocation + per-block timestamp/base fee/beneficiary
-and raw signed transactions); the harness drives the consensus ledger
-and the runloop, then emits the resulting post-state, which is compared
-against the fixture's `postState`.
+document (genesis allocation, genesis block RLP, the monad revision
+schedule, and per-block timestamp/base fee/beneficiary with raw signed
+transactions); the harness drives the consensus ledger and the runloop,
+then emits the resulting post-state, which is compared against the
+fixture's `postState`.
 """
 
 import ctypes
