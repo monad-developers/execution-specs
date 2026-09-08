@@ -148,3 +148,9 @@ Print relevant test stage timings such as client start-up, payload response time
 ```bash
 uv run consume engine --input=<fixture_input> --timing-data
 ```
+
+Write the per-block execution timing reported by the client to a CSV (`consume direct` only, see [Block Execution Timing](./consume/direct.md#block-execution-timing)):
+
+```bash
+uv run consume direct --input=<fixture_input> --bin=<evm-binary> --timing-report
+```

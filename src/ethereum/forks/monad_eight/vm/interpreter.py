@@ -33,7 +33,6 @@ from ethereum.trace import (
 from ..blocks import Log
 from ..state_tracker import (
     account_has_code_or_nonce,
-    account_has_storage,
     copy_tx_state,
     destroy_storage,
     get_account,
@@ -123,7 +122,7 @@ def process_message_call(message: Message) -> MessageCallOutput:
     if message.target == Bytes0(b""):
         is_collision = account_has_code_or_nonce(
             tx_state, message.current_target
-        ) or account_has_storage(tx_state, message.current_target)
+        )
         if is_collision:
             return MessageCallOutput(
                 gas_left=Uint(0),

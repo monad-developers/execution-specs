@@ -214,7 +214,6 @@ def get_last_256_block_hashes(chain: BlockChain) -> List[Hash32]:
 
     """
     recent_blocks = chain.blocks[-255:]
-    # TODO: This function has not been tested rigorously
     if len(recent_blocks) == 0:
         return []
 
@@ -524,6 +523,8 @@ def check_transaction(
     InsufficientTransactionGasError :
         If the transaction does not provide enough gas to cover its
         intrinsic cost.
+    TransactionGasLimitExceededError :
+        If the transaction's gas limit exceeds `TX_MAX_TOTAL_GAS_LIMIT`.
     GasUsedExceedsLimitError :
         If the gas used by the transaction exceeds the block's gas limit.
     NonceMismatchError :

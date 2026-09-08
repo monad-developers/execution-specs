@@ -28,8 +28,6 @@ from .exceptions import (
 )
 from .fork_types import Authorization, VersionedHash
 
-TX_MAX_GAS_LIMIT = Uint(30_000_000)
-
 ACCESS_LIST_ADDRESS_FLOOR_TOKENS = Uint(80)
 """
 Floor data tokens contributed by a single access list address per
@@ -559,6 +557,7 @@ def validate_transaction(tx: Transaction) -> Tuple[Uint, Uint]:
     if isinstance(tx, BlobTransaction):
         raise TransactionTypeError(3)
 
+    from .vm.gas import GasCosts
     from .vm.interpreter import MAX_INIT_CODE_SIZE
 
     intrinsic_gas, calldata_floor_gas_cost = calculate_intrinsic_cost(tx)
@@ -568,7 +567,7 @@ def validate_transaction(tx: Transaction) -> Tuple[Uint, Uint]:
         raise NonceOverflowError("Nonce too high")
     if tx.to == Bytes0(b"") and len(tx.data) > MAX_INIT_CODE_SIZE:
         raise InitCodeTooLargeError("Code size too large")
-    if tx.gas > TX_MAX_GAS_LIMIT:
+    if tx.gas > GasCosts.TX_MAX_GAS_LIMIT:
         raise TransactionGasLimitExceededError("Gas limit too high")
 
     return intrinsic_gas, calldata_floor_gas_cost

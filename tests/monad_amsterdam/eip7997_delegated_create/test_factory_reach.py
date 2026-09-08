@@ -22,7 +22,7 @@ from execution_testing import (
 from execution_testing.test_types.helpers import compute_create2_address
 from execution_testing.tools.tools_code.generators import Initcode
 
-from ...amsterdam.eip7997_deterministic_factory_predeploy.spec import (
+from ...amsterdam.eip7997_deterministic_factory_contract.spec import (
     Spec,
     ref_spec_7997,
 )
