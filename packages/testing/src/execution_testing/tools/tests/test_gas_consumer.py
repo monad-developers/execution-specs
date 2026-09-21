@@ -1,10 +1,13 @@
 """Test suite for the `GasConsumer` class."""
 
+from dataclasses import replace
+
 import pytest
 
 from execution_testing.forks import (
     Amsterdam,
     Fork,
+    GasCosts,
     Osaka,
     Shanghai,
     get_forks,
@@ -121,8 +124,8 @@ def test_gas_consumer_out_of_gas(fork: Fork) -> None:
     """
     Verify `out_of_gas` produces bytecode that cannot be paid for.
 
-    The expansion is sized against the fork's own pricing, so the charge
-    stays out of reach however the schedule moves.
+    The charge is sized against the fork's own pricing, so it stays out
+    of reach however the schedule moves.
     """
     consumer = GasConsumer.out_of_gas(fork)
     assert consumer.gas is None
@@ -130,12 +133,12 @@ def test_gas_consumer_out_of_gas(fork: Fork) -> None:
     assert consumer.gas_cost(fork) > UNPAYABLE_GAS
 
 
-def test_gas_consumer_out_of_gas_needs_an_unpayable_expansion() -> None:
+def test_gas_consumer_out_of_gas_falls_back_to_the_log_charge() -> None:
     """
-    Verify a fork that caps the expansion charge is rejected, loudly.
+    Verify a fork that caps the expansion charge still runs out of gas.
 
-    Such a fork must be noticed, not silently handed bytecode that runs to
-    completion.
+    Memory expansion is no longer a way to overspend on Monad, so the log
+    data charge has to carry it.
     """
 
     class CappedMemory(Osaka):
@@ -158,8 +161,45 @@ def test_gas_consumer_out_of_gas_needs_an_unpayable_expansion() -> None:
 
             return fn
 
+    consumer = GasConsumer.out_of_gas(CappedMemory)
+    assert consumer.gas_cost(CappedMemory) > UNPAYABLE_GAS
+
+
+def test_gas_consumer_out_of_gas_needs_an_unpayable_charge() -> None:
+    """
+    Verify a fork that caps both charges is rejected, loudly.
+
+    Neither mechanism can overspend there, so such a fork must be
+    noticed, not silently handed bytecode that runs to completion.
+    """
+
+    class CheapLog(Osaka):
+        """A fork that caps the expansion charge and logs for free."""
+
+        @classmethod
+        def memory_expansion_gas_calculator(
+            cls,
+        ) -> MemoryExpansionGasCalculator:
+            """Return the capped calculator."""
+            uncapped = Osaka.memory_expansion_gas_calculator()
+
+            def fn(*, new_bytes: int, previous_bytes: int = 0) -> int:
+                return min(
+                    uncapped(
+                        new_bytes=new_bytes, previous_bytes=previous_bytes
+                    ),
+                    3,
+                )
+
+            return fn
+
+        @classmethod
+        def gas_costs(cls) -> GasCosts:
+            """Return the schedule with free log data."""
+            return replace(Osaka.gas_costs(), OPCODE_LOG_DATA_PER_BYTE=0)
+
     with pytest.raises(ValueError, match="too cheaply"):
-        GasConsumer.out_of_gas(CappedMemory)
+        GasConsumer.out_of_gas(CheapLog)
 
 
 def test_gas_consumer_negative_gas() -> None:

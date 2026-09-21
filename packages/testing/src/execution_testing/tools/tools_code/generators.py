@@ -321,12 +321,15 @@ def _memory_expansion(memory_size: int, previous_memory_size: int) -> Bytecode:
     )
 
 
-def _unpayable_memory_size(fork: Fork, previous_memory_size: int) -> int:
+def _unpayable_memory_size(
+    fork: Fork, previous_memory_size: int
+) -> int | None:
     """
     Return a memory size whose expansion cannot be paid for at `fork`.
 
-    Raise instead on a fork that caps the charge, since memory expansion is
-    then no longer a way to run out of gas.
+    Return `None` on a fork that prices expansion so cheaply that no
+    reachable size costs enough, such as one charging per word rather
+    than per word squared.
     """
     memory_expansion = fork.memory_expansion_gas_calculator()
     words = ceiling_division(previous_memory_size, 32) + 1
@@ -338,10 +341,52 @@ def _unpayable_memory_size(fork: Fork, previous_memory_size: int) -> int:
         if cost > UNPAYABLE_GAS:
             return memory_size
         words *= 2
+    return None
+
+
+def _unpayable_log_size(fork: Fork) -> int:
+    """
+    Return a log data size whose charge cannot be paid for at `fork`.
+
+    `LOG` prices its data per byte rather than per word, the steepest
+    per-unit charge in the schedule, so it reaches an unpayable cost
+    within a memory size the expansion itself can still address.
+    """
+    per_byte = fork.gas_costs().OPCODE_LOG_DATA_PER_BYTE
+    if per_byte > 0:
+        size = UNPAYABLE_GAS // per_byte + 1
+        if size <= MAX_MEMORY_SIZE:
+            return size
     raise ValueError(
-        f"{fork.name()} prices memory expansion too cheaply to run out of "
-        "gas on it; the out-of-gas bytecode needs another mechanism"
+        f"{fork.name()} prices log data too cheaply to run out of gas on "
+        "it; the out-of-gas bytecode needs another mechanism"
     )
+
+
+def _out_of_gas_code(
+    fork: Fork, previous_memory_size: int
+) -> Tuple[Bytecode, int]:
+    """
+    Return bytecode `fork` cannot pay for, and the memory it addresses.
+
+    Both mechanisms halt on the gas charge itself, so a client that
+    prices the operation as the fork does runs out of gas on them
+    whatever else it does with oversized memory.
+    """
+    memory_size = _unpayable_memory_size(fork, previous_memory_size)
+    if memory_size is not None:
+        return (
+            _memory_expansion(memory_size, previous_memory_size),
+            memory_size,
+        )
+
+    size = _unpayable_log_size(fork)
+    code = Op.LOG0.with_metadata(
+        data_size=size,
+        new_memory_size=size,
+        old_memory_size=previous_memory_size,
+    )(0, size)
+    return code, size
 
 
 def _largest_expansion_within(
@@ -404,8 +449,7 @@ class GasConsumer(Bytecode):
         already expanded the memory.
         """
         if gas is None:
-            memory_size = _unpayable_memory_size(fork, previous_memory_size)
-            code = _memory_expansion(memory_size, previous_memory_size)
+            code, memory_size = _out_of_gas_code(fork, previous_memory_size)
         else:
             if gas < 0:
                 raise ValueError(f"negative gas target: {gas}")
