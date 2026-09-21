@@ -1660,6 +1660,9 @@ class MONAD_EIGHT(Prague):  # noqa: N801
             super_costs,
             PRECOMPILE_BLAKE2F_PER_ROUND=super_costs.PRECOMPILE_BLAKE2F_PER_ROUND
             * 2,
+            PRECOMPILE_ECRECOVER=super_costs.PRECOMPILE_ECRECOVER * 2,
+            PRECOMPILE_POINT_EVALUATION=super_costs.PRECOMPILE_POINT_EVALUATION
+            * 4,
             PRECOMPILE_ECADD=super_costs.PRECOMPILE_ECADD * 2,
             PRECOMPILE_ECMUL=super_costs.PRECOMPILE_ECMUL * 5,
             PRECOMPILE_ECPAIRING_BASE=super_costs.PRECOMPILE_ECPAIRING_BASE
