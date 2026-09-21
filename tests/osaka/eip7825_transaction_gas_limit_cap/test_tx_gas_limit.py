@@ -34,6 +34,7 @@ from execution_testing import (
     add_kzg_version,
     max_count_with_gas_limit,
 )
+from execution_testing.forks import MONAD_EIGHT
 
 from .spec import Spec, ref_spec_7825
 
@@ -246,7 +247,14 @@ def test_tx_gas_larger_than_block_gas_limit(
 @pytest.mark.parametrize(
     "exceed_gas_refund_limit",
     [
-        pytest.param(True),
+        # MIP-8 removes the SSTORE refund, so no clearing count reaches
+        # the EIP-3529 cap.
+        pytest.param(
+            True,
+            marks=pytest.mark.not_valid_for(
+                "MONAD_TEN", subsequent_forks=True
+            ),
+        ),
         pytest.param(False),
     ],
 )
@@ -271,9 +279,13 @@ def test_maximum_gas_refund(
 
     # Spend half the cap without generating refunds, then find the storage
     # clearing count immediately below or above the actual refund ceiling.
+    # Under MIP-3's linear pricing half the cap buys far more memory
+    # than a transaction is allowed to touch.
+    memory_limit = fork.max_tx_memory_usage()
     memory_words = max_count_with_gas_limit(
         lambda words: intrinsic_cost + memory_expansion(words).gas_cost(fork),
         tx_gas_limit_cap // 2,
+        max_count=None if memory_limit is None else memory_limit // 32 - 1,
     )
     burn_code = memory_expansion(memory_words)
     base_cost = intrinsic_cost + burn_code.gas_cost(fork)
@@ -318,7 +330,11 @@ def test_maximum_gas_refund(
         sender=pre.fund_eoa(),
         gas_limit=tx_gas_limit_cap,
         expected_receipt=TransactionReceipt(
-            cumulative_gas_used=gas_used - min(refund, maximum_refund)
+            # Monad charges the whole tx.gas, so no refund reaches the
+            # receipt however the sizing above lands.
+            cumulative_gas_used=tx_gas_limit_cap
+            if fork >= MONAD_EIGHT
+            else gas_used - min(refund, maximum_refund)
         ),
     )
     state_test(

@@ -1129,6 +1129,11 @@ class Frontier(BaseFork):
         return 1024
 
     @classmethod
+    def max_tx_memory_usage(cls) -> int | None:
+        """At genesis, only the gas cost bounds memory."""
+        return None
+
+    @classmethod
     def max_initcode_size(cls) -> int:
         """
         At genesis, there is no upper bound for initcode size.
@@ -1706,6 +1711,11 @@ class MONAD_NINE(MONAD_EIGHT, Osaka):  # noqa: N801
     def transaction_gas_limit_cap(cls) -> int | None:
         """Return spec from explicit parent."""
         return MONAD_EIGHT.transaction_gas_limit_cap()
+
+    @classmethod
+    def max_tx_memory_usage(cls) -> int | None:
+        """MIP-3 caps the memory high watermark at 8 MiB."""
+        return 8 * 1024 * 1024
 
     @classmethod
     def memory_expansion_gas_calculator(

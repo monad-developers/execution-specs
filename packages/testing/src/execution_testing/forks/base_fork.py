@@ -1344,6 +1344,15 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
 
     @classmethod
     @abstractmethod
+    def max_tx_memory_usage(cls) -> int | None:
+        """
+        Return the memory high watermark a transaction may reach, or
+        `None` where memory is bounded only by its gas cost.
+        """
+        pass
+
+    @classmethod
+    @abstractmethod
     def call_opcodes(cls) -> List[Opcodes]:
         """Return list of call opcodes supported by the fork."""
         pass
