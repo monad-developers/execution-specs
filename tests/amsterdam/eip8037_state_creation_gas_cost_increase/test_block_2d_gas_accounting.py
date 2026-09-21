@@ -681,15 +681,6 @@ def test_tx_gas_limit_block_boundary(
 
 
 @pytest.mark.inclusion_test
-<<<<<<< HEAD
-@pytest.mark.monad_runloop(
-    pytest.mark.skip(
-        reason="Requires a test-controlled block gas limit; the monad "
-        "runloop fixes every block to the proposal gas limit, so the "
-        "over-limit tx no longer exceeds it."
-    )
-)
-=======
 @pytest.mark.execute(
     pytest.mark.skip(
         reason="Requires block gas limit above TX_MAX_TOTAL_GAS_LIMIT"
@@ -774,7 +765,13 @@ def test_tx_total_gas_limit_cap(
 
 
 @pytest.mark.inclusion_test
->>>>>>> upstream/forks/amsterdam
+@pytest.mark.monad_runloop(
+    pytest.mark.skip(
+        reason="Requires a test-controlled block gas limit; the monad "
+        "runloop fixes every block to the proposal gas limit, so the "
+        "over-limit tx no longer exceeds it."
+    )
+)
 @pytest.mark.parametrize(
     "delta",
     [

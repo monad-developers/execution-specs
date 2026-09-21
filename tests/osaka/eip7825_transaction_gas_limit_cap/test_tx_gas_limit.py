@@ -422,20 +422,9 @@ def test_tx_gas_limit_cap_full_calldata(
 
 
 @pytest.mark.inclusion_test
-<<<<<<< HEAD
-@pytest.mark.parametrize(
-    "exceed_tx_gas_limit",
-    [
-        pytest.param(True),
-        pytest.param(False),
-    ],
-)
+@pytest.mark.parametrize_by_fork("tx_gas_limit,error", tx_gas_limit_cap_tests)
 # Osaka originally, but Monad introduces tx gas limit cap differently
 @pytest.mark.valid_from("MONAD_EIGHT")
-=======
-@pytest.mark.parametrize_by_fork("tx_gas_limit,error", tx_gas_limit_cap_tests)
-@pytest.mark.valid_from("Osaka")
->>>>>>> upstream/forks/amsterdam
 def test_tx_gas_limit_cap_contract_creation(
     state_test: StateTestFiller,
     pre: Alloc,

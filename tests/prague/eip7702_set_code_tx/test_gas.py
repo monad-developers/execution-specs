@@ -1103,7 +1103,9 @@ def test_gas_cost(
             # case.
             discount_gas = max_discount
 
-        gas_used = tx_gas_limit - discount_gas
+        # Monad charges the whole tx.gas, so the discount never reaches
+        # the receipt.
+        gas_used = tx_gas_limit
 
     test_code_storage = Storage()
     test_code = (
@@ -1116,22 +1118,6 @@ def test_gas_cost(
     )
     test_code_address = pre.deploy_contract(test_code)
 
-<<<<<<< HEAD
-    tx_gas_limit = intrinsic_gas + execution_gas
-
-    # EIP-3529
-    max_discount = tx_gas_limit // 5
-
-    if discount_gas > max_discount:
-        # Only one test hits this condition, but it's ok to also test this
-        # case.
-        discount_gas = max_discount
-
-    # gas_used = tx_gas_limit - discount_gas
-    gas_used = tx_gas_limit
-
-=======
->>>>>>> upstream/forks/amsterdam
     sender_account = pre[sender]
     assert sender_account is not None
 

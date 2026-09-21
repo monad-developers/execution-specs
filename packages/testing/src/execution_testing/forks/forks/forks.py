@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-<<<<<<< HEAD
 from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
@@ -12,10 +11,8 @@ from typing import (
     Mapping,
     Optional,
     Sized,
+    Type,
 )
-=======
-from typing import TYPE_CHECKING, Callable, Dict, List, Mapping, Sized, Type
->>>>>>> upstream/forks/amsterdam
 
 if TYPE_CHECKING:
     from execution_testing.fixtures.blockchain import FixtureHeader

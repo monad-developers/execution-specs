@@ -183,16 +183,12 @@ def contract_creating_tx() -> bool:
 
 
 @pytest.fixture
-<<<<<<< HEAD
-def intrinsic_gas_data_floor_minimum_delta(fork: Fork) -> int:
-=======
 def intrinsic_gas_data_floor_minimum_delta(
     fork: Fork,
     prefix_code_gas: int,
     top_frame_execution: int,
     top_frame_state: int,
 ) -> int:
->>>>>>> upstream/forks/amsterdam
     """
     Induce a minimum delta between the transaction intrinsic gas cost and the
     floor data gas cost.
@@ -207,18 +203,15 @@ def intrinsic_gas_data_floor_minimum_delta(
     `ACCOUNT_WRITE` and `AUTH_BASE` before the first frame, so the delta must
     cover those too.
     """
-<<<<<<< HEAD
-    gas_costs = fork.gas_costs()
-    extra = 50
-    return (
-        gas_costs.COLD_STORAGE_ACCESS
-        + gas_costs.STORAGE_RESET
-        + extra
-        - gas_costs.REFUND_STORAGE_CLEAR
-    )
-=======
     if not fork.is_eip_enabled(8037):
-        return 250
+        gas_costs = fork.gas_costs()
+        extra = 50
+        return (
+            gas_costs.COLD_STORAGE_ACCESS
+            + gas_costs.STORAGE_RESET
+            + extra
+            - gas_costs.REFUND_STORAGE_CLEAR
+        )
     # Floor is searched as ~intrinsic + delta. Post-refund cost at
     # prefix-only (+ top-frame) consumption is at most
     # intrinsic + top_frame + prefix (when refund is zero) and still
@@ -226,7 +219,6 @@ def intrinsic_gas_data_floor_minimum_delta(
     # cap binds. Cover the no-refund upper bound so all three
     # refund-vs-floor cases remain reachable.
     return top_frame_execution + top_frame_state + prefix_code_gas + 500
->>>>>>> upstream/forks/amsterdam
 
 
 @pytest.fixture

@@ -83,11 +83,7 @@ from execution_testing.fixtures.common import (
     FixtureTransactionReceipt,
 )
 from execution_testing.fixtures.post_verifications import PostVerifications
-<<<<<<< HEAD
-from execution_testing.forks import MONAD_EIGHT, Fork
-=======
-from execution_testing.forks import Fork, Requests
->>>>>>> upstream/forks/amsterdam
+from execution_testing.forks import MONAD_EIGHT, Fork, Requests
 from execution_testing.test_types import (
     Alloc,
     Environment,

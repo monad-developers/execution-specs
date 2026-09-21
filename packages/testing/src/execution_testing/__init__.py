@@ -127,11 +127,8 @@ from .tools import (
     gas_test,
     generate_system_contract_deploy_test,
     generate_system_contract_error_test,
-<<<<<<< HEAD
-    oog_test,
-=======
     max_count_with_gas_limit,
->>>>>>> upstream/forks/amsterdam
+    oog_test,
 )
 from .vm import (
     Bytecode,
