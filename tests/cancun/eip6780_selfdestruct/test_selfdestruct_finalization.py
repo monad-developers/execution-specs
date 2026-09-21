@@ -39,6 +39,7 @@ from execution_testing import (
     Macros as Om,
 )
 from execution_testing.checklists import EIPChecklist
+from execution_testing.forks import MONAD_EIGHT
 
 from tests.amsterdam.eip7708_eth_transfer_logs.spec import transfer_log
 
@@ -647,11 +648,20 @@ def test_selfdestruct_to_self_keeps_existing_balance(
             account_expectations={created: BalAccountExpectation.empty()}
         )
 
+    # MONAD_EIGHT weighs a self-destructed account against the reserve
+    # balance, which the pre-funded one cannot meet, so the whole
+    # transaction is rolled back there.
+    reverted = fork == MONAD_EIGHT and existing_balance > 0
+
     state_test(
         pre=pre,
         post={
-            factory: Account(nonce=2, storage={0: created}),
-            created: finalized(fork, existing_balance),
+            factory: Account(nonce=1, storage={})
+            if reverted
+            else Account(nonce=2, storage={0: created}),
+            created: Account(balance=existing_balance)
+            if reverted
+            else finalized(fork, existing_balance),
         },
         tx=tx,
         expected_block_access_list=expected_bal,
