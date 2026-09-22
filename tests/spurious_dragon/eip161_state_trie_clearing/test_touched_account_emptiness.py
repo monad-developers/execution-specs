@@ -34,12 +34,27 @@ REFERENCE_SPEC_VERSION = ref_spec_161.version
 # Precompiles that reject empty input. A zero-value call to one of them
 # fails, so its touch rolls back with the frame: the same arm then covers
 # both a live touch and a reverted one.
-REJECTS_EMPTY_INPUT = {Address(0x09), Address(0x0A)} | {
-    Address(address) for address in range(0x0B, 0x12)
-}
+REJECTS_EMPTY_INPUT = (
+    {Address(0x09), Address(0x0A)}
+    | {Address(address) for address in range(0x0B, 0x12)}
+    # Monad's reserve balance precompile wants a four byte selector.
+    | {Address(0x1001)}
+)
 
 
-def touch_code(precompile: Address, touch: str, storage: Storage) -> Bytecode:
+def touch_gas(fork: Fork) -> int:
+    """
+    Return the gas a zero-value touch call needs at `fork`.
+
+    ECPAIRING's base is the steepest charge an empty input can incur,
+    and Monad multiplies it by five.
+    """
+    return max(100_000, 2 * fork.gas_costs().PRECOMPILE_ECPAIRING_BASE)
+
+
+def touch_code(
+    precompile: Address, touch: str, storage: Storage, fork: Fork
+) -> Bytecode:
     """
     Return the same-transaction touch that precedes the probe.
 
@@ -54,7 +69,7 @@ def touch_code(precompile: Address, touch: str, storage: Storage) -> Bytecode:
             storage.store_next(
                 1 if touch_succeeds else 0, "touch_call_result"
             ),
-            Op.CALL(gas=100_000, address=precompile),
+            Op.CALL(gas=touch_gas(fork), address=precompile),
         )
     elif touch == "failed_value_call":
         # The value exceeds the caller's balance, so the transfer fails
@@ -78,6 +93,7 @@ def test_extcodehash_after_precompile_touch(
     precompile: Address,
     touch: str,
     funded: bool,
+    fork: Fork,
 ) -> None:
     """
     Probe a precompile's fields after touching it in the same transaction.
@@ -96,7 +112,7 @@ def test_extcodehash_after_precompile_touch(
             storage.store_next(expected_hash, "hash_before"),
             Op.EXTCODEHASH(precompile),
         )
-        + touch_code(precompile, touch, storage)
+        + touch_code(precompile, touch, storage, fork)
         + Op.SSTORE(
             storage.store_next(expected_hash, "hash_after"),
             Op.EXTCODEHASH(precompile),
@@ -184,7 +200,7 @@ def test_call_new_account_charge_after_precompile_touch(
     )
 
     code = (
-        touch_code(precompile, touch, storage)
+        touch_code(precompile, touch, storage, fork)
         + CodeGasMeasure(
             code=measured_call,
             extra_stack_items=1,
@@ -250,7 +266,7 @@ def test_selfdestruct_beneficiary_charge_after_precompile_touch(
     destroyer = pre.deploy_contract(destroyer_code, balance=1)
 
     outer_call = Op.CALL(gas=100_000, address=destroyer)
-    code = touch_code(precompile, touch, storage) + CodeGasMeasure(
+    code = touch_code(precompile, touch, storage, fork) + CodeGasMeasure(
         code=outer_call,
         extra_stack_items=1,
         sstore_key=storage.store_next(
