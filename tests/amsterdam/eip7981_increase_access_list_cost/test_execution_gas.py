@@ -19,7 +19,7 @@ from execution_testing import (
     TransactionReceipt,
 )
 
-from .helpers import billed_gas
+from .helpers import billed_gas, calldata_clearing_floor
 from .spec import ref_spec_7981
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7981.git_path
@@ -97,18 +97,31 @@ def test_access_list_surcharge_with_refund(
     code = clear + (Op.REVERT(0, 0) if reverts else Op.STOP)
     contract = pre.deploy_contract(code=code, storage={0: 1})
     access_list = [AccessList(address=contract, storage_keys=[Hash(0)])]
-    data = b"\x00" * (1000 if floor_dominates else 0)
-    intrinsic = fork.transaction_intrinsic_cost_calculator()(
+    intrinsic_calculator = fork.transaction_intrinsic_cost_calculator()
+    floor_calculator = fork.transaction_data_floor_cost_calculator()
+    refund_counter = 0 if reverts else clear.refund(fork)
+
+    def bill(data: bytes) -> tuple[int, int]:
+        """Return the floor and the post-refund bill for `data`."""
+        intrinsic = intrinsic_calculator(
+            calldata=data,
+            access_list=access_list,
+            return_cost_deducted_prior_execution=True,
+        )
+        before = intrinsic + code.gas_cost(fork)
+        given = min(refund_counter, before // fork.max_refund_quotient())
+        floor = floor_calculator(data=data, access_list=access_list)
+        return floor, before - given
+
+    data = calldata_clearing_floor(bill) if floor_dominates else b""
+    intrinsic = intrinsic_calculator(
         calldata=data,
         access_list=access_list,
         return_cost_deducted_prior_execution=True,
     )
     before_refund = intrinsic + code.gas_cost(fork)
-    refund_counter = 0 if reverts else clear.refund(fork)
     refund = min(refund_counter, before_refund // fork.max_refund_quotient())
-    floor = fork.transaction_data_floor_cost_calculator()(
-        data=data, access_list=access_list
-    )
+    floor, _ = bill(data)
     assert (floor > before_refund - refund) == floor_dominates
     tx = Transaction(
         ty=tx_type,
@@ -134,6 +147,9 @@ def test_access_list_surcharge_with_refund(
 
 
 @EIPChecklist.GasCostChanges.Test.GasUpdatesMeasurement()
+# The state gas the reservoir funds arrives with EIP-8037, which the
+# Monad forks do not adopt, leaving nothing to distribute here.
+@pytest.mark.not_valid_for("MONAD_EIGHT", subsequent_forks=True)
 @pytest.mark.with_all_tx_types(selector=lambda tx_type: tx_type in (1, 2))
 @pytest.mark.parametrize(
     "gas_dominance",
