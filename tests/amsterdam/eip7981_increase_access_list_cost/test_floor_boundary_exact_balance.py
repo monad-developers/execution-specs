@@ -19,6 +19,7 @@ from execution_testing import (
     TransactionReceipt,
 )
 
+from .helpers import billed_gas
 from .spec import ref_spec_7981
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7981.git_path
@@ -101,15 +102,19 @@ def test_access_list_floor_with_exact_balance(
             else None
         ),
         expected_receipt=(
-            TransactionReceipt(status=1, gas_used=amsterdam_floor)
+            TransactionReceipt(
+                status=1,
+                gas_used=billed_gas(fork, gas_limit, amsterdam_floor),
+            )
             if gas_delta >= 0
             else None
         ),
         **fee_args,
     )
 
+    unspent = gas_limit - billed_gas(fork, gas_limit, amsterdam_floor)
     post = (
-        {sender: Account(nonce=1, balance=gas_delta * gas_price)}
+        {sender: Account(nonce=1, balance=unspent * gas_price)}
         if gas_delta >= 0
         else {}
     )

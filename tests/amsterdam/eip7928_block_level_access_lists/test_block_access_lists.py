@@ -40,6 +40,7 @@ from execution_testing import (
     compute_create_address,
 )
 from execution_testing import Macros as Om
+from execution_testing.forks import MONAD_EIGHT
 
 from .spec import ref_spec_7928
 
@@ -2381,6 +2382,7 @@ def test_bal_nonexistent_account_access_value_transfer(
     )
 
 
+@pytest.mark.no_bal_dependency
 def test_bal_multiple_balance_changes_same_account(
     pre: Alloc,
     fork: Fork,
@@ -2485,6 +2487,7 @@ def test_bal_multiple_balance_changes_same_account(
     )
 
 
+@pytest.mark.no_bal_dependency
 def test_bal_multiple_storage_writes_same_slot(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -2709,6 +2712,7 @@ def test_bal_create_transaction_empty_code(
         pytest.param(0xABCD, id="tx2_rewrites_same_value"),
     ],
 )
+@pytest.mark.no_bal_dependency
 def test_bal_cross_tx_storage_write(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -2850,6 +2854,7 @@ def test_bal_cross_tx_reverted_storage_reads(
     )
 
 
+@pytest.mark.no_bal_dependency
 def test_bal_cross_tx_storage_chain(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -3021,6 +3026,7 @@ def test_bal_many_storage_writes_single_account(
 
 
 @pytest.mark.with_all_create_opcodes
+@pytest.mark.no_bal_dependency
 def test_bal_cross_tx_deploy_then_call(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -3121,6 +3127,7 @@ def test_bal_cross_tx_deploy_then_call(
     ],
 )
 @pytest.mark.pre_alloc_mutable()
+@pytest.mark.no_bal_dependency
 def test_bal_cross_tx_factory_nonce_create_chain(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -3184,6 +3191,15 @@ def test_bal_cross_tx_factory_nonce_create_chain(
     intrinsic = fork.transaction_intrinsic_cost_calculator()(
         calldata=bytes(initcode), contract_creation=False, access_list=[]
     )
+    tx_gas_limit = fork.transaction_gas_limit_cap()
+    if fork >= MONAD_EIGHT:
+        # Monad charges the block for each transaction's whole gas limit
+        # rather than its gas used, so the chain only fits the block when
+        # every transaction takes an equal share of the block gas limit.
+        assert tx_gas_limit is not None, "monad forks cap transaction gas"
+        tx_gas_limit = min(
+            tx_gas_limit, int(Environment().gas_limit) // chain_length
+        )
     txs = [
         Transaction(
             sender=senders[i],
@@ -3192,7 +3208,7 @@ def test_bal_cross_tx_factory_nonce_create_chain(
             gas_limit=(
                 intrinsic + 1
                 if failure_mode == "oog" and i == failure_index
-                else fork.transaction_gas_limit_cap()
+                else tx_gas_limit
             ),
         )
         for i in range(chain_length)
@@ -3278,6 +3294,7 @@ def test_bal_cross_tx_factory_nonce_create_chain(
     "funding_method",
     ["direct_call", "selfdestruct"],
 )
+@pytest.mark.no_bal_dependency
 def test_bal_cross_tx_balance_dependency(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -3379,6 +3396,7 @@ def test_bal_cross_tx_balance_dependency(
         ),
     ],
 )
+@pytest.mark.no_bal_dependency
 def test_bal_cross_tx_funding_chain(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -3605,6 +3623,7 @@ def test_bal_cross_tx_funding_chain(
     )
 
 
+@pytest.mark.no_bal_dependency
 def test_bal_cross_block_ripemd160_state_leak(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,

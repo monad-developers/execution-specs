@@ -2874,6 +2874,7 @@ def test_bal_create_selfdestruct_to_self_with_call(
     ["collision_only", "then_nonce_change", "then_storage_change"],
 )
 @pytest.mark.pre_alloc_mutable()
+@pytest.mark.no_bal_dependency
 def test_bal_create_collision(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -3124,6 +3125,7 @@ def test_bal_transient_storage_not_tracked(
     )
 
 
+@pytest.mark.no_bal_dependency
 def test_bal_create2_deploy_then_collision(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
@@ -3913,6 +3915,7 @@ def test_bal_create_storage_op_then_selfdestruct_same_tx(
     [0, 100],
     ids=["no_balance", "with_balance"],
 )
+@pytest.mark.no_bal_dependency
 def test_bal_create2_selfdestruct_then_recreate_same_block(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,

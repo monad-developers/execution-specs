@@ -192,11 +192,15 @@ class GasCosts:
     OPCODE_SELFBALANCE: Final[Uint] = FAST_STEP
     OPCODE_BASEFEE: Final[Uint] = BASE
     OPCODE_BLOBBASEFEE: Final[Uint] = BASE
+    OPCODE_SLOTNUM: Final[Uint] = BASE
     OPCODE_BLOBHASH: Final[Uint] = Uint(3)
     OPCODE_PUSH: Final[Uint] = VERY_LOW
     OPCODE_PUSH0: Final[Uint] = BASE
     OPCODE_DUP: Final[Uint] = VERY_LOW
     OPCODE_SWAP: Final[Uint] = VERY_LOW
+    OPCODE_DUPN: Final[Uint] = VERY_LOW
+    OPCODE_SWAPN: Final[Uint] = VERY_LOW
+    OPCODE_EXCHANGE: Final[Uint] = VERY_LOW
     OPCODE_TLOAD: Final[Uint] = WARM_ACCESS
     OPCODE_TSTORE: Final[Uint] = WARM_ACCESS
 
