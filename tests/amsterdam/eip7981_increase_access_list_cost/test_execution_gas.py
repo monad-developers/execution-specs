@@ -19,6 +19,7 @@ from execution_testing import (
     TransactionReceipt,
 )
 
+from .helpers import billed_gas
 from .spec import ref_spec_7981
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7981.git_path
@@ -63,7 +64,11 @@ def test_execution_gas_after_access_list_surcharge(
         gas_limit=required_gas + gas_delta,
         expected_receipt=TransactionReceipt(
             status=int(succeeds),
-            gas_used=required_gas if succeeds else required_gas - 1,
+            gas_used=billed_gas(
+                fork,
+                required_gas + gas_delta,
+                required_gas if succeeds else required_gas - 1,
+            ),
         ),
     )
     state_test(
@@ -114,7 +119,11 @@ def test_access_list_surcharge_with_refund(
         gas_limit=max(before_refund, floor) + 1000,
         expected_receipt=TransactionReceipt(
             status=0 if reverts else 1,
-            gas_used=max(before_refund - refund, floor),
+            gas_used=billed_gas(
+                fork,
+                max(before_refund, floor) + 1000,
+                max(before_refund - refund, floor),
+            ),
         ),
     )
     state_test(
