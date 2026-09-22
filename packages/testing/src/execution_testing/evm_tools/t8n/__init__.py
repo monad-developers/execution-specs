@@ -385,16 +385,11 @@ class T8N(Load):
         )
 
     def _run_blockchain_test(self, block_env: Any, block_output: Any) -> None:
+        # Same order as the fork's `apply_body`: senders and
+        # authorities, beacon roots, then history.
         if self.fork.has_senders_authorities:
             self.fork.forget_senders_authorities(
                 block_env.state, block_env.number
-            )
-
-        if self.fork.has_compute_requests_hash:
-            self.fork.process_unchecked_system_transaction(
-                block_env=block_env,
-                target_address=self.fork.HISTORY_STORAGE_ADDRESS,
-                data=block_env.block_hashes[-1],  # The parent hash
             )
 
         if self.fork.has_beacon_roots_address:
@@ -402,6 +397,13 @@ class T8N(Load):
                 block_env=block_env,
                 target_address=self.fork.BEACON_ROOTS_ADDRESS,
                 data=block_env.parent_beacon_block_root,
+            )
+
+        if self.fork.has_compute_requests_hash:
+            self.fork.process_unchecked_system_transaction(
+                block_env=block_env,
+                target_address=self.fork.HISTORY_STORAGE_ADDRESS,
+                data=block_env.block_hashes[-1],  # The parent hash
             )
 
         self._process_txs(block_env, block_output)

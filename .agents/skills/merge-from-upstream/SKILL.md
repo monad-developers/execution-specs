@@ -63,26 +63,30 @@ Do these changes in a further commit.
 If anything about the changes so far is doubtful, stop and request human
 review before verifying.
 
-## 7. Verify
+## 7. Report the fixture set change
+
+Collect the release tests again with `--collect-only`, compare against
+the step 2 baseline, and report the change in the resulting fixture set.
+
+Upstream renames parameters often, so a case leaving one id and arriving
+under another reads as a removal and an addition. Compare the counts per
+test function to tell those apart from a case that actually went away.
+
+## 8. Verify
 
 Lint, then fill. Base the fill on the `tests-monad` release command and
 pass `--maxfail 1` so breakage surfaces early. Fill fine-grained first,
-over the tests related to the touched files and features, then sweep the
-full set.
+over the tests related to the touched files and features, as well as
+new coverage from fixture set report. Then sweep the full set.
 
 A full sweep runs for hours. Split it into chunks that partition the
 collected set, so no single run is long enough to be interrupted, and
 check the chunk totals add up to the collected count.
 
-## 8. Fix what the verification finds
+## 9. Fix what the verification finds
 
 Use follow-up commits: fold related changes together, keep unrelated
 changes separate.
-
-## 9. Report the fixture set change
-
-Collect the release tests again with `--collect-only`, compare against
-the step 2 baseline, and report the change in the resulting fixture set.
 
 ## 10. Stop for review
 

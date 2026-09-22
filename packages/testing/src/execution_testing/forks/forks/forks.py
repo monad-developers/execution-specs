@@ -11,6 +11,7 @@ from typing import (
     Mapping,
     Optional,
     Sized,
+    Type,
 )
 
 if TYPE_CHECKING:
@@ -41,10 +42,12 @@ from ..base_fork import (
     ExcessBlobGasCalculator,
     MemoryExpansionGasCalculator,
     RefundTypes,
+    SystemCallPhase,
     TransactionDataFloorCostCalculator,
     TransactionIntrinsicCostCalculator,
 )
 from ..gas_costs import BASE, HIGH, LOW, MID, VERY_LOW, GasCosts
+from ..requests import SystemContractRequest
 from . import eips
 from .eips.amsterdam import AmsterdamEIPs
 from .helpers import ceiling_division
@@ -1047,6 +1050,11 @@ class Frontier(BaseFork):
         return None
 
     @classmethod
+    def transaction_total_gas_limit_cap(cls) -> int | None:
+        """At Genesis, no transaction total gas limit cap is imposed."""
+        return None
+
+    @classmethod
     def state_gas_reservoir_enabled(cls) -> bool:
         """
         At Genesis, state gas reservoir is not enabled.
@@ -1089,8 +1097,20 @@ class Frontier(BaseFork):
         return []
 
     @classmethod
-    def deterministic_factory_predeploy_address(cls) -> Address | None:
-        """At Genesis, no deterministic factory predeploy is present."""
+    def system_contract_request_types(
+        cls,
+    ) -> List[Type[SystemContractRequest]]:
+        """At Genesis, no system contract triggers execution requests."""
+        return []
+
+    @classmethod
+    def system_contract_call_phases(cls) -> Mapping[Address, SystemCallPhase]:
+        """At Genesis, no system contract is called."""
+        return {}
+
+    @classmethod
+    def deterministic_factory_contract_address(cls) -> Address | None:
+        """Return None because Genesis defines no factory contract."""
         return None
 
     @classmethod
@@ -1107,6 +1127,11 @@ class Frontier(BaseFork):
     def max_stack_height(cls) -> int:
         """At genesis, the maximum stack height is 1024."""
         return 1024
+
+    @classmethod
+    def max_tx_memory_usage(cls) -> int | None:
+        """At genesis, only the gas cost bounds memory."""
+        return None
 
     @classmethod
     def max_initcode_size(cls) -> int:
@@ -1635,6 +1660,9 @@ class MONAD_EIGHT(Prague):  # noqa: N801
             super_costs,
             PRECOMPILE_BLAKE2F_PER_ROUND=super_costs.PRECOMPILE_BLAKE2F_PER_ROUND
             * 2,
+            PRECOMPILE_ECRECOVER=super_costs.PRECOMPILE_ECRECOVER * 2,
+            PRECOMPILE_POINT_EVALUATION=super_costs.PRECOMPILE_POINT_EVALUATION
+            * 4,
             PRECOMPILE_ECADD=super_costs.PRECOMPILE_ECADD * 2,
             PRECOMPILE_ECMUL=super_costs.PRECOMPILE_ECMUL * 5,
             PRECOMPILE_ECPAIRING_BASE=super_costs.PRECOMPILE_ECPAIRING_BASE
@@ -1686,6 +1714,11 @@ class MONAD_NINE(MONAD_EIGHT, Osaka):  # noqa: N801
     def transaction_gas_limit_cap(cls) -> int | None:
         """Return spec from explicit parent."""
         return MONAD_EIGHT.transaction_gas_limit_cap()
+
+    @classmethod
+    def max_tx_memory_usage(cls) -> int | None:
+        """MIP-3 caps the memory high watermark at 8 MiB."""
+        return 8 * 1024 * 1024
 
     @classmethod
     def memory_expansion_gas_calculator(
