@@ -18,7 +18,7 @@ from execution_testing import (
     TransactionReceipt,
 )
 
-from .helpers import calculate_access_list_data_cost
+from .helpers import billed_gas, calculate_access_list_data_cost
 from .spec import ref_spec_7981
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7981.git_path
@@ -352,7 +352,9 @@ def test_access_list_data_cost_with_execution(
         # a gas limit that happens to equal the expected receipt value.
         gas_limit=expected_gas_used + 1000,
         expected_receipt=TransactionReceipt(
-            cumulative_gas_used=expected_gas_used
+            cumulative_gas_used=billed_gas(
+                fork, expected_gas_used + 1000, expected_gas_used
+            )
         ),
     )
 
@@ -401,6 +403,9 @@ def test_access_list_surcharge_with_recipient_costs(
         data=data,
         access_list=access_list,
         gas_limit=expected_gas + 1000,
-        expected_receipt=TransactionReceipt(status=1, gas_used=expected_gas),
+        expected_receipt=TransactionReceipt(
+            status=1,
+            gas_used=billed_gas(fork, expected_gas + 1000, expected_gas),
+        ),
     )
     state_test(pre=pre, post={}, tx=tx)
