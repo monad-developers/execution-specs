@@ -26,6 +26,7 @@ from execution_testing import (
 from execution_testing import Macros as Om
 from execution_testing.forks import Osaka
 
+from .helpers import billed_gas
 from .spec import ref_spec_7954
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7954.git_path
@@ -224,7 +225,9 @@ def test_max_initcode_size_calldata_floor(
     else:
         # The deployment spends a fraction of the floor, so the floor is
         # what the sender is charged, spare gas or not.
-        tx.expected_receipt = TransactionReceipt(cumulative_gas_used=floor_gas)
+        tx.expected_receipt = TransactionReceipt(
+            cumulative_gas_used=billed_gas(fork, tx.gas_limit, floor_gas)
+        )
         post[create_address] = Account(code=Op.STOP)
 
     state_test(pre=pre, tx=tx, post=post)
