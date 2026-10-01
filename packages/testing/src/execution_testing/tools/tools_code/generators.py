@@ -8,7 +8,7 @@ from pydantic import Field
 
 from execution_testing.base_types import Address, Bytes
 from execution_testing.forks import Fork
-from execution_testing.test_types import EOA, Transaction
+from execution_testing.test_types import EOA, Transaction, ceiling_division
 from execution_testing.vm import Bytecode, ForkOpcodeInterface, Op
 
 
@@ -297,6 +297,206 @@ class WhileGas(Bytecode):
         condition = Op.GT(Op.GAS, Op.PUSH4[minimum_gas])
         bytecode = While(body=body, condition=condition)
         return super().__new__(cls, bytecode)
+
+
+UNPAYABLE_GAS = 2**63
+"""Gas charge beyond any limit expressible in the 64 bits gas is kept in."""
+
+MAX_MEMORY_SIZE = 2**64
+"""Largest memory size `GasConsumer` will ask a fork to price."""
+
+
+def _memory_expansion(memory_size: int, previous_memory_size: int) -> Bytecode:
+    """
+    Return an `MSTORE8` that expands the memory to `memory_size` bytes.
+
+    The memory sizes ride along as metadata so that `Bytecode.gas_cost`
+    charges for the expansion.
+    """
+    return Op.MSTORE8(
+        memory_size - 1,
+        0,
+        new_memory_size=memory_size,
+        old_memory_size=previous_memory_size,
+    )
+
+
+def _unpayable_memory_size(
+    fork: Fork, previous_memory_size: int
+) -> int | None:
+    """
+    Return a memory size whose expansion cannot be paid for at `fork`.
+
+    Return `None` on a fork that prices expansion so cheaply that no
+    reachable size costs enough, such as one charging per word rather
+    than per word squared.
+    """
+    memory_expansion = fork.memory_expansion_gas_calculator()
+    words = ceiling_division(previous_memory_size, 32) + 1
+    while words * 32 <= MAX_MEMORY_SIZE:
+        memory_size = words * 32
+        cost = memory_expansion(
+            new_bytes=memory_size, previous_bytes=previous_memory_size
+        )
+        if cost > UNPAYABLE_GAS:
+            return memory_size
+        words *= 2
+    return None
+
+
+def _unpayable_log_size(fork: Fork) -> int:
+    """
+    Return a log data size whose charge cannot be paid for at `fork`.
+
+    `LOG` prices its data per byte rather than per word, the steepest
+    per-unit charge in the schedule, so it reaches an unpayable cost
+    within a memory size the expansion itself can still address.
+    """
+    per_byte = fork.gas_costs().OPCODE_LOG_DATA_PER_BYTE
+    if per_byte > 0:
+        size = UNPAYABLE_GAS // per_byte + 1
+        if size <= MAX_MEMORY_SIZE:
+            return size
+    raise ValueError(
+        f"{fork.name()} prices log data too cheaply to run out of gas on "
+        "it; the out-of-gas bytecode needs another mechanism"
+    )
+
+
+def _out_of_gas_code(
+    fork: Fork, previous_memory_size: int
+) -> Tuple[Bytecode, int]:
+    """
+    Return bytecode `fork` cannot pay for, and the memory it addresses.
+
+    Both mechanisms halt on the gas charge itself, so a client that
+    prices the operation as the fork does runs out of gas on them
+    whatever else it does with oversized memory.
+    """
+    memory_size = _unpayable_memory_size(fork, previous_memory_size)
+    if memory_size is not None:
+        return (
+            _memory_expansion(memory_size, previous_memory_size),
+            memory_size,
+        )
+
+    size = _unpayable_log_size(fork)
+    code = Op.LOG0.with_metadata(
+        data_size=size,
+        new_memory_size=size,
+        old_memory_size=previous_memory_size,
+    )(0, size)
+    return code, size
+
+
+def _largest_expansion_within(
+    gas: int, fork: Fork, previous_memory_size: int
+) -> int:
+    """
+    Return the largest memory size whose expansion stays within `gas`.
+
+    Return `previous_memory_size` when not even one more word fits.
+    """
+    # Past Monad's memory cap the bytecode halts rather than consuming
+    # its target.
+    memory_limit = fork.max_tx_memory_usage()
+    max_words = None if memory_limit is None else memory_limit // 32
+
+    def cost(words: int) -> int:
+        return _memory_expansion(words * 32, previous_memory_size).gas_cost(
+            fork
+        )
+
+    # Cost is strictly increasing in the word count: bracket, then bisect.
+    low = ceiling_division(previous_memory_size, 32) + 1
+    if max_words is not None and low > max_words:
+        return previous_memory_size
+    if cost(low) > gas:
+        return previous_memory_size
+    if max_words is not None and cost(max_words) <= gas:
+        return max_words * 32
+    high = low * 2
+    while cost(high) <= gas:
+        high *= 2
+    while low + 1 < high:
+        middle = (low + high) // 2
+        if cost(middle) <= gas:
+            low = middle
+        else:
+            high = middle
+    return low * 32
+
+
+class GasConsumer(Bytecode):
+    """
+    Bytecode that consumes an exact amount of gas.
+
+    A memory expansion burns the bulk of the target, and `JUMPDEST` opcodes
+    cover the remainder its whole-word steps overshoot. The result leaves
+    the stack untouched, does not halt, and costs no state gas.
+    """
+
+    gas: int | None
+    """Gas target, or `None` for bytecode that runs out of gas."""
+
+    memory_size: int
+    """Memory size the consumer leaves the memory expanded to."""
+
+    def __new__(
+        cls,
+        *,
+        gas: int | None,
+        fork: Fork,
+        previous_memory_size: int = 0,
+    ) -> Self:
+        """
+        Assemble bytecode that consumes exactly `gas` gas at `fork`.
+
+        A `gas` of `None` asks instead for bytecode that always runs out of
+        gas. Pass `previous_memory_size` when appending to code that has
+        already expanded the memory.
+        """
+        if gas is None:
+            code, memory_size = _out_of_gas_code(fork, previous_memory_size)
+        else:
+            if gas < 0:
+                raise ValueError(f"negative gas target: {gas}")
+            memory_size = _largest_expansion_within(
+                gas, fork, previous_memory_size
+            )
+            code = Bytecode()
+            if memory_size > previous_memory_size:
+                code = _memory_expansion(memory_size, previous_memory_size)
+            code += Op.JUMPDEST * (
+                (gas - code.gas_cost(fork)) // Op.JUMPDEST.gas_cost(fork)
+            )
+            assert code.gas_cost(fork) == gas, (
+                f"generated bytecode consumes {code.gas_cost(fork)} gas "
+                f"instead of the requested {gas}"
+            )
+            if len(code) > fork.max_code_size():
+                raise ValueError(
+                    f"{gas} gas needs {len(code)} bytes at {fork.name()}, "
+                    f"over its {fork.max_code_size()} byte code size; the "
+                    "memory it may touch caps what an expansion can absorb"
+                )
+
+        instance = super().__new__(cls, code)
+        instance.gas = gas
+        instance.memory_size = memory_size
+        return instance
+
+    @classmethod
+    def out_of_gas(cls, fork: Fork, *, previous_memory_size: int = 0) -> Self:
+        """
+        Return bytecode that always runs out of gas at `fork`.
+
+        Pass `previous_memory_size` when appending to code that has already
+        expanded the memory.
+        """
+        return cls(
+            gas=None, fork=fork, previous_memory_size=previous_memory_size
+        )
 
 
 @dataclass(kw_only=True, slots=True)
@@ -1080,7 +1280,7 @@ class IteratingBytecode(Bytecode):
                     iteration_count=iteration_count,
                     start_iteration=start_iteration,
                 )
-        top_frame_gas = fork.transaction_top_frame_gas_calculator()(
+        top_frame_gas = fork.transaction_top_frame_execution_gas(
             **{
                 key: intrinsic_cost_kwargs[key]
                 for key in TOP_FRAME_COST_KWARGS

@@ -22,10 +22,8 @@ class ReferenceSpec:
     version: str
 
 
-# TODO: update version once
-# https://github.com/ethereum/EIPs/pull/11328 is merged
 ref_spec_8037 = ReferenceSpec(
-    "EIPS/eip-8037.md", "a12902ae1b811c45a81b51bfce671cf7a1fb27f3"
+    "EIPS/eip-8037.md", "19bdfb4f97064dfbeb3d41d31efac211265b49a6"
 )
 
 
@@ -34,6 +32,9 @@ class Spec:
     Constants and helpers for the EIP-8037 State Creation Gas Cost
     Increase tests.
     """
+
+    # State reservoir sizing for each protocol system call.
+    SYSTEM_MAX_SSTORES_PER_CALL = 16
 
     # EIP-7825 transaction gas limit cap
     TX_MAX_GAS_LIMIT = 2**24  # 16,777,216

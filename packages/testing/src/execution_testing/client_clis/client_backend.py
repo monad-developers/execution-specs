@@ -11,13 +11,12 @@ from the same test definitions that the compute path fills via t8n — phase
 info, block boundaries, and pre-alloc declarations flow unchanged.
 """
 
-import re
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional
 
 from execution_testing.base_types import Bytes, Hash
 from execution_testing.exceptions import ExceptionBase, ExceptionMapper
-from execution_testing.forks import Fork, TransitionFork
+from execution_testing.forks import Fork, Requests, TransitionFork
 from execution_testing.logging import get_logger
 from execution_testing.rpc import (
     BlockNumberType,
@@ -37,11 +36,9 @@ from execution_testing.rpc.rpc_types import (
 from execution_testing.test_types import (
     Alloc,
     Environment,
-    Requests,
     Transaction,
     Withdrawal,
 )
-from execution_testing.test_types.block_access_list import BlockAccessList
 from execution_testing.test_types.receipt_types import TransactionReceipt
 
 from .cli_types import (
@@ -51,7 +48,7 @@ from .cli_types import (
     Result,
     Traces,
     TransitionToolOutput,
-    validate_opcode,
+    normalize_opcode_name,
 )
 from .transition_tool import TransitionTool
 
@@ -78,26 +75,6 @@ STRUCT_LOG_TRACER_CONFIG = {
 DEFAULT_OPCODE_COUNT_TRACE_TIMEOUT = "1h"
 
 
-def _normalize_opcode_name(name: str) -> str | None:
-    """
-    Map a tracer opcode name to one ``OpcodeCount`` accepts.
-
-    Handles non-canonical casing (nethermind) and geth's
-    ``"opcode 0xNN not defined"``; unrecognized names are dropped.
-    """
-    for candidate in (name, name.upper()):
-        try:
-            validate_opcode(candidate)
-            return candidate
-        except Exception:
-            continue
-    match = re.search(r"0x[0-9a-fA-F]+", name)
-    if match is not None:
-        return match.group(0)
-    logger.warning(f"opcode trace: dropping unrecognized {name!r}")
-    return None
-
-
 def _opcode_count_from_js_tracer(traces: Any) -> OpcodeCount:
     """Aggregate the per-tx ``{opcode: count}`` maps the JS tracer emits."""
     counts: Dict[str, int] = {}
@@ -109,7 +86,7 @@ def _opcode_count_from_js_tracer(traces: Any) -> OpcodeCount:
         if not isinstance(tx_counts, dict) or "structLogs" in tx_counts:
             continue
         for opcode, count in tx_counts.items():
-            key = _normalize_opcode_name(opcode)
+            key = normalize_opcode_name(opcode)
             if key is None or not isinstance(count, int):
                 continue
             counts[key] = counts.get(key, 0) + count
@@ -132,7 +109,7 @@ def _opcode_count_from_struct_logs(traces: Any) -> OpcodeCount:
             op = step.get("op")
             if not op:
                 continue
-            key = _normalize_opcode_name(op)
+            key = normalize_opcode_name(op)
             if key is None:
                 continue
             counts[key] = counts.get(key, 0) + 1
@@ -167,6 +144,8 @@ class ClientBackend:
     """Raw datadir head, set by the fill-stateful plugin pre-session."""
     start_block: Dict[str, Any] | None
     """Client head after global pre-run setup; per-test chains off this."""
+
+    attests_block_access_list_hash: ClassVar[bool] = False
 
     # t8n-compatibility stubs — fill's filler reads these on the backend.
     opcode_count: OpcodeCount | None = None
@@ -514,9 +493,9 @@ class ClientBackend:
         block_access_list_hash: Hash | None = None
         bal_rlp = getattr(built_payload, "block_access_list", None)
         if bal_rlp is not None:
-            block_access_list_hash = Hash(
-                BlockAccessList.from_rlp(bal_rlp).rlp.keccak256()
-            )
+            # Hash the client's own bytes: a re-encode of the decoded BAL
+            # would diverge whenever the client's RLP is non-canonical.
+            block_access_list_hash = Hash(bal_rlp.keccak256())
 
         return Result(
             state_root=built_payload.state_root,

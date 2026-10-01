@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Wrapper: run monad-mpt inside the monad-builder container.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Hugepages reset to 0 on codespace restart; re-provision if needed
+# (needs a root privileged container; the main one runs as $USER).
+if [ "$(cat /proc/sys/vm/nr_hugepages)" -lt 2048 ]; then
+    docker run --rm --privileged monad-builder:latest \
+        sysctl -q -w vm.nr_hugepages=3072 >/dev/null
+fi
+
+exec docker run --rm --privileged --ulimit nofile=16384:16384 --ulimit memlock=-1:-1 --user $(id -u):$(id -g) \
+    -v /tmp:/tmp \
+    -v "$ROOT":"$ROOT" \
+    -e LD_LIBRARY_PATH="$ROOT"/install/lib \
+    monad-builder:latest \
+    "$ROOT"/install/bin/monad-mpt.real "$@"

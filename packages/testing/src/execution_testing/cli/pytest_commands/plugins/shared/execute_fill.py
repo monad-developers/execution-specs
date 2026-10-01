@@ -306,17 +306,39 @@ def test_case_description(request: pytest.FixtureRequest) -> str:
 
 
 def pytest_make_parametrize_id(
-    config: pytest.Config, val: str, argname: str
+    config: pytest.Config, val: object, argname: str
 ) -> str:
     """
     Pytest hook called when generating test ids. We use this to generate more
     readable test ids for the generated tests.
     """
     del config
+    if isinstance(val, type):
+        # `str()` on a class renders `<class '...'>`; use its bare name.
+        val = val.__name__
     return f"{argname}_{val}"
 
 
 SPEC_TYPES_PARAMETERS: List[str] = list(BaseTest.spec_types.keys())
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """
+    Fail collection of a test that requests no spec type fixture.
+
+    Every test under a test directory must fill or execute a spec. Failing
+    at collection reports the test by name in every process, xdist workers
+    included; later hooks cannot handle an item without a spec type.
+    """
+    if not any(p in metafunc.fixturenames for p in SPEC_TYPES_PARAMETERS):
+        pytest.fail(
+            f"{metafunc.definition.nodeid} requests none of the spec "
+            f"fixtures ({', '.join(SPEC_TYPES_PARAMETERS)}). Every test "
+            "collected from a test directory must request one; move helper "
+            "checks into a module whose name does not start with 'test_'.",
+            pytrace=False,
+        )
 
 
 def pytest_runtest_call(item: pytest.Item) -> None:
@@ -338,14 +360,6 @@ def pytest_runtest_call(item: pytest.Item) -> None:
         raise InvalidFillerError(
             "A filler should only implement either a state test or a "
             "blockchain test; not both."
-        )
-
-    # Check that the test defines either test type as parameter.
-    if not any(i for i in item.funcargs if i in SPEC_TYPES_PARAMETERS):
-        pytest.fail(
-            "Test must define either one of the following parameters to "
-            + "properly generate a test: "
-            + ", ".join(SPEC_TYPES_PARAMETERS)
         )
 
 

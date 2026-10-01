@@ -18,7 +18,7 @@ on:
         required: true
         type: string
       branch:
-        description: "Branch to release from, e.g. devnets/bal/7 (required for *-devnet features)"
+        description: "Branch to release from, e.g. devnets/bal/7 or eips/amsterdam/eip-8141 (required for *-devnet features)"
         required: false
         type: string
       evm:
@@ -113,8 +113,8 @@ jobs:
         id: matrix
         shell: bash
         env:
-          # Scheduled runs have no inputs: fill the mainnet `tests`
-          # feature; the placeholder version passes validation and is
+          # Scheduled runs have no inputs: fill the `tests` feature;
+          # the placeholder version passes validation and is
           # otherwise unused because the `release` job is skipped for
           # scheduled runs.
           INPUT_FEATURE: ${{ inputs.feature || 'tests' }}

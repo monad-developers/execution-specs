@@ -79,9 +79,11 @@ class BlockDiff:
     storage_clears: Set[Address] = field(default_factory=set)
     """
     Addresses whose pre-existing storage was wiped during block
-    execution (via a pre-EIP-6780 `SELFDESTRUCT`). Their storage
-    tries are dropped before [`storage_changes`][sc] is applied, so any
-    post-wipe writes begin from empty storage.
+    execution: a pre-EIP-6780 `SELFDESTRUCT`, a contract creation
+    over a storage-only account, or the deletion of an empty account
+    that still held storage. Their storage tries are dropped before
+    [`storage_changes`][sc] is applied, so any post-wipe writes begin
+    from empty storage.
 
     [sc]: ref:ethereum.state.BlockDiff.storage_changes
     """
@@ -116,14 +118,6 @@ class PreState(Protocol):
         Get the bytecode for a given code hash.
 
         Return ``b""`` for ``EMPTY_CODE_HASH``.
-        """
-        ...
-
-    def account_has_storage(self, address: Address) -> bool:
-        """
-        Check whether an account has any storage.
-
-        Only needed for EIP-7610.
         """
         ...
 

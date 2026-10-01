@@ -8,6 +8,8 @@ uv run consume direct --bin=<evm-binary> [OPTIONS]
 
 - `--bin EVM_BIN`: Path to an evm executable that can process `StateTestFixture` and/or `BlockTestFixture` formats.
 - `--traces`: Collect execution traces from the evm executable.
+- `--timing-report`: Write per-block execution timing to `timing_consume.csv` (see [Block Execution Timing](#block-execution-timing)).
+- `--timing-report-dir DIR`: Directory for that CSV; defaults to the HTML report's directory.
 
 !!! warning "Limited Client Support"
 
@@ -34,6 +36,24 @@ uv run consume direct --bin=<evm-binary> [OPTIONS]
 - **Limited client support**: Not all clients are supported (see [Supported Clients](#supported-clients) above).
 - **Module scope**: Tests EVM, respectively block import, in isolation, not full client behavior.
 - **Interface dependency**: Requires client-specific test interfaces.
+
+## Block Execution Timing
+
+`--timing-report` writes a `timing_consume.csv` holding the per-block
+measurements the client reported while executing each fixture, one row per
+block.
+
+The `test`, `params` and `fork` columns identify the fixture; the remaining
+columns are whatever metrics the client reported, so they vary by client.
+
+!!! note "Reporting clients only"
+
+    A client only appears in the report if its fixture consumer measures
+    block execution.
+
+!!! warning "Run the timed pass serially"
+
+    `--timing-report` is rejected together with xdist (`-n`).
 
 ## Example Usage
 

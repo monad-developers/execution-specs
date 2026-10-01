@@ -1,6 +1,16 @@
 """Ethereum test fork definitions."""
 
-from .base_fork import RefundTypes
+from .base_fork import RefundTypes, SystemCallPhase
+from .forks.eips.amsterdam.eip_8282 import (
+    BuilderDepositRequest,
+    BuilderExitRequest,
+)
+from .forks.eips.prague.eip_6110 import (
+    DepositRequest,
+    create_deposit_log_bytes,
+)
+from .forks.eips.prague.eip_7002 import WithdrawalRequest
+from .forks.eips.prague.eip_7251 import ConsolidationRequest
 from .forks.forks import (
     BPO1,
     BPO2,
@@ -78,11 +88,31 @@ from .helpers import (
     get_transition_fork_predecessor,
     get_transition_fork_successor,
     get_transition_forks,
+    ssz_schema_fork_key,
     transition_fork_from_to,
     transition_fork_to,
 )
+from .requests import (
+    FeeSystemContractRequest,
+    RequestBase,
+    Requests,
+    SystemContractRequest,
+    requests_list_to_bytes,
+)
 
 __all__ = [
+    "BuilderDepositRequest",
+    "BuilderExitRequest",
+    "ConsolidationRequest",
+    "DepositRequest",
+    "FeeSystemContractRequest",
+    "RequestBase",
+    "Requests",
+    "SystemCallPhase",
+    "SystemContractRequest",
+    "WithdrawalRequest",
+    "create_deposit_log_bytes",
+    "requests_list_to_bytes",
     "ALL_FORKS_WITH_TRANSITIONS",
     "ALL_FORKS",
     "ALL_TRANSITION_FORKS",
@@ -155,6 +185,7 @@ __all__ = [
     "get_from_until_fork_set",
     "get_last_descendants",
     "get_selected_fork_set",
+    "ssz_schema_fork_key",
     "transition_fork_from_to",
     "transition_fork_to",
     "GasCosts",
