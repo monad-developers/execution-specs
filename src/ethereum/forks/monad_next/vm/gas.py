@@ -179,6 +179,8 @@ class GasCosts:
     OPCODE_ADDRESS: Final[Uint] = BASE
     OPCODE_ORIGIN: Final[Uint] = BASE
     OPCODE_CALLER: Final[Uint] = BASE
+    OPCODE_CALLSTACKDEPTH: Final[Uint] = BASE
+    OPCODE_CALLERN: Final[Uint] = BASE
     OPCODE_CALLVALUE: Final[Uint] = BASE
     OPCODE_CALLDATASIZE: Final[Uint] = BASE
     OPCODE_CODESIZE: Final[Uint] = BASE

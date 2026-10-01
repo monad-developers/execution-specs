@@ -26,6 +26,7 @@ from ethereum_types.numeric import Uint, ulen
 
 from .. import Evm
 from ..exceptions import InvalidExtension
+from . import environment as environment_instructions
 
 
 class ExtensionOps(enum.Enum):
@@ -35,8 +36,15 @@ class ExtensionOps(enum.Enum):
     A selector is never `0x5B` nor in the range `0x60`-`0x7F`.
     """
 
+    # Call Stack Introspection Ops
+    CALLSTACKDEPTH = 0x00
+    CALLERN = 0x01
 
-extension_implementation: Dict[ExtensionOps, Callable] = {}
+
+extension_implementation: Dict[ExtensionOps, Callable] = {
+    ExtensionOps.CALLSTACKDEPTH: environment_instructions.callstackdepth,
+    ExtensionOps.CALLERN: environment_instructions.callern,
+}
 
 
 def extension(evm: Evm) -> None:

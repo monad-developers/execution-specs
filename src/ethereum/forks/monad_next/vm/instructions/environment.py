@@ -133,6 +133,68 @@ def caller(evm: Evm) -> None:
     evm.pc += Uint(1)
 
 
+def callstackdepth(evm: Evm) -> None:
+    """
+    Push the depth of the current call frame onto the stack, `0` for the
+    transaction's top-level frame (MIP-18).
+
+    Parameters
+    ----------
+    evm :
+        The current EVM frame.
+
+    """
+    # STACK
+    pass
+
+    # GAS
+    charge_gas(evm, GasCosts.OPCODE_CALLSTACKDEPTH)
+
+    # OPERATION
+    push(evm.stack, U256(evm.message.depth))
+
+    # PROGRAM COUNTER
+    # EXTENSION prefix and selector
+    evm.pc += Uint(2)
+
+
+def callern(evm: Evm) -> None:
+    """
+    Push the address `CALLER` returns `n` frames above the current one
+    onto the stack, or `0` when the call stack holds fewer frames
+    (MIP-18).
+
+    `n` is popped from the stack: `0` names the current frame and the
+    depth names the top-level frame, whose caller is the transaction
+    origin.
+
+    Parameters
+    ----------
+    evm :
+        The current EVM frame.
+
+    """
+    # STACK
+    n = pop(evm.stack)
+
+    # GAS
+    charge_gas(evm, GasCosts.OPCODE_CALLERN)
+
+    # OPERATION
+    if n > U256(evm.message.depth):
+        push(evm.stack, U256(0))
+    else:
+        frame = evm
+        for _ in range(int(n)):
+            assert frame.message.parent_evm is not None
+            frame = frame.message.parent_evm
+        push(evm.stack, U256.from_be_bytes(frame.message.caller))
+
+    # PROGRAM COUNTER
+    # EXTENSION prefix and selector
+    evm.pc += Uint(2)
+
+
 def callvalue(evm: Evm) -> None:
     """
     Push the value (in wei) sent with the call onto the stack.
