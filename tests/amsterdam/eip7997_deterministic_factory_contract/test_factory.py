@@ -42,6 +42,7 @@ from execution_testing import (
 from execution_testing import (
     Macros as Om,
 )
+from execution_testing.forks import MONAD_EIGHT
 
 from ...prague.eip7702_set_code_tx.spec import Spec as Spec7702
 from .spec import Spec, ref_spec_7997
@@ -985,12 +986,16 @@ def test_factory_via_eip7702_delegation(
     state_test: StateTestFiller,
     pre: Alloc,
     forwarded_value: int,
+    fork: Fork,
 ) -> None:
     """
     Execute delegated factory code with the authorized EOA as deployer.
 
     The delegated EOA funds the CREATE2 endowment from the forwarded value.
     """
+    # Monad forbids the create opcodes in a delegated frame, so the
+    # factory halts there instead of deploying.
+    factory_halts = fork >= MONAD_EIGHT
     auth_signer = pre.fund_eoa(amount=0)
     auth_signer_nonce = auth_signer.nonce
 
@@ -1032,12 +1037,14 @@ def test_factory_via_eip7702_delegation(
         ),
         post={
             auth_signer: Account(
-                nonce=auth_signer_nonce + 2,
+                nonce=auth_signer_nonce + (1 if factory_halts else 2),
                 balance=0,
                 code=Spec7702.delegation_designation(Address(FACTORY)),
             ),
-            caller: Account(balance=0),
-            expected_address: Account(
+            caller: Account(balance=forwarded_value if factory_halts else 0),
+            expected_address: Account.NONEXISTENT
+            if factory_halts
+            else Account(
                 nonce=1,
                 balance=forwarded_value,
                 code=bytes(runtime_code),

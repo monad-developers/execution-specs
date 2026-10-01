@@ -19,6 +19,7 @@ from execution_testing import (
     TransactionReceipt,
     add_kzg_version,
 )
+from execution_testing.forks import MONAD_EIGHT
 
 from ...cancun.eip4844_blobs.spec import Spec as EIP_4844_Spec
 
@@ -275,12 +276,18 @@ def tx_error(
 
 @pytest.fixture
 def tx_expected_receipt(
+    fork: Fork,
     tx_error: TransactionException | None,
     tx_expected_gas_used: int,
+    tx_gas_limit: int,
 ) -> TransactionReceipt | None:
     """Expect success and the exact gas used from a valid transaction."""
     if tx_error is not None:
         return None
+    # Monad bills the whole gas limit, so the receipt pins the limit
+    # rather than the gas the execution would otherwise have used.
+    if fork >= MONAD_EIGHT:
+        return TransactionReceipt(status=1, gas_used=tx_gas_limit)
     return TransactionReceipt(status=1, gas_used=tx_expected_gas_used)
 
 

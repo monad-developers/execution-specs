@@ -997,6 +997,7 @@ def test_bal_7702_multi_hop_delegation_chain(
     )
 
 
+@pytest.mark.no_bal_dependency
 def test_bal_7702_cross_tx_delegation_then_call(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,
