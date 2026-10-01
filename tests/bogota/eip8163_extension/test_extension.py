@@ -23,6 +23,7 @@ from execution_testing import (
     Transaction,
     TransactionReceipt,
 )
+from execution_testing.forks import MONAD_EIGHT
 
 from .spec import ref_spec_8163
 
@@ -66,15 +67,16 @@ def test_top_level_call(
         fork.transaction_intrinsic_cost_calculator()() + opcode.gas_cost(fork)
     )
     gas_limit = execution_gas + 1
+    # Monad bills the whole gas limit whatever the outcome, so there the
+    # normal halt keeps no gas either.
+    refunded = not all_gas_consumed and not fork >= MONAD_EIGHT
     tx = Transaction(
         gas_limit=gas_limit,
         to=contract_address,
         sender=pre.fund_eoa(),
         expected_receipt=TransactionReceipt(
             status=int(success),
-            cumulative_gas_used=(
-                gas_limit if all_gas_consumed else execution_gas
-            ),
+            cumulative_gas_used=execution_gas if refunded else gas_limit,
         ),
     )
 

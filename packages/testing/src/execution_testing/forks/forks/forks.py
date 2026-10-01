@@ -1837,8 +1837,13 @@ class MONAD_TEN(MONAD_NINE):  # noqa: N801
         return gas_cost
 
 
-class MONAD_NEXT(MONAD_TEN):  # noqa: N801
-    """MONAD_NEXT fork, a placeholder identical to MONAD_TEN."""
+class MONAD_NEXT(eips.EIP8163, MONAD_TEN):  # noqa: N801
+    """
+    MONAD_NEXT fork.
+
+    Adopts EIP-8163 through MIP-7, which gives EXTENSION a selector byte
+    and so the extended opcodes.
+    """
 
     pass
 

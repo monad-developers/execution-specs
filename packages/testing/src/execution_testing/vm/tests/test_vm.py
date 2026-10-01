@@ -6,7 +6,7 @@ from execution_testing.base_types import Address
 from execution_testing.forks.forks.forks import Prague
 
 from ..helpers import create_op
-from ..opcodes import Bytecode
+from ..opcodes import Bytecode, _extended_opcode
 from ..opcodes import Macros as Om
 from ..opcodes import Opcodes as Op
 
@@ -714,3 +714,33 @@ def test_create_op_rejects_non_create_opcode() -> None:
     """Test that `create_op` raises for a non-create opcode."""
     with pytest.raises(ValueError, match="Not a create opcode: CALL"):
         create_op(Op.CALL)
+
+
+@pytest.mark.parametrize(
+    "bytecode,expected",
+    [
+        pytest.param(_extended_opcode(0x12), b"\xae\x12", id="bare"),
+        pytest.param(
+            _extended_opcode(0x12, popped_stack_items=1)(5),
+            b"\x60\x05\xae\x12",
+            id="stack_argument",
+        ),
+    ],
+)
+def test_extended_opcode_encoding(bytecode: Bytecode, expected: bytes) -> None:
+    """The EXTENSION prefix and its selector form one two-byte opcode."""
+    assert bytes(bytecode) == expected
+
+
+def test_extended_opcode_identity() -> None:
+    """An extended opcode is keyed apart from the bare prefix."""
+    assert _extended_opcode(0x12) != Op.EXTENSION
+    assert _extended_opcode(0x12) == _extended_opcode(0x12)
+    assert _extended_opcode(0x12) != _extended_opcode(0x13)
+
+
+@pytest.mark.parametrize("selector", [0x5B, 0x60, 0x7F])
+def test_extended_opcode_excluded_selector(selector: int) -> None:
+    """Selectors that JUMPDEST analysis interprets are rejected."""
+    with pytest.raises(AssertionError):
+        _extended_opcode(selector)

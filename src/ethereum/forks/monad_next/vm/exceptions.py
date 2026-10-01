@@ -79,6 +79,15 @@ class InvalidOpcode(ExceptionalHalt):
         self.code = code
 
 
+class InvalidExtension(ExceptionalHalt):
+    """
+    Raised when `EXTENSION` is not followed by the selector of a defined
+    extended opcode.
+    """
+
+    pass
+
+
 class InvalidJumpDestError(ExceptionalHalt):
     """
     Occurs when the destination of a jump operation doesn't meet any of the
