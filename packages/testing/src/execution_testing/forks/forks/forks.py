@@ -1842,10 +1842,26 @@ class MONAD_NEXT(eips.EIP8163, MONAD_TEN):  # noqa: N801
     MONAD_NEXT fork.
 
     Adopts EIP-8163 through MIP-7, which gives EXTENSION a selector byte
-    and so the extended opcodes.
+    and so the extended opcodes, and defines the call stack introspection
+    opcodes of MIP-18.
     """
 
-    pass
+    @classmethod
+    def extension_opcodes(cls) -> List[Opcodes]:
+        """MIP-18 defines the call stack introspection opcodes."""
+        return [Opcodes.CALLSTACKDEPTH, Opcodes.CALLERN]
+
+    @classmethod
+    def opcode_gas_map(
+        cls,
+    ) -> Dict[OpcodeBase, int | Callable[[OpcodeBase], int]]:
+        """Add gas costs for CALLSTACKDEPTH and CALLERN."""
+        gas_costs = cls.gas_costs()
+        return {
+            **super().opcode_gas_map(),
+            Opcodes.CALLSTACKDEPTH: gas_costs.BASE,
+            Opcodes.CALLERN: gas_costs.BASE,
+        }
 
 
 class BPO1(
