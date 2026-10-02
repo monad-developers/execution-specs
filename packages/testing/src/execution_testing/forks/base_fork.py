@@ -1364,6 +1364,14 @@ class BaseFork(ForkOpcodeInterface, metaclass=BaseForkMeta):
         pass
 
     @classmethod
+    def extension_opcodes(cls) -> List[Opcodes]:
+        """
+        Return the extended opcodes the fork defines behind the EXTENSION
+        prefix (MIP-7), each a two-byte opcode of its own.
+        """
+        return []
+
+    @classmethod
     @abstractmethod
     def create_opcodes(cls) -> List[Opcodes]:
         """Return list of create opcodes supported by the fork."""

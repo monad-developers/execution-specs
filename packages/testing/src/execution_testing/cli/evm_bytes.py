@@ -128,6 +128,14 @@ def process_evm_bytes(  # noqa: D103
                 break
         else:
             raise ValueError(f"Unknown opcode: {opcode_byte}")
+        if opcode == Op.EXTENSION and evm_bytes_array:
+            # An extended opcode (MIP-7) is EXTENSION plus a selector byte.
+            extended_opcode = (opcode_byte << 8) | evm_bytes_array[0]
+            for op in Op:
+                if op.int() == extended_opcode:
+                    opcode = op
+                    evm_bytes_array.pop(0)
+                    break
         opcode_with_operands: OpcodeWithOperands
         if opcode.data_portion_length > 0:
             opcode_with_operands = OpcodeWithOperands(
