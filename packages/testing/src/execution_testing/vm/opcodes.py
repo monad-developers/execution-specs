@@ -82,6 +82,18 @@ def _stack_argument_to_bytecode(
     return new_opcode
 
 
+def _extended_opcode(selector: int, **kwargs: Any) -> "Opcode":
+    """
+    Return the two-byte opcode that EXTENSION forms with `selector`
+    (MIP-7).
+
+    The selector is never JUMPDEST nor a PUSH byte, so that jump
+    destination analysis stays unaware of extended opcodes.
+    """
+    assert selector != 0x5B and not 0x60 <= selector <= 0x7F
+    return Opcode(bytes([0xAE, selector]), **kwargs)
+
+
 class Opcode(Bytecode, OpcodeBase):
     """
     Represents a single Opcode instruction in the EVM, with extra
@@ -5347,6 +5359,66 @@ class Opcodes(Opcode, Enum):
     All the remaining gas in this context is consumed
 
     Source: [EIP-8163](https://eips.ethereum.org/EIPS/eip-8163)
+    """
+
+    CALLSTACKDEPTH = _extended_opcode(0x00, pushed_stack_items=1)
+    """
+    CALLSTACKDEPTH() = depth
+    ----
+
+    Description
+    ----
+    Push the depth of the current call frame, 0 for the transaction's
+    top-level frame
+
+    Inputs
+    ----
+    None
+
+    Outputs
+    ----
+    - depth: number of frames above the current one
+
+    Fork
+    ----
+    MONAD_NEXT
+
+    Gas
+    ----
+    2
+
+    Source: [MIP-18](https://github.com/monad-crypto/MIPs/blob/main/MIPs/MIP-18.md)
+    """
+
+    CALLERN = _extended_opcode(
+        0x01, popped_stack_items=1, pushed_stack_items=1, kwargs=["n"]
+    )
+    """
+    CALLERN(n) = caller
+    ----
+
+    Description
+    ----
+    Push the address CALLER returns n frames above the current one, or 0
+    when the call stack holds fewer frames
+
+    Inputs
+    ----
+    - n: number of frames to look up, 0 for the current frame
+
+    Outputs
+    ----
+    - caller: 20-byte address zero-extended to 32 bytes, or 0
+
+    Fork
+    ----
+    MONAD_NEXT
+
+    Gas
+    ----
+    2
+
+    Source: [MIP-18](https://github.com/monad-crypto/MIPs/blob/main/MIPs/MIP-18.md)
     """
 
     DUPN = Opcode(
