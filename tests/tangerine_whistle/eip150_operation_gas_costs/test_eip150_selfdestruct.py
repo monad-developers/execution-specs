@@ -31,6 +31,7 @@ from execution_testing import (
     Macros as Om,
 )
 from execution_testing.forks import (
+    MONAD_EIGHT,
     Berlin,
     Cancun,
     SpuriousDragon,
@@ -1291,12 +1292,14 @@ def test_selfdestruct_send_to_sender(
         victim_code.refund(fork), executed // fork.max_refund_quotient()
     )
     gas_used = executed - refund
+    # Monad charges the sender the whole gas limit and refunds nothing.
+    gas_charged = gas_limit if fork >= MONAD_EIGHT else gas_used
     alice_final_balance = (
         alice_initial_balance + originator_balance - gas_used * gas_price
     )
     alice_post = Account(
         nonce=1,
-        balance_change=originator_balance - GasFee(tx, gas=gas_used),
+        balance_change=originator_balance - GasFee(tx, gas=gas_charged),
     )
 
     expected_bal: BlockAccessListExpectation | None = None
