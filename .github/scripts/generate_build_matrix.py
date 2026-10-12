@@ -68,6 +68,7 @@ FORK_ORDER = [
     "BPO4",
     "BPO5",
     "Amsterdam",
+<<<<<<< HEAD
     # Monad forks are layered above the canonical forks. They never
     # share a shared fork range, so their absolute position only needs
     # to sort after the canonical forks.
@@ -75,6 +76,10 @@ FORK_ORDER = [
     "MONAD_NINE",
     "MONAD_TEN",
     "MONAD_NEXT",
+||||||| 2b19bf5fa
+=======
+    "Bogota",
+>>>>>>> upstream/forks/bogota
 ]
 
 FORK_INDEX = {name: i for i, name in enumerate(FORK_ORDER)}

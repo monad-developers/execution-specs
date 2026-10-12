@@ -50,6 +50,7 @@ from ..gas_costs import BASE, HIGH, LOW, MID, VERY_LOW, GasCosts
 from ..requests import SystemContractRequest
 from . import eips
 from .eips.amsterdam import AmsterdamEIPs
+from .eips.bogota import BogotaEIPs
 from .helpers import ceiling_division
 
 
@@ -1936,3 +1937,13 @@ class Amsterdam(
         limit.
         """
         return True
+
+
+class Bogota(
+    BogotaEIPs,
+    Amsterdam,
+    deployed=False,
+):
+    """Bogota fork."""
+
+    pass

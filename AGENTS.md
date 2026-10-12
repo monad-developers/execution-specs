@@ -26,7 +26,7 @@ When done with changes, ask the user if they'd like to run `/lint` before commit
 
 ## Branches
 
-- **There is no `main` branch.** Default branch = most active fork (currently `forks/amsterdam`). Run `git remote show origin | grep HEAD` to check.
+- **There is no `main` branch.** Default branch = most active fork (currently `forks/bogota`). Run `git remote show origin | grep HEAD` to check.
 - `mainnet` = stable specs for forks live on mainnet
 - PRs target the default branch
 - PRs strictly follow the template in `.github/PULL_REQUEST_TEMPLATE.md`.
@@ -53,6 +53,7 @@ skills as `/name` commands through symlinked folders in `.claude/skills/`.
 - Cleaning up or future-proofing a `tests/ported_static/` test → run `/enhance-ported-test` first
 - Writing or modifying pytester-based plugin tests → run `/pytester` first
 - Filling test fixtures → run `/fill-tests` first
+- Running local fixtures against clients in Hive → run `/consume-hive`
 - Implementing an EIP or modifying fork code in `src/` → run `/implement-eip` first
 - Adopting a single upstream EIP into a work-in-progress Monad fork → run `/adopt-upstream-eip` first
 - Merging upstream changes into `from-upstream` → run `/merge-from-upstream` first
@@ -69,6 +70,7 @@ skills as `/name` commands through symlinked folders in `.claude/skills/`.
 - `/enhance-ported-test` — ordered methodology to clean up & future-proof `tests/ported_static/` tests
 - `/pytester` — pytester execution modes, isolation, output handling for plugin tests
 - `/fill-tests` — `fill` CLI reference, flags, debugging, benchmark tests
+- `/consume-hive` — run local fixtures against client images for the specified network
 - `/implement-eip` — fork structure, import rules, adding opcodes/precompiles/tx types
 - `/adopt-upstream-eip` — adopt one upstream EIP into a work-in-progress Monad fork and release its fixtures
 - `/merge-from-upstream` — merge upstream, propagate the changes to the Monad forks, verify the fixture set
