@@ -89,12 +89,8 @@ from execution_testing.test_types import (
     Account,
     Alloc,
     Environment,
-<<<<<<< HEAD
     MonadRunloopDefaults,
-||||||| 2b19bf5fa
-=======
     PostStateContext,
->>>>>>> upstream/forks/bogota
     Removable,
     TestPhase,
     Transaction,
@@ -1801,16 +1797,12 @@ class BlockchainTest(BaseTest):
         # Alloc is not authoritative in stateful mode; pass self.pre as a
         # placeholder — ClientBackend ignores it.
         alloc: Alloc | LazyAlloc = self.pre
-<<<<<<< HEAD
         previous_senders_authorities: Dict[int, List[Address]] = {}
-||||||| 2b19bf5fa
-=======
         context = RecordedPostStateContext()
         # Relative post expectations compare against the live state right
         # before the first execution block, after the setup blocks funded
         # and deployed the test's accounts.
         pre_state_block_number = start_block_number
->>>>>>> upstream/forks/bogota
         for block in blocks_to_process:
             built_block = self.generate_block_data(
                 t8n=t8n,

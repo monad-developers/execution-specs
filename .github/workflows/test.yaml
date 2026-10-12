@@ -93,7 +93,6 @@ jobs:
   #         flags: unittests
   #         token: ${{ secrets.CODECOV_TOKEN }}
 
-<<<<<<< HEAD
   # pypy3:
   #   runs-on: ubuntu-24.04
   #   needs: static
@@ -110,97 +109,6 @@ jobs:
   #       env:
   #         PYPY_GC_MAX: "2G"
   #         PYPY_GC_MIN: "1G"
-||||||| 2b19bf5fa
-  fill:
-    name: fill (${{ matrix.label }})
-    runs-on: [self-hosted-ghr, size-xl-x64]
-    needs: static
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: pre-shanghai
-            from_fork: Frontier
-            until_fork: Paris
-          - label: shanghai-cancun
-            from_fork: Shanghai
-            until_fork: Cancun
-          - label: prague
-            from_fork: Prague
-            until_fork: Prague
-          - label: osaka
-            from_fork: Osaka
-            until_fork: Osaka
-          - label: amsterdam
-            from_fork: Amsterdam
-            until_fork: Amsterdam
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: ./.github/actions/setup-uv
-        with:
-          python-version: "3.14"
-      - name: Run fill (${{ matrix.label }})
-        run: >
-          just fill --from ${{ matrix.from_fork }} --until ${{ matrix.until_fork }}
-          -m "not slow and primary_format"
-        env:
-          PYTEST_XDIST_AUTO_NUM_WORKERS: auto
-      - name: Validate blockchain fixtures with EELS (${{ matrix.label }})
-        run: just validate-blocks .just/fill/fixtures/blockchain_tests
-        env:
-          PYTEST_XDIST_AUTO_NUM_WORKERS: auto
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
-        with:
-          files: .just/fill/coverage.xml,.just/validate-blocks/coverage.xml
-          flags: unittests
-          token: ${{ secrets.CODECOV_TOKEN }}
-=======
-  fill:
-    name: fill (${{ matrix.label }})
-    runs-on: [self-hosted-ghr, size-xl-x64]
-    needs: static
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: pre-shanghai
-            from_fork: Frontier
-            until_fork: Paris
-          - label: shanghai-cancun
-            from_fork: Shanghai
-            until_fork: Cancun
-          - label: prague-osaka
-            from_fork: Prague
-            until_fork: Osaka
-          - label: amsterdam
-            from_fork: Amsterdam
-            until_fork: Amsterdam
-          - label: bogota
-            from_fork: Bogota
-            until_fork: Bogota
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: ./.github/actions/setup-uv
-        with:
-          python-version: "3.14"
-      - name: Run fill (${{ matrix.label }})
-        run: >
-          just fill --from ${{ matrix.from_fork }} --until ${{ matrix.until_fork }}
-          -m "not slow and primary_format"
-        env:
-          PYTEST_XDIST_AUTO_NUM_WORKERS: auto
-      - name: Validate blockchain fixtures with EELS (${{ matrix.label }})
-        run: just validate-blocks .just/fill/fixtures/blockchain_tests
-        env:
-          PYTEST_XDIST_AUTO_NUM_WORKERS: auto
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
-        with:
-          files: .just/fill/coverage.xml,.just/validate-blocks/coverage.xml
-          flags: unittests
-          token: ${{ secrets.CODECOV_TOKEN }}
->>>>>>> upstream/forks/bogota
 
   # json_loader:
   #   runs-on: ubuntu-24.04
@@ -216,7 +124,6 @@ jobs:
   #       env:
   #         PYTEST_XDIST_AUTO_NUM_WORKERS: auto
 
-<<<<<<< HEAD
   # tests_pytest_py3:
   #   runs-on: ubuntu-24.04
   #   needs: static
@@ -231,40 +138,6 @@ jobs:
   #       run: tox -e tests_pytest_py3
   #       env:
   #         PYTEST_XDIST_AUTO_NUM_WORKERS: auto
-||||||| 2b19bf5fa
-  fill-pypy:
-    runs-on: [self-hosted-ghr, size-xl-x64]
-    needs: static
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: ./.github/actions/setup-uv
-        with:
-          python-version: "pypy3.11"
-      - uses: ./.github/actions/setup-env-pypy
-      - name: Run fill-pypy tests
-        run: just fill-pypy
-        env:
-          PYPY_GC_MAX: "2G"
-          PYPY_GC_MIN: "1G"
-=======
-  fill-pypy:
-    runs-on: [self-hosted-ghr, size-xl-x64]
-    needs: static
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: ./.github/actions/setup-uv
-        with:
-          python-version: "pypy3.11"
-      - uses: ./.github/actions/setup-env-pypy
-      - name: Run fill-pypy tests
-        run: just fill-pypy
-        env:
-          # Collection through Bogota with the EIP-8141 frame variants
-          # exceeds a 3G heap in each worker. Keep this paired with
-          # fill-pypy's four-worker limit.
-          PYPY_GC_MAX: "4G"
-          PYPY_GC_MIN: "1G"
->>>>>>> upstream/forks/bogota
 
   # tests_pytest_pypy3:
   #   runs-on: ubuntu-24.04

@@ -85,12 +85,8 @@ __all__ = (
     "ChainConfigDefaults",
     "Environment",
     "EnvironmentDefaults",
-<<<<<<< HEAD
-    "MonadRunloopDefaults",
-||||||| 2b19bf5fa
-=======
     "EmptyPostStateContext",
->>>>>>> upstream/forks/bogota
+    "MonadRunloopDefaults",
     "EOA",
     "fee_increment_blocks",
     "GasFee",

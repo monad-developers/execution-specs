@@ -498,39 +498,19 @@ def test_set_code_to_tstore_available_at_correct_address(
     "balance",
     [0, 1],
 )
-<<<<<<< HEAD
-@pytest.mark.parametrize(
-    "pre_funded",
-    [False, True],
-)
-||||||| 2b19bf5fa
-=======
 @pytest.mark.parametrize("tx_value", [0, 1])
->>>>>>> upstream/forks/bogota
 def test_set_code_to_self_destruct(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
     external_sendall_recipient: bool,
     balance: int,
-<<<<<<< HEAD
-    pre_funded: bool,
-    fork: Fork,
-||||||| 2b19bf5fa
-=======
     tx_value: int,
->>>>>>> upstream/forks/bogota
 ) -> None:
     """Test the executing self-destruct opcode in a set-code transaction."""
-<<<<<<< HEAD
-    auth_signer = pre.fund_eoa(balance if pre_funded else 0)
-||||||| 2b19bf5fa
-    auth_signer = pre.fund_eoa(balance)
-=======
     # With balance 0 the authority does not exist until the authorization
     # creates it.
     auth_signer = pre.fund_eoa(balance)
->>>>>>> upstream/forks/bogota
     if external_sendall_recipient:
         recipient = pre.fund_eoa(0)
     else:
@@ -543,13 +523,7 @@ def test_set_code_to_self_destruct(
     sender = pre.fund_eoa()
     tx = Transaction(
         to=auth_signer,
-<<<<<<< HEAD
-        value=0 if pre_funded else balance,
-||||||| 2b19bf5fa
-        value=0,
-=======
         value=tx_value,
->>>>>>> upstream/forks/bogota
         authorization_list=[
             AuthorizationTuple(
                 address=set_code_to_address,
@@ -560,51 +534,33 @@ def test_set_code_to_self_destruct(
         sender=sender,
     )
 
-<<<<<<< HEAD
-    reverted = (
-        pre_funded
-        and external_sendall_recipient
-        and fork >= MONAD_EIGHT
-        and balance > 0
-    )
-
-    post = {
-||||||| 2b19bf5fa
-    post = {
-=======
     # The authorization does not make the authority a contract created in
     # this transaction, so SELFDESTRUCT only moves its balance.
     total_balance = balance + tx_value
-    final_balance = 0 if external_sendall_recipient else total_balance
+    # On Monad the authority ends below both its reserve and its
+    # pre-transaction balance, and the delegation it just set rules out
+    # the emptying exception, so the frame reverts and the transaction
+    # value flows back to the sender.
+    reverted = (
+        external_sendall_recipient and balance > 0 and fork >= MONAD_EIGHT
+    )
+    if reverted:
+        final_balance = balance
+    elif external_sendall_recipient:
+        final_balance = 0
+    else:
+        final_balance = total_balance
     post: dict[Address, Account | None] = {
->>>>>>> upstream/forks/bogota
         auth_signer: Account(
             nonce=1,
             code=Spec.delegation_designation(set_code_to_address),
-<<<<<<< HEAD
-            storage={1: 1} if not reverted else {},
-            balance=balance
-            if not external_sendall_recipient or reverted
-            else 0,
-||||||| 2b19bf5fa
-            storage={1: 1},
-            balance=balance if not external_sendall_recipient else 0,
-=======
-            storage={1: 1},
+            storage={} if reverted else {1: 1},
             balance=final_balance,
->>>>>>> upstream/forks/bogota
         ),
     }
 
-<<<<<<< HEAD
-    if external_sendall_recipient and balance > 0 and not reverted:
-        post[recipient] = Account(balance=balance)
-||||||| 2b19bf5fa
-    if external_sendall_recipient and balance > 0:
-        post[recipient] = Account(balance=balance)
-=======
     if external_sendall_recipient:
-        if total_balance > 0:
+        if total_balance > 0 and not reverted:
             post[recipient] = Account(balance=total_balance)
         else:
             post[recipient] = Account.NONEXISTENT
@@ -612,9 +568,9 @@ def test_set_code_to_self_destruct(
     if fork.is_eip_enabled(7708):
         # SELFDESTRUCT logs nothing when it sends to itself or moves zero.
         logs = []
-        if tx_value > 0:
+        if tx_value > 0 and not reverted:
             logs.append(transfer_log(sender, auth_signer, tx_value))
-        if external_sendall_recipient and total_balance > 0:
+        if external_sendall_recipient and total_balance > 0 and not reverted:
             logs.append(transfer_log(auth_signer, recipient, total_balance))
         tx.expected_receipt = TransactionReceipt(logs=logs)
 
@@ -642,7 +598,9 @@ def test_set_code_to_self_destruct(
                         ),
                     )
                 ],
-                storage_changes=[
+                storage_changes=[]
+                if reverted
+                else [
                     BalStorageSlot(
                         slot=1,
                         slot_changes=[
@@ -657,7 +615,7 @@ def test_set_code_to_self_destruct(
         }
         if external_sendall_recipient:
             recipient_balance_changes = []
-            if total_balance > 0:
+            if total_balance > 0 and not reverted:
                 recipient_balance_changes.append(
                     BalBalanceChange(
                         block_access_index=1, post_balance=total_balance
@@ -669,7 +627,6 @@ def test_set_code_to_self_destruct(
         expected_block_access_list = BlockAccessListExpectation(
             account_expectations=account_expectations
         )
->>>>>>> upstream/forks/bogota
 
     state_test(
         env=Environment(),
