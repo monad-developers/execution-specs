@@ -96,14 +96,13 @@ def test_all_opcodes(
         )
 
     # EVM code to make the call and store the result
-    subcall_gas = 35_000
     contract_address = pre.deploy_contract(
         code=sum(
             Op.SSTORE(
                 Op.PUSH1(opcode.int()),
                 # Limit gas to limit the gas consumed by the exceptional aborts
                 # in each subcall that uses an undefined opcode.
-                Op.CALL(subcall_gas, opcode_address, 0, 0, 0, 0, 0),
+                Op.CALL(35_000, opcode_address, 0, 0, 0, 0, 0),
             )
             for opcode, opcode_address in code_contract.items()
         )

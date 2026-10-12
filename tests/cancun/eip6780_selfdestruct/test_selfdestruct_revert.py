@@ -351,7 +351,6 @@ def test_selfdestruct_created_in_same_tx_with_revert(  # noqa SC200
     selfdestruct_with_transfer_initcode_copy_from_address: Address,
     recursive_revert_contract_address: Address,
     recursive_revert_contract_code: Bytecode,
-    fork_extra_gas: int,
     fork: Fork,
 ) -> None:
     """
@@ -560,7 +559,6 @@ def test_selfdestruct_not_created_in_same_tx_with_revert(
     selfdestruct_recipient_address: Address,
     recursive_revert_contract_address: Address,
     recursive_revert_contract_code: Bytecode,
-    fork_extra_gas: int,
 ) -> None:
     """
     Same test as selfdestruct_created_in_same_tx_with_revert except
