@@ -1,6 +1,14 @@
 """Common definitions and types."""
 
-from .account_types import EOA, Alloc, AllocGroupHash
+from .account_types import EOA, Account, Alloc, AllocGroupHash
+from .balance_expectations import (
+    BalanceExpression,
+    BlobFee,
+    EmptyPostStateContext,
+    GasFee,
+    PostStateContext,
+    Tip,
+)
 from .blob_types import Blob
 from .block_access_list import (
     BalAccountAbsentValues,
@@ -56,9 +64,11 @@ from .utils import Removable, keccak256
 __all__ = (
     "DETERMINISTIC_FACTORY_BYTECODE",
     "DETERMINISTIC_FACTORY_ADDRESS",
+    "Account",
     "Alloc",
     "AllocGroupHash",
     "AuthorizationTuple",
+    "BalanceExpression",
     "BalAccountAbsentValues",
     "BalAccountChange",
     "BalAccountExpectation",
@@ -68,16 +78,20 @@ __all__ = (
     "BalStorageChange",
     "BalStorageSlot",
     "Blob",
+    "BlobFee",
     "BlockAccessList",
     "BlockAccessListExpectation",
     "ChainConfig",
     "ChainConfigDefaults",
     "Environment",
     "EnvironmentDefaults",
+    "EmptyPostStateContext",
     "MonadRunloopDefaults",
     "EOA",
     "fee_increment_blocks",
+    "GasFee",
     "NetworkWrappedTransaction",
+    "PostStateContext",
     "Removable",
     "SystemContractInteractionBase",
     "SystemContractInteractionContract",
@@ -86,6 +100,7 @@ __all__ = (
     "TestParameterGroup",
     "TestPhase",
     "TestPhaseManager",
+    "Tip",
     "Transaction",
     "TransactionDefaults",
     "TransactionLog",

@@ -68,6 +68,7 @@ FORK_ORDER = [
     "BPO4",
     "BPO5",
     "Amsterdam",
+    "Bogota",
     # Monad forks are layered above the canonical forks. They never
     # share a shared fork range, so their absolute position only needs
     # to sort after the canonical forks.

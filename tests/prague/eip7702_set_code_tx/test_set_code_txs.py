@@ -18,6 +18,7 @@ from execution_testing import (
     Alloc,
     AuthorizationTuple,
     BalAccountExpectation,
+    BalBalanceChange,
     BalCodeChange,
     BalNonceChange,
     BalStorageChange,
@@ -54,6 +55,7 @@ from execution_testing import Macros as Om
 from execution_testing.base_types import HexNumber
 from execution_testing.forks import MONAD_EIGHT
 
+from ...amsterdam.eip7708_eth_transfer_logs.spec import transfer_log
 from ...cancun.eip4844_blobs.spec import Spec as Spec4844
 from ..eip7685_general_purpose_el_requests.test_multi_type_requests import (
     REQUEST_TYPE_BY_ADDRESS,
@@ -496,20 +498,19 @@ def test_set_code_to_tstore_available_at_correct_address(
     "balance",
     [0, 1],
 )
-@pytest.mark.parametrize(
-    "pre_funded",
-    [False, True],
-)
+@pytest.mark.parametrize("tx_value", [0, 1])
 def test_set_code_to_self_destruct(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
     external_sendall_recipient: bool,
     balance: int,
-    pre_funded: bool,
-    fork: Fork,
+    tx_value: int,
 ) -> None:
     """Test the executing self-destruct opcode in a set-code transaction."""
-    auth_signer = pre.fund_eoa(balance if pre_funded else 0)
+    # With balance 0 the authority does not exist until the authorization
+    # creates it.
+    auth_signer = pre.fund_eoa(balance)
     if external_sendall_recipient:
         recipient = pre.fund_eoa(0)
     else:
@@ -519,9 +520,10 @@ def test_set_code_to_self_destruct(
         Op.SSTORE(1, 1) + Op.SELFDESTRUCT(recipient)
     )
 
+    sender = pre.fund_eoa()
     tx = Transaction(
         to=auth_signer,
-        value=0 if pre_funded else balance,
+        value=tx_value,
         authorization_list=[
             AuthorizationTuple(
                 address=set_code_to_address,
@@ -529,35 +531,109 @@ def test_set_code_to_self_destruct(
                 signer=auth_signer,
             ),
         ],
-        sender=pre.fund_eoa(),
+        sender=sender,
     )
 
+    # The authorization does not make the authority a contract created in
+    # this transaction, so SELFDESTRUCT only moves its balance.
+    total_balance = balance + tx_value
+    # On Monad the authority ends below both its reserve and its
+    # pre-transaction balance, and the delegation it just set rules out
+    # the emptying exception, so the frame reverts and the transaction
+    # value flows back to the sender.
     reverted = (
-        pre_funded
-        and external_sendall_recipient
-        and fork >= MONAD_EIGHT
-        and balance > 0
+        external_sendall_recipient and balance > 0 and fork >= MONAD_EIGHT
     )
-
-    post = {
+    if reverted:
+        final_balance = balance
+    elif external_sendall_recipient:
+        final_balance = 0
+    else:
+        final_balance = total_balance
+    post: dict[Address, Account | None] = {
         auth_signer: Account(
             nonce=1,
             code=Spec.delegation_designation(set_code_to_address),
-            storage={1: 1} if not reverted else {},
-            balance=balance
-            if not external_sendall_recipient or reverted
-            else 0,
+            storage={} if reverted else {1: 1},
+            balance=final_balance,
         ),
     }
 
-    if external_sendall_recipient and balance > 0 and not reverted:
-        post[recipient] = Account(balance=balance)
+    if external_sendall_recipient:
+        if total_balance > 0 and not reverted:
+            post[recipient] = Account(balance=total_balance)
+        else:
+            post[recipient] = Account.NONEXISTENT
+
+    if fork.is_eip_enabled(7708):
+        # SELFDESTRUCT logs nothing when it sends to itself or moves zero.
+        logs = []
+        if tx_value > 0 and not reverted:
+            logs.append(transfer_log(sender, auth_signer, tx_value))
+        if external_sendall_recipient and total_balance > 0 and not reverted:
+            logs.append(transfer_log(auth_signer, recipient, total_balance))
+        tx.expected_receipt = TransactionReceipt(logs=logs)
+
+    expected_block_access_list = None
+    if fork.is_eip_enabled(7928):
+        # A balance that ends the transaction where it started, such as
+        # value received and sent on, records no balance change.
+        authority_balance_changes = []
+        if final_balance != balance:
+            authority_balance_changes.append(
+                BalBalanceChange(
+                    block_access_index=1, post_balance=final_balance
+                )
+            )
+        account_expectations = {
+            auth_signer: BalAccountExpectation(
+                nonce_changes=[
+                    BalNonceChange(block_access_index=1, post_nonce=1)
+                ],
+                code_changes=[
+                    BalCodeChange(
+                        block_access_index=1,
+                        new_code=Spec.delegation_designation(
+                            set_code_to_address
+                        ),
+                    )
+                ],
+                storage_changes=[]
+                if reverted
+                else [
+                    BalStorageSlot(
+                        slot=1,
+                        slot_changes=[
+                            BalStorageChange(
+                                block_access_index=1, post_value=1
+                            )
+                        ],
+                    )
+                ],
+                balance_changes=authority_balance_changes,
+            ),
+        }
+        if external_sendall_recipient:
+            recipient_balance_changes = []
+            if total_balance > 0 and not reverted:
+                recipient_balance_changes.append(
+                    BalBalanceChange(
+                        block_access_index=1, post_balance=total_balance
+                    )
+                )
+            account_expectations[recipient] = BalAccountExpectation(
+                balance_changes=recipient_balance_changes,
+            )
+        expected_block_access_list = BlockAccessListExpectation(
+            account_expectations=account_expectations
+        )
 
     state_test(
         env=Environment(),
         pre=pre,
         tx=tx,
         post=post,
+        expected_block_access_list=expected_block_access_list,
     )
 
 

@@ -21,11 +21,7 @@ from ...state_tracker import (
 )
 from .. import Evm
 from ..exceptions import OutOfGasError, WriteInStaticContext
-from ..gas import (
-    GasCosts,
-    charge_gas,
-    page_index,
-)
+from ..gas import GasCosts, charge_gas, page_index
 from ..stack import pop, push
 
 
