@@ -5,8 +5,10 @@ Helper types, functions and classes for testing reserve balance.
 from enum import Enum, auto, unique
 from typing import List
 
-from execution_testing import Op
+from execution_testing import EOA, Address, AuthorizationTuple, Op
 from execution_testing.forks.helpers import Fork
+
+from tests.prague.eip7702_set_code_tx.spec import Spec as Spec7702
 
 from .spec import Spec
 
@@ -83,3 +85,42 @@ class StageBalance(Enum):
                 return max_val
             case StageBalance.ABOVE_MAX:
                 return max_val + 1
+
+
+@unique
+class InertAuthorization(Enum):
+    """
+    Ways an authorization recovers its signer yet is never applied.
+    """
+
+    WRONG_CHAIN_ID = auto()
+    NONCE_OVERFLOW = auto()
+    NONCE_MISMATCH = auto()
+
+    def __str__(self) -> str:
+        """Return string representation."""
+        return self.name.lower()
+
+    def authorization(
+        self, signer: EOA, valid_nonce: int, chain_id: int
+    ) -> AuthorizationTuple:
+        """
+        Sign a delegation for `signer` that `valid_nonce` and `chain_id`
+        would make valid, broken in this one way.
+        """
+        nonce = valid_nonce
+        match self:
+            case InertAuthorization.WRONG_CHAIN_ID:
+                chain_id += 1
+            case InertAuthorization.NONCE_OVERFLOW:
+                nonce = Spec7702.MAX_NONCE
+            case InertAuthorization.NONCE_MISMATCH:
+                nonce += 1
+        return AuthorizationTuple(
+            chain_id=chain_id,
+            address=Address(0x1111),
+            nonce=nonce,
+            signer=signer,
+            writes_delegation=False,
+            first_write=False,
+        )
