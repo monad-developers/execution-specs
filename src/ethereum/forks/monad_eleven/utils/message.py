@@ -8,7 +8,7 @@ Hardfork Utility Functions For The Message Data-structure.
 Introduction
 ------------
 
-Message specific functions used in this MONAD_NEXT version of
+Message specific functions used in this MONAD_ELEVEN version of
 specification.
 """
 
@@ -43,7 +43,7 @@ def prepare_message(
 
     Returns
     -------
-    message: `ethereum.forks.monad_next.vm.Message`
+    message: `ethereum.forks.monad_eleven.vm.Message`
         Items containing contract creation or message call specific data.
 
     """

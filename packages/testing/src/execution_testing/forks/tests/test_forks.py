@@ -19,7 +19,7 @@ from ..forks.forks import (
     BPO4,
     BPO5,
     MONAD_EIGHT,
-    MONAD_NEXT,
+    MONAD_ELEVEN,
     MONAD_TEN,
     Amsterdam,
     Berlin,
@@ -311,19 +311,19 @@ def test_succession_does_not_imply_eip_membership() -> None:
     """
     A fork placed after another by `follows` does not gain its EIPs.
 
-    Succession orders MONAD_NEXT after Amsterdam so the Amsterdam
+    Succession orders MONAD_ELEVEN after Amsterdam so the Amsterdam
     suites can select it, while the EIPs it declines must still compare
     as absent. An adopted EIP is reached through inheritance instead, so
     it keeps comparing as present.
     """
-    assert MONAD_NEXT > Amsterdam
-    assert MONAD_NEXT > MONAD_TEN
+    assert MONAD_ELEVEN > Amsterdam
+    assert MONAD_ELEVEN > MONAD_TEN
 
-    assert MONAD_NEXT >= EIP7708
-    assert MONAD_NEXT.is_eip_enabled(7708)
+    assert MONAD_ELEVEN >= EIP7708
+    assert MONAD_ELEVEN.is_eip_enabled(7708)
 
-    assert not MONAD_NEXT >= EIP2780
-    assert not MONAD_NEXT.is_eip_enabled(2780)
+    assert not MONAD_ELEVEN >= EIP2780
+    assert not MONAD_ELEVEN.is_eip_enabled(2780)
 
 
 def test_transition_fork_comparison() -> None:
@@ -412,13 +412,13 @@ class PreAllocTransitionFork(TransitionBaseClass):
     pass
 
 
-def test_monad_next_is_not_deployed() -> None:
+def test_monad_eleven_is_not_deployed() -> None:
     """
     A fork under development must stay out of the deployed fork range.
     """
     deployed_forks = get_deployed_forks()
     assert MONAD_TEN in deployed_forks
-    assert MONAD_NEXT not in deployed_forks
+    assert MONAD_ELEVEN not in deployed_forks
 
 
 def opcode_names(fork: Type[BaseFork]) -> set[str]:
@@ -428,15 +428,15 @@ def opcode_names(fork: Type[BaseFork]) -> set[str]:
 
 def test_adopted_opcodes_depend_on_mixin_order() -> None:
     """
-        The adopted opcodes reach MONAD_NEXT through its mixin order.
+        The adopted opcodes reach MONAD_ELEVEN through its mixin order.
 
     MONAD_NINE returning Osaka's list directly is what ends the chain
         there, which is what lets a mixin placed ahead of the Monad forks
         contribute on the way out. Making that call cooperative, or
-        reordering MONAD_NEXT's bases, drops these opcodes silently.
+        reordering MONAD_ELEVEN's bases, drops these opcodes silently.
     """
     adopted = {"DUPN", "SWAPN", "EXCHANGE"}
-    assert adopted <= opcode_names(MONAD_NEXT)
+    assert adopted <= opcode_names(MONAD_ELEVEN)
     assert not adopted & opcode_names(MONAD_TEN)
 
     class MixinAfterFork(MONAD_TEN, EIP8024):  # noqa: N801

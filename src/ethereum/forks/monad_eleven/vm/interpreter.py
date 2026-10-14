@@ -275,7 +275,7 @@ def process_create_message(message: Message) -> Evm:
 
     Returns
     -------
-    evm: :py:class:`~ethereum.forks.monad_next.vm.Evm`
+    evm: :py:class:`~ethereum.forks.monad_eleven.vm.Evm`
         Items containing execution specific objects.
 
     """
@@ -335,7 +335,7 @@ def process_message(message: Message) -> Evm:
 
     Returns
     -------
-    evm: :py:class:`~ethereum.forks.monad_next.vm.Evm`
+    evm: :py:class:`~ethereum.forks.monad_eleven.vm.Evm`
         Items containing execution specific objects
 
     """

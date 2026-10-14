@@ -1,5 +1,5 @@
 """
-MONAD_NEXT fork builds on MONAD_TEN, adopting part of Amsterdam.
+MONAD_ELEVEN fork builds on MONAD_TEN, adopting part of Amsterdam.
 
 The Amsterdam changes it does not adopt stay out of the fork entirely.
 The [EIP-7928] block access list hash header slot is carried but always

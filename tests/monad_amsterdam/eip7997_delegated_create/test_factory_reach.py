@@ -37,7 +37,7 @@ value_code_worked = 0x1234
 slot_call_result = 0x2
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_NEXT"),
+    pytest.mark.valid_from("MONAD_ELEVEN"),
     pytest.mark.pre_alloc_group(
         "eip7997_delegated_create_tests",
         reason="Tests the EIP-7997 factory reached from a delegated frame",

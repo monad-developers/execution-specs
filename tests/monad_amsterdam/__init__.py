@@ -1,1 +1,1 @@
-"""Tests for the Amsterdam EIPs MONAD_NEXT adopts."""
+"""Tests for the Amsterdam EIPs MONAD_ELEVEN adopts."""
