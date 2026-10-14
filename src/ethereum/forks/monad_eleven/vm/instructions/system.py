@@ -20,6 +20,7 @@ from ethereum.utils.numeric import ceil32
 from ...state_tracker import (
     account_has_code_or_nonce,
     get_account,
+    get_code,
     increment_nonce,
     is_account_alive,
     move_ether,
@@ -29,7 +30,7 @@ from ...utils.address import (
     compute_create2_contract_address,
     to_address_masked,
 )
-from ...vm.eoa_delegation import access_delegation
+from ...vm.eoa_delegation import access_delegation, is_valid_delegation
 from .. import (
     Evm,
     Message,
@@ -84,7 +85,11 @@ def generic_create(
     evm.gas_left -= create_message_gas
     if evm.message.is_static:
         raise WriteInStaticContext
-    if evm.message.disable_create_opcodes:
+    tx_state = evm.message.tx_env.state
+    recipient_code = get_code(
+        tx_state, get_account(tx_state, evm.message.current_target).code_hash
+    )
+    if is_valid_delegation(recipient_code):
         raise CreateIn7702Context
     evm.return_data = b""
 
@@ -127,7 +132,6 @@ def generic_create(
         accessed_storage_keys=evm.accessed_storage_keys.copy(),
         disable_precompiles=False,
         parent_evm=evm,
-        disable_create_opcodes=False,
     )
     child_evm = process_create_message(child_message)
 
@@ -292,7 +296,6 @@ def generic_call(
     memory_output_size: U256,
     code: Bytes,
     disable_precompiles: bool,
-    disable_create_opcodes: bool,
 ) -> None:
     """
     Perform the core logic of the `CALL*` family of opcodes.
@@ -328,7 +331,6 @@ def generic_call(
         accessed_storage_keys=evm.accessed_storage_keys.copy(),
         disable_precompiles=disable_precompiles,
         parent_evm=evm,
-        disable_create_opcodes=disable_create_opcodes,
     )
     child_evm = process_message(child_message)
 
@@ -386,7 +388,6 @@ def call(evm: Evm) -> None:
     code_address = to
     (
         disable_precompiles,
-        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -439,7 +440,6 @@ def call(evm: Evm) -> None:
             memory_output_size,
             code,
             disable_precompiles,
-            disable_create_opcodes,
         )
 
     # PROGRAM COUNTER
@@ -484,7 +484,6 @@ def callcode(evm: Evm) -> None:
 
     (
         disable_precompiles,
-        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -528,7 +527,6 @@ def callcode(evm: Evm) -> None:
             memory_output_size,
             code,
             disable_precompiles,
-            disable_create_opcodes,
         )
 
     # PROGRAM COUNTER
@@ -630,7 +628,6 @@ def delegatecall(evm: Evm) -> None:
 
     (
         disable_precompiles,
-        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -665,7 +662,6 @@ def delegatecall(evm: Evm) -> None:
         memory_output_size,
         code,
         disable_precompiles,
-        disable_create_opcodes,
     )
 
     # PROGRAM COUNTER
@@ -708,7 +704,6 @@ def staticcall(evm: Evm) -> None:
     code_address = to
     (
         disable_precompiles,
-        disable_create_opcodes,
         code_address,
         code,
         delegated_access_gas_cost,
@@ -743,7 +738,6 @@ def staticcall(evm: Evm) -> None:
         memory_output_size,
         code,
         disable_precompiles,
-        disable_create_opcodes,
     )
 
     # PROGRAM COUNTER

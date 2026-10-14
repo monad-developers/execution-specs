@@ -1,17 +1,14 @@
 """
 Tests for reaching the EIP-7997 factory from a delegated frame.
 
-Monad forbids the create opcodes inside a frame executing an EOA's
-delegated code. The ban is callee-scoped: `access_delegation` sets it on
-the frame it builds, and a child frame the delegated code calls does not
-inherit it. EIP-7997 makes a CREATE2 factory reachable at a fixed
-address on every chain, so these tests pin both halves of that
-boundary.
+Monad forbids the create opcodes in a frame running as a 7702-delegated
+EOA.
 """
 
 import pytest
 from execution_testing import (
     Account,
+    Address,
     Alloc,
     Block,
     BlockchainTestFiller,
@@ -53,12 +50,7 @@ def test_create_halts_in_delegated_frame(
 ) -> None:
     """
     A create opcode executed as an EOA's delegated code halts the frame.
-
-    The halt is the only coverage of `CreateIn7702Context`; nothing is
-    deployed and the storage write that follows never lands.
     """
-    # The create halts before its initcode is read, so the empty
-    # memory the size refers to is immaterial.
     delegate = pre.deploy_contract(
         create_op(value=0, size=1)
         + Op.SSTORE(slot_code_worked, value_code_worked)
@@ -78,28 +70,30 @@ def test_create_halts_in_delegated_frame(
     )
 
 
+@pytest.mark.with_all_call_opcodes
 def test_factory_deploys_from_delegated_frame(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
+    call_opcode: Op,
 ) -> None:
     """
-    A delegated frame reaches CREATE2 through the EIP-7997 factory.
-
-    The ban applies to the frame running the delegated code, not to the
-    factory frame it calls, so the deployment succeeds.
+    A delegated frame reaches CREATE2 through the EIP-7997 factory only
+    when the factory runs at its own address.
     """
     initcode = Initcode(deploy_code=Op.STOP)
-    deployed = compute_create2_address(Spec.FACTORY_ADDRESS, SALT, initcode)
 
     delegate = pre.deploy_contract(
         Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE)
         + Op.SSTORE(
             slot_call_result,
-            Op.CALL(
-                gas=Op.GAS,
-                address=Spec.FACTORY_ADDRESS,
-                args_offset=0,
-                args_size=Op.CALLDATASIZE,
+            Op.ADD(
+                1,
+                call_opcode(
+                    gas=Op.GAS,
+                    address=Spec.FACTORY_ADDRESS,
+                    args_offset=0,
+                    args_size=Op.CALLDATASIZE,
+                ),
             ),
         )
     )
@@ -112,11 +106,27 @@ def test_factory_deploys_from_delegated_frame(
         sender=sender,
     )
 
+    post: dict[Address, Account | None]
+    if call_opcode == Op.CALL:
+        post = {
+            delegated: Account(storage={slot_call_result: 2}),
+            compute_create2_address(
+                Spec.FACTORY_ADDRESS, SALT, initcode
+            ): Account(code=Op.STOP),
+        }
+    elif call_opcode in (Op.DELEGATECALL, Op.CALLCODE, Op.STATICCALL):
+        # STATICCALL halts the factory on the static context instead.
+        post = {
+            delegated: Account(storage={slot_call_result: 1}),
+            compute_create2_address(
+                delegated, SALT, initcode
+            ): Account.NONEXISTENT,
+        }
+    else:
+        raise ValueError(f"unexpected call opcode {call_opcode}")
+
     blockchain_test(
         pre=pre,
-        post={
-            delegated: Account(storage={slot_call_result: 1}),
-            deployed: Account(code=Op.STOP),
-        },
+        post=post,
         blocks=[Block(txs=[tx])],
     )
