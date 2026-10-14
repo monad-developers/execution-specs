@@ -2493,10 +2493,7 @@ def test_bal_multiple_balance_changes_same_account(
     )
 
 
-<<<<<<< HEAD
 @pytest.mark.no_bal_dependency
-||||||| b5f3d1cfd
-=======
 @pytest.mark.parametrize(
     "senders",
     [
@@ -2504,7 +2501,6 @@ def test_bal_multiple_balance_changes_same_account(
         pytest.param("distinct", id="distinct_senders"),
     ],
 )
->>>>>>> from-upstream
 def test_bal_multiple_storage_writes_same_slot(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
@@ -3677,10 +3673,7 @@ def test_bal_cross_tx_funding_chain(
     )
 
 
-<<<<<<< HEAD
 @pytest.mark.no_bal_dependency
-||||||| b5f3d1cfd
-=======
 @pytest.mark.parametrize(
     "last_write",
     [
@@ -4375,7 +4368,6 @@ def test_bal_cross_tx_code_reads_across_deploy(
     )
 
 
->>>>>>> from-upstream
 def test_bal_cross_block_ripemd160_state_leak(
     pre: Alloc,
     blockchain_test: BlockchainTestFiller,

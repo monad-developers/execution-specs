@@ -1933,7 +1933,16 @@ class Amsterdam(
         return True
 
 
-<<<<<<< HEAD
+class Bogota(
+    BogotaEIPs,
+    Amsterdam,
+    deployed=False,
+):
+    """Bogota fork."""
+
+    pass
+
+
 class MONAD_NEXT(  # noqa: N801
     eips.EIP7708,
     eips.EIP7843,
@@ -1966,14 +1975,3 @@ class MONAD_NEXT(  # noqa: N801
         at zero, without building block access lists (EIP-7928).
         """
         return True
-||||||| b5f3d1cfd
-=======
-class Bogota(
-    BogotaEIPs,
-    Amsterdam,
-    deployed=False,
-):
-    """Bogota fork."""
-
-    pass
->>>>>>> from-upstream
