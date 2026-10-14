@@ -80,19 +80,6 @@ def clz_parameters() -> list:
     return test_cases
 
 
-def generous_gas(fork: Fork, sstore_count: int = 1) -> int:
-    """
-    Return generous parametrized gas to always be enough.
-    """
-    gas_costs = fork.gas_costs()
-    sstore_cost = sstore_count * (
-        gas_costs.STORAGE_SET + gas_costs.COLD_STORAGE_ACCESS
-    )
-    intrinsic_cost = fork.transaction_intrinsic_cost_calculator()()
-    access_cost = gas_costs.COLD_ACCOUNT_ACCESS
-    return access_cost + sstore_cost + intrinsic_cost + 50_000
-
-
 @pytest.mark.valid_from("Osaka")
 @pytest.mark.parametrize(
     "test_id,value,expected_clz",
@@ -108,7 +95,6 @@ def test_clz_opcode_scenarios(
     test_id: str,
     value: int,
     expected_clz: int,
-    fork: Fork,
 ) -> None:
     """
     Test CLZ opcode functionality.
@@ -203,9 +189,7 @@ def test_clz_gas_cost_boundary(
 @EIPChecklist.Opcode.Test.StackUnderflow()
 @EIPChecklist.Opcode.Test.StackComplexOperations.StackHeights.Zero()
 @pytest.mark.valid_from("Osaka")
-def test_clz_stack_underflow(
-    state_test: StateTestFiller, pre: Alloc, fork: Fork
-) -> None:
+def test_clz_stack_underflow(state_test: StateTestFiller, pre: Alloc) -> None:
     """
     Test CLZ opcode with empty stack (should revert due to stack underflow).
     """
@@ -257,7 +241,7 @@ def test_clz_stack_not_overflow(
 
 @pytest.mark.valid_from("Osaka")
 def test_clz_push_operation_same_value(
-    state_test: StateTestFiller, pre: Alloc, fork: Fork
+    state_test: StateTestFiller, pre: Alloc
 ) -> None:
     """Test CLZ opcode returns the same value via different push operations."""
     storage = {}
@@ -289,9 +273,7 @@ def test_clz_push_operation_same_value(
 @EIPChecklist.Opcode.Test.ForkTransition.At()
 @pytest.mark.valid_at_transition_to("Osaka")
 def test_clz_fork_transition(
-    blockchain_test: BlockchainTestFiller,
-    pre: Alloc,
-    fork: Fork,
+    blockchain_test: BlockchainTestFiller, pre: Alloc
 ) -> None:
     """Test CLZ opcode behavior at fork transition."""
     sender = pre.fund_eoa()
@@ -382,7 +364,6 @@ def test_clz_jump_operation(
     valid_jump: bool,
     jumpi_condition: bool,
     bits: int,
-    fork: Fork,
 ) -> None:
     """Test CLZ opcode with valid and invalid jump."""
     code = Op.PUSH32(1 << bits)
@@ -432,7 +413,6 @@ auth_account_start_balance = 0
 def test_clz_from_set_code(
     state_test: StateTestFiller,
     pre: Alloc,
-    fork: Fork,
 ) -> None:
     """Test the CLZ opcode in a set-code transaction."""
     storage = Storage()
@@ -480,7 +460,7 @@ def test_clz_from_set_code(
 @pytest.mark.parametrize("bits", [0, 64, 255])
 @pytest.mark.parametrize("opcode", [Op.CODECOPY, Op.EXTCODECOPY])
 def test_clz_code_copy_operation(
-    state_test: StateTestFiller, pre: Alloc, bits: int, opcode: Op, fork: Fork
+    state_test: StateTestFiller, pre: Alloc, bits: int, opcode: Op
 ) -> None:
     """Test CLZ opcode with code copy operation."""
     storage = Storage()
@@ -531,11 +511,7 @@ def test_clz_code_copy_operation(
 @pytest.mark.parametrize("bits", [0, 64, 255])
 @pytest.mark.parametrize("opcode", [Op.CODECOPY, Op.EXTCODECOPY])
 def test_clz_with_memory_operation(
-    state_test: StateTestFiller,
-    pre: Alloc,
-    bits: int,
-    opcode: Op,
-    fork: Fork,
+    state_test: StateTestFiller, pre: Alloc, bits: int, opcode: Op
 ) -> None:
     """Test CLZ opcode with memory operation."""
     storage = Storage()
@@ -592,9 +568,7 @@ def test_clz_with_memory_operation(
 
 @EIPChecklist.Opcode.Test.ExecutionContext.Initcode.Behavior.Tx()
 @pytest.mark.valid_from("Osaka")
-def test_clz_initcode_context(
-    state_test: StateTestFiller, pre: Alloc, fork: Fork
-) -> None:
+def test_clz_initcode_context(state_test: StateTestFiller, pre: Alloc) -> None:
     """Test CLZ opcode behavior when creating a contract."""
     bits = [0, 1, 64, 128, 255]
 
@@ -621,7 +595,7 @@ def test_clz_initcode_context(
 @pytest.mark.valid_from("Osaka")
 @pytest.mark.parametrize("opcode", [Op.CREATE, Op.CREATE2])
 def test_clz_initcode_create(
-    state_test: StateTestFiller, pre: Alloc, opcode: Op, fork: Fork
+    state_test: StateTestFiller, pre: Alloc, opcode: Op
 ) -> None:
     """Test CLZ opcode behavior in initcode executed via CREATE/CREATE2."""
     bits = [0, 1, 64, 128, 255]  # expected values: [255, 254, 191, 127, 0]
@@ -697,7 +671,6 @@ def test_clz_call_operation(
     pre: Alloc,
     opcode: Op,
     context: CallingContext,
-    fork: Fork,
 ) -> None:
     """Test CLZ opcode with call operation."""
     test_cases = [0, 64, 255]
