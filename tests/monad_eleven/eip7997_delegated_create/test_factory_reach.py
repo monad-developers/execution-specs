@@ -13,25 +13,27 @@ from execution_testing import (
     Block,
     BlockchainTestFiller,
     Hash,
+    Initcode,
     Op,
+    Storage,
     Transaction,
+    compute_create2_address,
 )
-from execution_testing.test_types.helpers import compute_create2_address
-from execution_testing.tools.tools_code.generators import Initcode
 
 from ...amsterdam.eip7997_deterministic_factory_contract.spec import (
     Spec,
     ref_spec_7997,
+)
+from ...monad_eight.delegated_creates.helpers import (
+    forwarding_code,
+    slot_call_result,
 )
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7997.git_path
 REFERENCE_SPEC_VERSION = ref_spec_7997.version
 
 SALT = 0x42
-
-slot_code_worked = 0x1
-value_code_worked = 0x1234
-slot_call_result = 0x2
+FACTORY = Address(Spec.FACTORY_ADDRESS)
 
 pytestmark = [
     pytest.mark.valid_from("MONAD_ELEVEN"),
@@ -42,32 +44,72 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("create_op", [Op.CREATE, Op.CREATE2])
-def test_create_halts_in_delegated_frame(
+def test_factory_as_delegated_code(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
-    create_op: Op,
 ) -> None:
-    """
-    A create opcode executed as an EOA's delegated code halts the frame.
-    """
-    delegate = pre.deploy_contract(
-        create_op(value=0, size=1)
-        + Op.SSTORE(slot_code_worked, value_code_worked)
-    )
-    sender = pre.fund_eoa()
-    delegated = pre.fund_eoa(delegation=delegate)
+    """The factory run as a delegated EOA's code halts the frame."""
+    initcode = Initcode(deploy_code=Op.STOP)
+    delegated = pre.fund_eoa(delegation=FACTORY)
 
     tx = Transaction(
         to=delegated,
-        sender=sender,
+        data=Hash(SALT) + bytes(initcode),
+        sender=pre.fund_eoa(),
     )
 
     blockchain_test(
         pre=pre,
-        post={delegated: Account(storage={})},
+        post={
+            delegated: Account(nonce=delegated.nonce),
+            compute_create2_address(
+                delegated, SALT, initcode
+            ): Account.NONEXISTENT,
+        },
         blocks=[Block(txs=[tx])],
     )
+
+
+@pytest.mark.with_all_call_opcodes
+def test_contract_calls_delegated_factory(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    call_opcode: Op,
+) -> None:
+    """
+    A contract reaching the factory as a delegated EOA's code deploys only
+    when the factory runs at the contract's own address.
+    """
+    initcode = Initcode(deploy_code=Op.STOP)
+    delegated = pre.fund_eoa(delegation=FACTORY)
+    deploys = call_opcode in (Op.DELEGATECALL, Op.CALLCODE)
+    storage = Storage()
+    storage[slot_call_result] = 1 if deploys else 0
+    caller = pre.deploy_contract(
+        forwarding_code(call_opcode, delegated), storage=storage.canary()
+    )
+
+    tx = Transaction(
+        to=caller,
+        data=Hash(SALT) + bytes(initcode),
+        sender=pre.fund_eoa(),
+    )
+
+    post: dict[Address, Account | None] = {
+        delegated: Account(nonce=delegated.nonce),
+    }
+    if deploys:
+        post[caller] = Account(storage={slot_call_result: 1})
+        post[compute_create2_address(caller, SALT, initcode)] = Account(
+            code=Op.STOP
+        )
+    else:
+        post[caller] = Account(storage={slot_call_result: 0})
+        post[compute_create2_address(delegated, SALT, initcode)] = (
+            Account.NONEXISTENT
+        )
+
+    blockchain_test(pre=pre, post=post, blocks=[Block(txs=[tx])])
 
 
 @pytest.mark.with_all_call_opcodes
@@ -81,52 +123,33 @@ def test_factory_deploys_from_delegated_frame(
     when the factory runs at its own address.
     """
     initcode = Initcode(deploy_code=Op.STOP)
-
-    delegate = pre.deploy_contract(
-        Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE)
-        + Op.SSTORE(
-            slot_call_result,
-            Op.ADD(
-                1,
-                call_opcode(
-                    gas=Op.GAS,
-                    address=Spec.FACTORY_ADDRESS,
-                    args_offset=0,
-                    args_size=Op.CALLDATASIZE,
-                ),
-            ),
-        )
-    )
-    sender = pre.fund_eoa()
-    delegated = pre.fund_eoa(delegation=delegate)
+    delegate = pre.deploy_contract(forwarding_code(call_opcode, FACTORY))
+    deploys = call_opcode == Op.CALL
+    storage = Storage()
+    storage[slot_call_result] = 1 if deploys else 0
+    delegated = pre.fund_eoa(delegation=delegate, storage=storage.canary())
 
     tx = Transaction(
         to=delegated,
         data=Hash(SALT) + bytes(initcode),
-        sender=sender,
+        sender=pre.fund_eoa(),
     )
 
     post: dict[Address, Account | None]
-    if call_opcode == Op.CALL:
-        post = {
-            delegated: Account(storage={slot_call_result: 2}),
-            compute_create2_address(
-                Spec.FACTORY_ADDRESS, SALT, initcode
-            ): Account(code=Op.STOP),
-        }
-    elif call_opcode in (Op.DELEGATECALL, Op.CALLCODE, Op.STATICCALL):
-        # STATICCALL halts the factory on the static context instead.
+    if deploys:
         post = {
             delegated: Account(storage={slot_call_result: 1}),
+            compute_create2_address(FACTORY, SALT, initcode): Account(
+                code=Op.STOP
+            ),
+        }
+    else:
+        # STATICCALL halts the factory on the static context instead.
+        post = {
+            delegated: Account(storage={slot_call_result: 0}),
             compute_create2_address(
                 delegated, SALT, initcode
             ): Account.NONEXISTENT,
         }
-    else:
-        raise ValueError(f"unexpected call opcode {call_opcode}")
 
-    blockchain_test(
-        pre=pre,
-        post=post,
-        blocks=[Block(txs=[tx])],
-    )
+    blockchain_test(pre=pre, post=post, blocks=[Block(txs=[tx])])
