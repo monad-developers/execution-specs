@@ -8,14 +8,14 @@ from typing import Dict, List, Tuple
 import pytest
 from pytest import StashKey
 
-from execution_testing.base_types import Account, Number
+from execution_testing.base_types import Number
 from execution_testing.execution import BaseExecute, LabeledExecuteFormat
 from execution_testing.fixtures import BaseFixture, LabeledFixtureFormat
 from execution_testing.logging import get_logger
 from execution_testing.rpc import EthRPC
 from execution_testing.specs import BaseTest
 from execution_testing.specs.base import OpMode
-from execution_testing.test_types import EOA, Alloc, ChainConfig
+from execution_testing.test_types import EOA, Account, Alloc, ChainConfig
 
 from ..shared.address_stubs import AddressStubs, StubEOA
 from ..shared.helpers import get_rpc_endpoint
@@ -207,6 +207,12 @@ def pytest_configure(config: pytest.Config) -> None:
         "inclusion_test: Mark a test that verifies whether a transaction can "
         "be included in a block. The transaction under test must be the last "
         "one of the last block.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "invalid_tx_not_last: Allow a block's one invalid transaction to be "
+        "followed by valid transactions. The block is still rejected at the "
+        "invalid transaction.",
     )
     config.addinivalue_line(
         "markers",
@@ -428,3 +434,12 @@ def is_inclusion_test(request: pytest.FixtureRequest) -> bool:
     test.
     """
     return request.node.get_closest_marker("inclusion_test") is not None
+
+
+@pytest.fixture(scope="function")
+def invalid_tx_not_last(request: pytest.FixtureRequest) -> bool:
+    """
+    Check, given the test node properties, whether the test allows its
+    invalid transaction to be followed by valid ones.
+    """
+    return request.node.get_closest_marker("invalid_tx_not_last") is not None
