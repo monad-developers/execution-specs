@@ -36,9 +36,11 @@ from execution_testing import (
     Macros as Om,
 )
 from execution_testing.checklists import EIPChecklist
+from execution_testing.forks import MONAD_EIGHT
 
 from ..eip7708_eth_transfer_logs.spec import transfer_log
 from ..eip7997_deterministic_factory_contract.spec import Spec
+from .helpers import billed_gas
 from .spec import ref_spec_8246
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_8246.git_path
@@ -322,18 +324,25 @@ def test_created_coinbase_initcode_selfdestruct_keeps_priority_fee(
     )
     # No refund accrues; the sender pays the larger of use and floor.
     gas_used = max(executed, floor)
+    # Monad bills the whole gas limit, so pin it to the fork's cap there,
+    # which is where the implicit limit lands anyway.
+    gas_limit = (
+        fork.transaction_gas_limit_cap() if fork >= MONAD_EIGHT else None
+    )
     tx = Transaction(
         sender=sender,
         to=None,
         value=value,
         data=initcode,
+        gas_limit=gas_limit,
     )
     state_test(
         env=Environment(fee_recipient=created),
         pre=pre,
         post={
             created: Account(
-                balance_change=value + Tip(tx, gas=gas_used),
+                balance_change=value
+                + Tip(tx, gas=billed_gas(fork, tx.gas_limit, gas_used)),
                 nonce=0,
                 code=b"",
                 storage={},
@@ -400,17 +409,24 @@ def test_created_coinbase_selfdestruct_keeps_priority_fee(
         + initcode.gas_cost(fork)
         + deploy_code.gas_cost(fork)
     )
+    # Monad bills the whole gas limit, so pin it to the fork's cap there,
+    # which is where the implicit limit lands anyway.
+    gas_limit = (
+        fork.transaction_gas_limit_cap() if fork >= MONAD_EIGHT else None
+    )
     tx = Transaction(
         sender=sender,
         to=factory,
         value=value,
+        gas_limit=gas_limit,
     )
     state_test(
         env=Environment(fee_recipient=created),
         pre=pre,
         post={
             created: Account(
-                balance_change=value + Tip(tx, gas=gas_used),
+                balance_change=value
+                + Tip(tx, gas=billed_gas(fork, tx.gas_limit, gas_used)),
                 nonce=0,
                 code=b"",
                 storage={},
