@@ -45,8 +45,11 @@ Merge the largest branch first, then the rest, with real merge commits.
 Squashing or cherry-picking hides which branch each conflict came from.
 
 ```bash
-git merge <branch>          # once per source branch
+git merge --no-ff <branch>  # once per source branch
 ```
+
+`--no-ff` keeps the merge commit even when `<MONAD_BRANCH>` has not moved
+since the branch was cut, where a plain merge would fast-forward.
 
 ## 3. Resolve the Conflicts Git Reports
 
@@ -74,13 +77,16 @@ This is the main risk. Two branches editing the same file at different
 lines merge cleanly and produce behavior neither branch had. Git reports
 nothing.
 
-Find the candidates from the upstream spec changes:
+Find the candidates from the upstream spec changes, over the
+`<upstream_base>..<upstream_head>` range each adoption recorded for its
+EIP. Do not derive the range from the integration branch: upstream merges
+some EIP branches with a merge commit, which makes the branch tip the
+merge base and the diff empty.
 
 ```bash
 for n in <eips>; do
-  base=$(git merge-base <upstream_integration> upstream/eips/<eth_fork>/eip-$n)
   echo "### EIP-$n"
-  git diff --stat $base..upstream/eips/<eth_fork>/eip-$n -- src/ethereum/forks/<eth_fork>
+  git diff --stat <upstream_base>..<upstream_head> -- src/ethereum/forks/<eth_fork>
 done
 ```
 
@@ -109,10 +115,13 @@ adopts:
 - Collapse the per-branch feature entries into one. When the branch name
   follows `eips/<fork>/eip-<n>+<n>`, the feature name must carry the same
   numbers in the same order: `check_release_matrix.py` matches the sequence
-  as a literal string. Verify it:
+  as a literal string. The script falls back to every feature when the
+  name does not match and still exits zero, so only its printed list
+  proves the name:
 
   ```bash
-  python3 .github/scripts/check_release_matrix.py "" <merge_branch_name>
+  python3 .github/scripts/check_release_matrix.py "" <merge_branch_name> \
+    | grep 'features=\["monad_eip<n>+<n>"\]'
   ```
 
 - Revert expectation scaffolding written for an intermediate fork shape. A
@@ -126,10 +135,12 @@ base branch:
 git revert --no-commit <sha> && git diff origin/<MONAD_BRANCH> -- <file>
 ```
 
-An empty diff means the edit existed only for the intermediate shape.
-Reverting cleanly needs the source branch to have kept scaffolding in its
-own commit; a commit mixing scaffolding with permanent change has to be
-undone by hand.
+An empty diff only shows the revert is clean: nothing else depends on the
+edit. Whether it was scaffolding is decided by filling the suites it
+touched on the merged fork; keep the revert when they pass and keep the
+edit when they fail. Reverting cleanly needs the source branch to have
+kept scaffolding in its own commit; a commit mixing scaffolding with
+permanent change has to be undone by hand.
 
 Keep gates on a capability (`fork.is_eip_enabled(<n>)`, `fork >=
 MONAD_EIGHT`) that stay true on the merged fork. They are permanent.
