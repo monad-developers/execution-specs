@@ -42,6 +42,19 @@ class RevertOnReserveBalance(EthereumException):
     pass
 
 
+class InsufficientBalanceForValue(EthereumException):
+    """
+    Raised when the caller of the top-level frame cannot cover the
+    value it sends.
+
+    Monad includes a transaction once the sender's balance covers its
+    gas fees, so the value is checked on entering the frame. The frame
+    fails without consuming gas.
+    """
+
+    pass
+
+
 class StackUnderflowError(ExceptionalHalt):
     """
     Occurs when a pop is executed on an empty stack.

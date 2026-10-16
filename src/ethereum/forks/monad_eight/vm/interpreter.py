@@ -59,6 +59,7 @@ from . import Evm
 from .exceptions import (
     AddressCollision,
     ExceptionalHalt,
+    InsufficientBalanceForValue,
     InvalidContractPrefix,
     InvalidOpcode,
     OutOfGasError,
@@ -277,6 +278,12 @@ def process_message(message: Message) -> Evm:
     snapshot = copy_tx_state(tx_state)
 
     if message.should_transfer_value and message.value != 0:
+        # Only the top-level frame can be short here: the call opcodes
+        # check the caller's balance before entering a frame, and the
+        # transaction is includable once its gas fees are covered.
+        if get_account(tx_state, message.caller).balance < message.value:
+            evm.error = InsufficientBalanceForValue()
+            return evm
         move_ether(
             tx_state,
             message.caller,

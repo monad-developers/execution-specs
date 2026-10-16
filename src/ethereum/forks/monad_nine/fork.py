@@ -444,7 +444,7 @@ def check_transaction(
     NonceMismatchError :
         If the nonce of the transaction is not equal to the sender's nonce.
     InsufficientBalanceError :
-        If the sender's balance is not enough to pay for the transaction.
+        If the sender's balance is not enough to pay for the gas fees.
     InvalidSenderError :
         If the transaction is from an address that does not exist anymore.
     PriorityFeeGreaterThanMaxFeeError :
@@ -553,7 +553,9 @@ def check_transaction(
         raise NonceMismatchError("nonce too low")
     elif sender_account.nonce < Uint(tx.nonce):
         raise NonceMismatchError("nonce too high")
-    if Uint(sender_account.balance) < max_gas_fee + Uint(tx.value):
+    # Monad: the value is not part of the inclusion check. A value the
+    # sender cannot cover fails the top-level frame at execution time.
+    if Uint(sender_account.balance) < max_gas_fee:
         raise InsufficientBalanceError("insufficient sender balance")
     sender_code = get_code(tx_state, sender_account.code_hash)
     if sender_account.code_hash != EMPTY_CODE_HASH and not is_valid_delegation(
