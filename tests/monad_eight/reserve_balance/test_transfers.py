@@ -189,6 +189,18 @@ value_balance_violation_param_list = [
         id="value_equal_to_balance_minus_gas",
     ),
     pytest.param(
+        Spec.RESERVE_BALANCE - TX_FEE + 1,
+        Spec.RESERVE_BALANCE,
+        True,
+        id="value_above_balance_minus_gas",
+    ),
+    pytest.param(
+        2 * Spec.RESERVE_BALANCE,
+        Spec.RESERVE_BALANCE,
+        True,
+        id="value_above_balance",
+    ),
+    pytest.param(
         Spec.RESERVE_BALANCE,
         Spec.RESERVE_BALANCE + TX_FEE,
         True,
@@ -309,7 +321,9 @@ def test_delegated_eoa_send_value(
         authorization_list=authorization_list or None,
     )
     any_delegation = pre_delegated or delegate or undelegate
-    reverted = violation and any_delegation
+    # A value above the balance left after the gas fee fails the call for
+    # any sender.
+    reverted = (violation and any_delegation) or value > balance - TX_FEE
     storage = {} if reverted else {slot_code_worked: value_code_worked}
     balance = balance - (value if not reverted else 0) - TX_FEE
 
@@ -319,7 +333,11 @@ def test_delegated_eoa_send_value(
             contract_address: Account(
                 storage=storage, balance=value if not reverted else 0
             ),
-            sender: Account(balance=balance),
+            sender: Account(
+                # Each authorization bumps the nonce even when the call fails.
+                nonce=sender.nonce + len(authorization_list),
+                balance=balance,
+            ),
         },
         blocks=[Block(txs=[tx_1])],
     )
@@ -1320,6 +1338,12 @@ def test_access_lists(
         pytest.param(
             1, Spec.RESERVE_BALANCE + 1, False, id="non_zero_value_good"
         ),
+        pytest.param(
+            2 * Spec.RESERVE_BALANCE,
+            Spec.RESERVE_BALANCE,
+            True,
+            id="value_above_balance",
+        ),
     ],
 )
 @pytest.mark.parametrize("pre_delegated", [True, False])
@@ -1387,8 +1411,11 @@ def test_creation_tx(
             ),
         )
 
-    reverted = (violation and pre_delegated) or (
-        fork == MONAD_EIGHT and selfdestruct and new_address_pre_funded
+    reverted = (
+        (violation and pre_delegated)
+        # A value above the balance fails the creation for any sender.
+        or value > balance
+        or (fork == MONAD_EIGHT and selfdestruct and new_address_pre_funded)
     )
 
     # A SELFDESTRUCT to the destructing account itself moves nothing, so
@@ -1413,6 +1440,8 @@ def test_creation_tx(
     blockchain_test(
         pre=pre,
         post={
+            # The creation consumes the nonce even when it fails.
+            sender: Account(nonce=sender.nonce),
             new_address: Account(
                 code=deploy_code,
                 balance=value + pre_fund_value,
