@@ -192,7 +192,7 @@ def test_valid_gas_limits_with_access_list(
     [
         pytest.param(
             [AccessList(address=Address(0), storage_keys=[Hash(0)] * 10)],
-            Bytes(b"\x00" * 3000),
+            Bytes(b"\x00" * 4000),
             id="zero_heavy_data_and_access_list",
         ),
         pytest.param(

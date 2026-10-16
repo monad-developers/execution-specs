@@ -1838,12 +1838,6 @@ class MONAD_TEN(MONAD_NINE):  # noqa: N801
         return gas_cost
 
 
-class MONAD_NEXT(MONAD_TEN):  # noqa: N801
-    """MONAD_NEXT fork, a placeholder identical to MONAD_TEN."""
-
-    pass
-
-
 class BPO1(
     Osaka,
     bpo_fork=True,
@@ -1947,3 +1941,37 @@ class Bogota(
     """Bogota fork."""
 
     pass
+
+
+class MONAD_ELEVEN(  # noqa: N801
+    eips.EIP7708,
+    eips.EIP7843,
+    eips.EIP7981,
+    eips.EIP7997,
+    eips.EIP8024,
+    eips.EIP8246,
+    MONAD_TEN,
+    deployed=False,
+):
+    """
+    MONAD_ELEVEN fork.
+
+    Amsterdam-based successor to MONAD_TEN, adopting the EIP-7708,
+    EIP-7843, EIP-7981, EIP-7997, EIP-8024 and EIP-8246 changes. The
+    Amsterdam changes it does not adopt stay out of the fork by not
+    being inherited at all; the fork order still places MONAD_ELEVEN
+    after Amsterdam through `follows`.
+    """
+
+    @classmethod
+    def follows(cls) -> type[BaseFork] | None:
+        """MONAD_ELEVEN comes after Amsterdam without inheriting it."""
+        return Amsterdam
+
+    @classmethod
+    def header_bal_hash_required(cls) -> bool:
+        """
+        MONAD_ELEVEN headers carry the block access list hash field, fixed
+        at zero, without building block access lists (EIP-7928).
+        """
+        return True

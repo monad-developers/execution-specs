@@ -55,7 +55,7 @@ from ..vm.eoa_delegation import (
 from ..vm.gas import GasCosts, charge_gas, page_index
 from ..vm.precompiled_contracts import MONAD_PRECOMPILE_ADDRESSES
 from ..vm.precompiled_contracts.mapping import PRE_COMPILED_CONTRACTS
-from . import Evm, EvmMemory
+from . import Evm, EvmMemory, emit_transfer_log
 from .exceptions import (
     AddressCollision,
     ExceptionalHalt,
@@ -237,7 +237,6 @@ def process_message_call(message: Message) -> MessageCallOutput:
                 get_account(tx_state, delegated_address).code_hash,
             )
             message.code_address = delegated_address
-            message.disable_create_opcodes = True
 
         evm = process_message(message)
 
@@ -275,7 +274,7 @@ def process_create_message(message: Message) -> Evm:
 
     Returns
     -------
-    evm: :py:class:`~ethereum.forks.monad_next.vm.Evm`
+    evm: :py:class:`~ethereum.forks.monad_eleven.vm.Evm`
         Items containing execution specific objects.
 
     """
@@ -335,7 +334,7 @@ def process_message(message: Message) -> Evm:
 
     Returns
     -------
-    evm: :py:class:`~ethereum.forks.monad_next.vm.Evm`
+    evm: :py:class:`~ethereum.forks.monad_eleven.vm.Evm`
         Items containing execution specific objects
 
     """
@@ -411,6 +410,10 @@ def process_message(message: Message) -> Evm:
             message.current_target,
             message.value,
         )
+        if message.caller != message.current_target:
+            emit_transfer_log(
+                evm, message.caller, message.current_target, message.value
+            )
 
     try:
         if evm.message.code_address in PRE_COMPILED_CONTRACTS:

@@ -1,11 +1,11 @@
 monad:
   evm-type: eels
-  fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=143 -k "not invalid_header"
+  fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_ELEVEN --chain-id=143 -k "not invalid_header"
 
 monad_runloop:
   evm-type: eels
   # Like `monad`, but `--monad-runloop` and eestnet chain id `30143`
-  fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_TEN --chain-id=30143 --monad-runloop -k "not invalid_header"
+  fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_ELEVEN --chain-id=30143 --monad-runloop -k "not invalid_header"
 
 monad_benchmark:
   evm-type: eels

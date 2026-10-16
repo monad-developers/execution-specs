@@ -34,7 +34,9 @@ from execution_testing import (
     create_op,
 )
 from execution_testing.base_types import ZeroPaddedHexNumber
+from execution_testing.forks import MONAD_EIGHT
 
+from ...monad_eight.reserve_balance.spec import Spec as ReserveSpec
 from .spec import Spec, ref_spec_7708, transfer_log
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7708.git_path
@@ -1526,6 +1528,7 @@ def test_call_to_delegated_account_with_value(
 def test_delegated_eoa_sends_value(
     state_test: StateTestFiller,
     pre: Alloc,
+    fork: Fork,
 ) -> None:
     """
     Test that CALL with value from an EIP-7702 delegated EOA's code logs
@@ -1535,7 +1538,12 @@ def test_delegated_eoa_sends_value(
     delegate = pre.deploy_contract(
         Op.CALL(gas=Op.GAS, address=recipient, value=ENDOWMENT)
     )
-    delegated_eoa = pre.fund_eoa(amount=ENDOWMENT, delegation=delegate)
+    # Monad reverts a delegated EOA that spends below its reserve, so the
+    # EOA keeps the reserve on top of the endowment it sends.
+    reserve = ReserveSpec.RESERVE_BALANCE if fork >= MONAD_EIGHT else 0
+    delegated_eoa = pre.fund_eoa(
+        amount=ENDOWMENT + reserve, delegation=delegate
+    )
 
     tx = Transaction(
         sender=pre.fund_eoa(),
@@ -1545,7 +1553,7 @@ def test_delegated_eoa_sends_value(
         ),
     )
     post = {
-        delegated_eoa: Account(balance=0),
+        delegated_eoa: Account(balance=reserve),
         recipient: Account(balance=ENDOWMENT),
         delegate: Account(balance=0),
     }

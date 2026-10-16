@@ -24,8 +24,8 @@ from ethereum_spec_tools.forks import Hardfork
 W = TypeVar("W", Uint, U64, U256)
 
 EXCEPTION_MAPS = {
-    "MONAD_NEXT": {
-        "fork_blocks": [("monad_next", 0)],
+    "MONAD_ELEVEN": {
+        "fork_blocks": [("monad_eleven", 0)],
     },
     "MONAD_TEN": {
         "fork_blocks": [("monad_ten", 0)],
@@ -156,7 +156,7 @@ _SPEC_SHORT_NAME_OVERRIDES: Dict[str, str] = {
     "MONAD_EIGHT": "monad_eight",
     "MONAD_NINE": "monad_nine",
     "MONAD_TEN": "monad_ten",
-    "MONAD_NEXT": "monad_next",
+    "MONAD_ELEVEN": "monad_eleven",
 }
 
 

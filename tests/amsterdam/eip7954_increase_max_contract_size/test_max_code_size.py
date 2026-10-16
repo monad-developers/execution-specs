@@ -25,6 +25,7 @@ from execution_testing import Macros as Om
 from execution_testing.forks import Osaka
 
 from ...prague.eip7702_set_code_tx.spec import Spec as Spec7702
+from .helpers import billed_gas
 from .spec import ref_spec_7954
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7954.git_path
@@ -196,18 +197,24 @@ def test_max_code_size_deposit_gas(
         gas_limit=exact_gas - gas_shortfall,
     )
 
-    # The receipt pin below reads the cap, which only holds while the exact
-    # fit exceeds it and the deposit is funded from the reservoir.
+    # The shortfall receipt reads the cap while the exact fit exceeds it
+    # and the deposit is funded from the reservoir. Without the reservoir
+    # the cap holds the exact fit and the shortfall burns the whole limit.
     gas_limit_cap = fork.transaction_gas_limit_cap()
     assert gas_limit_cap is not None
-    assert exact_gas > gas_limit_cap
+    if fork.state_gas_reservoir_enabled():
+        assert exact_gas > gas_limit_cap
+        shortfall_gas_used = gas_limit_cap
+    else:
+        assert exact_gas <= gas_limit_cap
+        shortfall_gas_used = tx.gas_limit
 
     post: dict[Any, Account | None] = {}
     if gas_shortfall:
-        # The deposit halts the frame, burning the whole execution gas
-        # allowance while the state gas reservoir is handed back.
+        # The deposit halts the frame, burning the execution gas allowance
+        # while any state gas reservoir is handed back.
         tx.expected_receipt = TransactionReceipt(
-            cumulative_gas_used=gas_limit_cap
+            cumulative_gas_used=shortfall_gas_used
         )
         post[create_address] = Account.NONEXISTENT
     else:
@@ -382,9 +389,11 @@ def test_max_code_size_linear_execution(
         sender=pre.fund_eoa(),
         to=target,
         gas_limit=fork.transaction_gas_limit_cap(),
-        expected_receipt=TransactionReceipt(
-            cumulative_gas_used=intrinsic_gas + target_code.gas_cost(fork)
-        ),
+    )
+    tx.expected_receipt = TransactionReceipt(
+        cumulative_gas_used=billed_gas(
+            fork, tx.gas_limit, intrinsic_gas + target_code.gas_cost(fork)
+        )
     )
 
     state_test(pre=pre, tx=tx, post={target: Account(code=target_code)})
