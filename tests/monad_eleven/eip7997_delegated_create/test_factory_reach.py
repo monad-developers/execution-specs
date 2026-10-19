@@ -17,6 +17,7 @@ from execution_testing import (
     Op,
     Storage,
     Transaction,
+    TransactionReceipt,
     compute_create2_address,
 )
 
@@ -56,6 +57,7 @@ def test_factory_as_delegated_code(
         to=delegated,
         data=Hash(SALT) + bytes(initcode),
         sender=pre.fund_eoa(),
+        expected_receipt=TransactionReceipt(status=0),
     )
 
     blockchain_test(
