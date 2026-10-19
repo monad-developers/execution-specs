@@ -83,8 +83,7 @@ for block N:
   eest-runner ─ runloop.run(1) ─▶ C++ engine ─ reads ledger dir ─ executes ─▶ triedb
 
 after the last block:
-  eest-runner ─ runloop.get_primary_state_root() or
-                get_secondary_state_root() (page canonical from MONAD_TEN)
+  eest-runner ─ runloop.get_state_root() (page-encoded)
               + dump_json()
               ─▶ normalize_dump() ─▶ output.json ─▶ (Python compares vs fixture)
 ```
@@ -102,7 +101,7 @@ monad-runloop/bin/eest-runner --version
 
 A plain `git clone` leaves all of this empty, which costs nothing for
 contributors who never run the harness. `git clone --recurse-submodules`
-does populate it, but pulls the full 3.6 GB rather than the 300 MB
+does populate it, but pulls the full 6.5 GB rather than the 300 MB
 `init-stack.sh` selects; re-running the script afterwards is harmless
 but will not shrink an already-fetched checkout.
 

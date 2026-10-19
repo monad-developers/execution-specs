@@ -15,9 +15,11 @@ fi
 # --name (when the caller sets it): a stable handle so the consumer can
 # `docker kill` the container if its client is killed without forwarding
 # a stop, which would otherwise leave the runloop spinning past pytest.
+# --ulimit core=0: an aborting runloop would otherwise leave a multi-GB
+# core dump on the host for every failing fixture.
 exec docker run --rm --init \
     ${EEST_RUNNER_CONTAINER_NAME:+--name "$EEST_RUNNER_CONTAINER_NAME"} \
-    --privileged --ulimit nofile=16384:16384 --ulimit memlock=-1:-1 --user $(id -u):$(id -g) \
+    --privileged --ulimit nofile=16384:16384 --ulimit memlock=-1:-1 --ulimit core=0 --user $(id -u):$(id -g) \
     -v /tmp:/tmp \
     -v "$ROOT":"$ROOT" \
     -e LD_LIBRARY_PATH="$ROOT"/install/lib \

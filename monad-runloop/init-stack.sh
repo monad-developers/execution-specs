@@ -3,7 +3,7 @@
 # monad-execution submodule, and the third_party submodules the CMake
 # build needs.
 #
-# monad declares 23 third_party submodules, 3.3 GB, not all needed.
+# monad declares 21 third_party submodules, 6.5 GB, not all needed.
 #
 # SKIP is a denylist on purpose. A submodule the build turns out to need
 # fails as a confusing CMake error deep into the build, while an extra
@@ -42,7 +42,7 @@ EXEC="$ROOT/monad-bft/monad-execution"
 
 SKIP=(
     third_party/ethereum-tests
-    third_party/yellowpaper
+    third_party/monad-execution-specs
     third_party/zkevm-standards
 )
 

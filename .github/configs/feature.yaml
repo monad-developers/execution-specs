@@ -5,7 +5,7 @@ monad:
 monad_runloop:
   evm-type: eels
   # Like `monad`, but `--monad-runloop` and eestnet chain id `30143`
-  fill-params: -m blockchain_test --from=MONAD_EIGHT --until=MONAD_ELEVEN --chain-id=30143 --monad-runloop -k "not invalid_header"
+  fill-params: -m blockchain_test --from=MONAD_TEN --until=MONAD_ELEVEN --chain-id=30143 --monad-runloop -k "not invalid_header"
 
 monad_benchmark:
   evm-type: eels
@@ -15,4 +15,4 @@ monad_benchmark:
   # transaction. The excluded `page_spread` cases size their work from `m`
   # rather than the gas budget, so they need ~29M and ~177M whatever is
   # passed here.
-  fill-params: -m blockchain_test tests/benchmark/stateful/mip8_pageified_storage/ --from=MONAD_NINE --until=MONAD_TEN --chain-id=30143 --monad-runloop --gas-benchmark-values=10 -k "not m4096 and not m1024"
+  fill-params: -m blockchain_test tests/benchmark/stateful/mip8_pageified_storage/ --fork=MONAD_ELEVEN --chain-id=30143 --monad-runloop --gas-benchmark-values=10 -k "not m4096 and not m1024"
