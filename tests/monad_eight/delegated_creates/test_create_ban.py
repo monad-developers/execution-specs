@@ -15,6 +15,7 @@ from execution_testing import (
     StateTestFiller,
     Storage,
     Transaction,
+    TransactionReceipt,
     compute_create_address,
 )
 
@@ -39,7 +40,12 @@ def test_create_in_delegated_code(
     delegate = pre.deploy_contract(factory_code(create_opcode))
     delegated = pre.fund_eoa(delegation=delegate)
 
-    tx = Transaction(to=delegated, data=initcode, sender=pre.fund_eoa())
+    tx = Transaction(
+        to=delegated,
+        data=initcode,
+        sender=pre.fund_eoa(),
+        expected_receipt=TransactionReceipt(status=0),
+    )
 
     state_test(
         pre=pre,
