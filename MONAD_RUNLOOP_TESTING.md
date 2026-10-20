@@ -64,12 +64,12 @@ uv run consume direct --input ../fixtures_eestnet \
   across ~14 threads), so budget ~5 vCPUs per worker (`-n N` needs
   roughly `5 * N` cores).
 
-## MIP-8 perf-regression tests
+## Storage perf-regression tests
 
 `tests/benchmark/stateful/mip8_pageified_storage/test_perf_regression.py`
 fills SLOAD/SSTORE workloads at both forks and times block execution on
-the runloop to compare MONAD_NINE (slot-encoded) vs MONAD_TEN
-(page-encoded).
+the runloop to compare MONAD_TEN vs MONAD_ELEVEN, both on page-encoded
+(MIP-8) storage.
 
 ### Setup
 
@@ -91,7 +91,7 @@ From the repo root:
 tmux new -s perf 'TAG=v4 scripts/perf_cycle.sh'
 ```
 
-Fills once, consumes `RUNS` times, and writes the NINE-vs-TEN table to
+Fills once, consumes `RUNS` times, and writes the TEN-vs-ELEVEN table to
 `../timing_${TAG}_<utc>_table.md` (headed with the
 cycle time and the four repo SHAs). Knobs:
 

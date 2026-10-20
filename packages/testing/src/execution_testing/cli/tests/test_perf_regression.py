@@ -1,4 +1,4 @@
-"""Tests for the `perf_regression` NINE-vs-TEN significance table."""
+"""Tests for the `perf_regression` TEN-vs-ELEVEN significance table."""
 
 from pathlib import Path
 from typing import Dict, List, Sequence
@@ -53,12 +53,12 @@ def _row(fork: str, total: int, block: int = 1) -> Dict[str, object]:
     }
 
 
-def _run_dir(tmp_path: Path, name: str, nine: int, ten: int) -> Path:
+def _run_dir(tmp_path: Path, name: str, ten: int, eleven: int) -> Path:
     """Write a one-case run directory with the given per-fork totals."""
     path = tmp_path / name
     path.mkdir()
     (path / "timing_consume.csv").write_text(
-        _csv([_row("MONAD_NINE", nine), _row("MONAD_TEN", ten)])
+        _csv([_row("MONAD_TEN", ten), _row("MONAD_ELEVEN", eleven)])
     )
     return path
 
@@ -69,33 +69,36 @@ def test_parse_reduces_blocks_to_minimum(tmp_path: Path) -> None:
     path.write_text(
         _csv(
             [
-                _row("MONAD_NINE", 300, block=1),
-                _row("MONAD_NINE", 100, block=2),
-                _row("MONAD_NINE", 200, block=3),
+                _row("MONAD_TEN", 300, block=1),
+                _row("MONAD_TEN", 100, block=2),
+                _row("MONAD_TEN", 200, block=3),
             ]
         )
     )
     parsed = parse(path)
     assert (
-        parsed[("page_ops", "sstore_fresh-k0", "MONAD_NINE")]["total_us"]
-        == 100
+        parsed[("page_ops", "sstore_fresh-k0", "MONAD_TEN")]["total_us"] == 100
     )
 
 
 def test_parse_ignores_other_forks(tmp_path: Path) -> None:
     """Rows for forks outside the comparison are dropped."""
     path = tmp_path / "timing_consume.csv"
-    path.write_text(_csv([_row("Prague", 100), _row("MONAD_TEN", 200)]))
-    assert list(parse(path)) == [("page_ops", "sstore_fresh-k0", "MONAD_TEN")]
+    path.write_text(_csv([_row("Prague", 100), _row("MONAD_ELEVEN", 200)]))
+    assert list(parse(path)) == [
+        ("page_ops", "sstore_fresh-k0", "MONAD_ELEVEN")
+    ]
 
 
 def test_parse_skips_unparsable_metrics(tmp_path: Path) -> None:
     """A row with a non-numeric metric is skipped, not fatal."""
-    bad = _row("MONAD_NINE", 100)
+    bad = _row("MONAD_TEN", 100)
     bad["total_us"] = "oops"
     path = tmp_path / "timing_consume.csv"
-    path.write_text(_csv([bad, _row("MONAD_TEN", 200)]))
-    assert list(parse(path)) == [("page_ops", "sstore_fresh-k0", "MONAD_TEN")]
+    path.write_text(_csv([bad, _row("MONAD_ELEVEN", 200)]))
+    assert list(parse(path)) == [
+        ("page_ops", "sstore_fresh-k0", "MONAD_ELEVEN")
+    ]
 
 
 def test_avg_ranks_averages_ties() -> None:
@@ -127,11 +130,11 @@ def test_wilcoxon_p_mixed_signs_is_not_significant() -> None:
 
 def test_wilcoxon_p_is_paired_not_pooled() -> None:
     """A consistent shift is detected even when the levels overlap."""
-    # Both forks drift upward across runs, but TEN is always the slower
+    # Both forks drift upward across runs, but ELEVEN is always the slower
     # of the pair; an unpaired test would drown this in the drift.
-    nine = [100, 200, 300, 400, 500, 600, 700, 800]
-    ten = [110, 210, 310, 410, 510, 610, 710, 810]
-    diffs = [t - n for n, t in zip(nine, ten, strict=True)]
+    ten = [100, 200, 300, 400, 500, 600, 700, 800]
+    eleven = [110, 210, 310, 410, 510, 610, 710, 810]
+    diffs = [t - n for n, t in zip(ten, eleven, strict=True)]
     assert _wilcoxon_p(diffs) == pytest.approx(2 / 2**8)
 
 
@@ -236,7 +239,7 @@ def _case_row(table: str) -> str:
 def test_build_flags_significant_slowdown(tmp_path: Path) -> None:
     """A clean slowdown is flagged, bolded and quantified."""
     dirs = [
-        _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
+        _run_dir(tmp_path, f"r{i}", ten=100 + i, eleven=200 + i)
         for i in range(9)
     ]
     row = _case_row(report(tuple(dirs)))
@@ -248,7 +251,7 @@ def test_build_flags_significant_slowdown(tmp_path: Path) -> None:
 def test_build_flags_significant_speedup(tmp_path: Path) -> None:
     """A clean speedup is flagged in the other direction."""
     dirs = [
-        _run_dir(tmp_path, f"r{i}", nine=200 + i, ten=100 + i)
+        _run_dir(tmp_path, f"r{i}", ten=200 + i, eleven=100 + i)
         for i in range(9)
     ]
     row = _case_row(report(tuple(dirs)))
@@ -270,7 +273,7 @@ def test_build_marks_noise_insignificant(tmp_path: Path) -> None:
         (96, 105),
     ]
     dirs = [
-        _run_dir(tmp_path, f"r{i}", nine=n, ten=t)
+        _run_dir(tmp_path, f"r{i}", ten=n, eleven=t)
         for i, (n, t) in enumerate(totals)
     ]
     row = _case_row(report(tuple(dirs)))
@@ -292,7 +295,7 @@ def _one_fork_dir(tmp_path: Path, name: str, fork: str, total: int) -> Path:
 def test_report_names_cases_never_compared(tmp_path: Path) -> None:
     """A case no run measured at both forks is named, not dropped."""
     dirs = [
-        _one_fork_dir(tmp_path, f"r{i}", "MONAD_NINE", 100 + i)
+        _one_fork_dir(tmp_path, f"r{i}", "MONAD_TEN", 100 + i)
         for i in range(3)
     ]
     table = report(tuple(dirs))
@@ -303,10 +306,10 @@ def test_report_names_cases_never_compared(tmp_path: Path) -> None:
 def test_report_names_partially_compared_cases(tmp_path: Path) -> None:
     """A case missing from some runs reports its reduced run count."""
     dirs = [
-        _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
+        _run_dir(tmp_path, f"r{i}", ten=100 + i, eleven=200 + i)
         for i in range(3)
     ]
-    dirs.append(_one_fork_dir(tmp_path, "partial", "MONAD_NINE", 100))
+    dirs.append(_one_fork_dir(tmp_path, "partial", "MONAD_TEN", 100))
     table = report(tuple(dirs))
     assert "compared on fewer than 4 runs" in table
     assert "3 of 4 runs" in table
@@ -314,14 +317,14 @@ def test_report_names_partially_compared_cases(tmp_path: Path) -> None:
 
 def test_report_counts_hypothesis_tests(tmp_path: Path) -> None:
     """The report states how many tests the adjustment covers."""
-    dirs = [_run_dir(tmp_path, f"r{i}", nine=100, ten=200) for i in range(3)]
+    dirs = [_run_dir(tmp_path, f"r{i}", ten=100, eleven=200) for i in range(3)]
     assert "3 hypothesis tests in this table" in report(tuple(dirs))
 
 
 def test_report_warns_when_underpowered(tmp_path: Path) -> None:
     """Too few pairs to clear the floor is called out, not hidden."""
     dirs = [
-        _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
+        _run_dir(tmp_path, f"r{i}", ten=100 + i, eleven=200 + i)
         for i in range(4)
     ]
     table = report(tuple(dirs))
@@ -333,18 +336,18 @@ def test_report_no_power_warning_when_resolvable(tmp_path: Path) -> None:
     """Enough pairs to clear the floor leaves the warning out."""
     # 3 measures at 2/2**10 clears q <= 0.05; 6 runs would not.
     dirs = [
-        _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
+        _run_dir(tmp_path, f"r{i}", ten=100 + i, eleven=200 + i)
         for i in range(10)
     ]
     assert "cannot reach q" not in report(tuple(dirs))
 
 
-def _retry_dir(tmp_path: Path, name: str, nine: int, ten: int) -> Path:
+def _retry_dir(tmp_path: Path, name: str, ten: int, eleven: int) -> Path:
     """Write a run directory whose blocks report differing retry counts."""
     path = tmp_path / name
     path.mkdir()
     rows = []
-    for fork, retries in (("MONAD_NINE", nine), ("MONAD_TEN", ten)):
+    for fork, retries in (("MONAD_TEN", ten), ("MONAD_ELEVEN", eleven)):
         for block, r in enumerate((0, retries), start=1):
             row = _row(fork, 100, block=block)
             row["retries"] = r
@@ -355,10 +358,10 @@ def _retry_dir(tmp_path: Path, name: str, nine: int, ten: int) -> Path:
 
 def test_report_shows_retries_of_the_reported_block(tmp_path: Path) -> None:
     """Retries come from the block whose timing the row reports."""
-    dirs = [_retry_dir(tmp_path, f"r{i}", nine=0, ten=4) for i in range(3)]
+    dirs = [_retry_dir(tmp_path, f"r{i}", ten=0, eleven=4) for i in range(3)]
     table = report(tuple(dirs))
-    assert "retries NINE" in table
     assert "retries TEN" in table
+    assert "retries ELEVEN" in table
     cells = [c.strip() for c in _case_row(table).split("|")]
     # Both blocks tie on total_us, so the earlier one (retries 0) stands.
     assert cells.count("0 ± 0") >= 2
@@ -372,13 +375,13 @@ def test_parse_takes_the_counter_from_the_fastest_block(
     for block, (total, retries) in enumerate(
         [(300, 9), (100, 2), (200, 5)], start=1
     ):
-        row = _row("MONAD_NINE", total, block=block)
+        row = _row("MONAD_TEN", total, block=block)
         row["retries"] = retries
         rows.append(row)
     path = tmp_path / "timing_consume.csv"
     path.write_text(_csv(rows))
 
-    parsed = parse(path)[("page_ops", "sstore_fresh-k0", "MONAD_NINE")]
+    parsed = parse(path)[("page_ops", "sstore_fresh-k0", "MONAD_TEN")]
 
     assert parsed["total_us"] == 100
     assert parsed["retries"] == 2  # not 9 (max) and not 5
@@ -390,13 +393,13 @@ def test_parse_counter_ignores_a_slower_block_with_more_retries(
     """A later, slower block does not drag its counter into the row."""
     rows = []
     for block, (total, retries) in enumerate([(100, 1), (500, 99)], start=1):
-        row = _row("MONAD_NINE", total, block=block)
+        row = _row("MONAD_TEN", total, block=block)
         row["retries"] = retries
         rows.append(row)
     path = tmp_path / "timing_consume.csv"
     path.write_text(_csv(rows))
 
-    parsed = parse(path)[("page_ops", "sstore_fresh-k0", "MONAD_NINE")]
+    parsed = parse(path)[("page_ops", "sstore_fresh-k0", "MONAD_TEN")]
 
     assert parsed["total_us"] == 100
     assert parsed["retries"] == 1
@@ -405,7 +408,7 @@ def test_parse_counter_ignores_a_slower_block_with_more_retries(
 def test_parse_tolerates_csv_without_retries(tmp_path: Path) -> None:
     """A csv written before the counter existed still parses."""
     legacy = HEADER.replace(",retries", "")
-    row = _row("MONAD_NINE", 100)
+    row = _row("MONAD_TEN", 100)
     path = tmp_path / "timing_consume.csv"
     path.write_text(
         legacy
@@ -414,22 +417,20 @@ def test_parse_tolerates_csv_without_retries(tmp_path: Path) -> None:
         + "\n"
     )
     parsed = parse(path)
-    assert (
-        parsed[("page_ops", "sstore_fresh-k0", "MONAD_NINE")]["retries"] == 0
-    )
+    assert parsed[("page_ops", "sstore_fresh-k0", "MONAD_TEN")]["retries"] == 0
 
 
 def test_report_needs_two_runs(tmp_path: Path) -> None:
     """A single run cannot support a comparison."""
     with pytest.raises(ClickException, match="need >=2 runs"):
-        report((_run_dir(tmp_path, "only", nine=100, ten=200),))
+        report((_run_dir(tmp_path, "only", ten=100, eleven=200),))
 
 
 def test_report_warns_about_dirs_without_csv(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A run dir without a CSV is named rather than silently dropped."""
-    dirs = [_run_dir(tmp_path, f"r{i}", nine=100, ten=200) for i in range(2)]
+    dirs = [_run_dir(tmp_path, f"r{i}", ten=100, eleven=200) for i in range(2)]
     empty = tmp_path / "empty"
     empty.mkdir()
 
@@ -441,7 +442,7 @@ def test_report_warns_about_dirs_without_csv(
 def test_cli_writes_markdown(tmp_path: Path) -> None:
     """The CLI writes the report and the provenance header."""
     dirs = [
-        _run_dir(tmp_path, f"r{i}", nine=100 + i, ten=200 + i)
+        _run_dir(tmp_path, f"r{i}", ten=100 + i, eleven=200 + i)
         for i in range(9)
     ]
     md_path = tmp_path / "table.md"

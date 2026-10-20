@@ -1,14 +1,14 @@
 """
-MIP-8 performance-regression tests.
+Page-encoded storage performance-regression tests.
 
 These blockchain tests compare block/transaction execution time on the
-monad runloop before MIP-8 (MONAD_NINE, slot-encoded storage) and after
-MIP-8 (MONAD_TEN, page-encoded storage). The same Python builds the
-workload for both forks; the `fork` fixture is only consulted where the
-two forks genuinely differ (storage-op gas, used to size a workload to a
-gas budget). We do not assert gas — the oracle is post-state (success
-markers, written slots, and read-checksum slots), so the identical
-workload can be timed on both forks via the consume timing report.
+monad runloop between MONAD_TEN and MONAD_ELEVEN, both on page-encoded
+(MIP-8) storage. The same Python builds the workload for both forks; the
+`fork` fixture is only consulted where the two forks could differ
+(storage-op gas, used to size a workload to a gas budget). We do not
+assert gas — the oracle is post-state (success markers, written slots,
+and read-checksum slots), so the identical workload can be timed on both
+forks via the consume timing report.
 
 Each test fills a monad block with one SLOAD/SSTORE pattern, sized to the
 `gas_benchmark_value` the framework injects from
@@ -24,14 +24,14 @@ Every transaction gets its own sender, so no block carries a sender nonce
 chain that would serialise it regardless of storage access. The block-shape
 sweep parametrizes this to measure what the chain alone costs.
 
-Workloads are sized to MONAD_NINE (its cold storage costs >= MONAD_TEN),
-so the same iteration count never out-of-gases on either fork; a
-post-fork block may therefore be gas-underfull while doing identical I/O
-work, which is exactly the effect being measured.
+Workloads are sized to the costlier of the two forks, so the same
+iteration count never out-of-gases on either fork; a block on the
+cheaper fork may therefore be gas-underfull while doing identical I/O
+work.
 
 That is also why these tests pass `skip_gas_used_validation`: the gas a
-block actually uses differs between the forks by construction, so no
-single `expected_benchmark_gas_used` can match both. The framework still
+block actually uses may differ between the forks, so no single
+`expected_benchmark_gas_used` has to match both. The framework still
 enforces that a block stays within its budget, `_assert_tx_within_budget`
 checks the plan against it, and `_per_iter_gas` bounds its own estimate,
 so a block cannot quietly end up sized for less work than the budget.
@@ -70,7 +70,7 @@ from execution_testing import (
     While,
     WhileGas,
 )
-from execution_testing.forks import MONAD_NINE, MONAD_TEN
+from execution_testing.forks import MONAD_ELEVEN, MONAD_TEN
 from execution_testing.forks.helpers import Fork
 
 from tests.monad_ten.mip8_pageified_storage.helpers import fresh_sstore_cold
@@ -213,7 +213,7 @@ def _senders(pre: Alloc, distinct: bool = True) -> Iterator[EOA]:
         yield shared
 
 
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_compute_loop(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
@@ -229,10 +229,9 @@ def test_compute_loop(
 
     This is the suite's control, so the contract is built from a fixed
     fork rather than the one under test: sizing the loop against the
-    running fork would emit different bytecode either side of MIP-8, and
-    a control has to run the same code. MONAD_NINE prices the trailing
-    cold SSTORE at least as high as MONAD_TEN, so its reserve is safe on
-    both.
+    running fork could emit different bytecode on each fork, and a
+    control has to run the same code. MONAD_ELEVEN prices the trailing
+    cold SSTORE the same as MONAD_TEN, so its reserve is safe on both.
     """
     senders = _senders(pre)
     budget = gas_benchmark_value // FULL_BLOCK_TXS
@@ -241,8 +240,8 @@ def test_compute_loop(
     contract_address = pre.deploy_contract(
         WhileGas(
             body=body,
-            fork=MONAD_NINE,
-            extra_gas=fresh_sstore_cold(MONAD_NINE),
+            fork=MONAD_TEN,
+            extra_gas=fresh_sstore_cold(MONAD_TEN),
         )
         + Op.SSTORE(slot_code_worked, value_code_worked)
     )
@@ -307,7 +306,7 @@ def _sstore(
     `value` is what is written at run time; `original`/`current`/`new`/
     `growth` describe the slot transition for gas sizing only. `original`
     (the slot's value at tx start) is required so a nonzero-to-nonzero or
-    nonzero-to-zero reset is priced as a reset on MONAD_NINE, not a no-op.
+    nonzero-to-zero reset is priced as a reset, not a no-op.
     """
     return Op.SSTORE(
         slot,
@@ -464,9 +463,9 @@ def _while_control_gas(fork: Fork) -> int:
 def _per_iter_gas(op: StorageOp, k: int) -> int:
     """Gas for one loop iteration, sized to the costlier of both forks."""
     body = _body(op, k)
-    per_op = max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_TEN))
+    per_op = max(body.gas_cost(MONAD_TEN), body.gas_cost(MONAD_ELEVEN))
     control = max(
-        _while_control_gas(MONAD_NINE), _while_control_gas(MONAD_TEN)
+        _while_control_gas(MONAD_TEN), _while_control_gas(MONAD_ELEVEN)
     )
     assert control <= WHILE_CONTROL_GAS <= control + MAX_CONTROL_SLACK, (
         f"WHILE_CONTROL_GAS is {WHILE_CONTROL_GAS} but a While control step "
@@ -547,7 +546,7 @@ _PAGE_OP_PARAMS = [
 
 
 @pytest.mark.parametrize("op, k", _PAGE_OP_PARAMS)
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_page_ops(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
@@ -693,7 +692,7 @@ _SPREAD_PARAMS = [
 
 
 @pytest.mark.parametrize("m, n", _SPREAD_PARAMS)
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_page_spread(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
@@ -793,7 +792,7 @@ _SHAPE_PARAMS = [
 
 
 @pytest.mark.parametrize("op, k, shape, distinct_senders", _SHAPE_PARAMS)
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_block_shape(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
@@ -876,7 +875,7 @@ def test_block_shape(
 
 
 @pytest.mark.parametrize("mode", ["success", "halt", "mix"])
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_tx_halt(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
@@ -956,7 +955,7 @@ CHAIN_REPEAT_STRIDE = 1 << 20  # >> ring length
 def _size_count(body: Bytecode, budget: int) -> int:
     """Loop iterations of `body` that fit `budget`, sized to both forks."""
     per_iter = (
-        max(body.gas_cost(MONAD_NINE), body.gas_cost(MONAD_TEN))
+        max(body.gas_cost(MONAD_TEN), body.gas_cost(MONAD_ELEVEN))
         + WHILE_CONTROL_GAS
     )
     count = max(1, (budget - TX_RESERVE) // per_iter)
@@ -1008,7 +1007,7 @@ _RAND_PARAMS = [
 
 
 @pytest.mark.parametrize("slots, k", _RAND_PARAMS)
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_random_sload(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
@@ -1083,7 +1082,7 @@ def test_random_sload(
     )
 
 
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_bad_block_serial(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,
@@ -1155,7 +1154,7 @@ def test_bad_block_serial(
     )
 
 
-@pytest.mark.valid_from("MONAD_NINE")
+@pytest.mark.valid_from("MONAD_TEN")
 def test_bad_block_chained(
     benchmark_test: BenchmarkTestFiller,
     pre: Alloc,

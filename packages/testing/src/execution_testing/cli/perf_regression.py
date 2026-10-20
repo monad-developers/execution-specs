@@ -1,11 +1,11 @@
 """
-Build a NINE-vs-TEN significance table from perf timing runs.
+Build a TEN-vs-ELEVEN significance table from perf timing runs.
 
 Reads the `timing_consume.csv` produced by `consume direct
 --timing-report` for several identical runs (one dir each) and, per
 (test, params) case, reports each measure's mean +/- sd over the runs for
 both forks, the two-sided Mann-Whitney U p-value comparing the forks,
-and (for significant measures) the NINE->TEN average change.
+and (for significant measures) the TEN->ELEVEN average change.
 
 Writes GitHub-flavored Markdown to `--md`, or stdout if omitted; when
 `--now` is given, prefixes a provenance header.
@@ -29,7 +29,7 @@ Run = Dict[Tuple[str, str, str], CaseMetrics]
 # A case, identified by (test, params).
 CaseKey = Tuple[str, str]
 
-# One metric's paired samples: [(NINE, TEN) per run measuring both forks].
+# One metric's paired samples: [(TEN, ELEVEN) per run measuring both forks].
 PairedSamples = List[Tuple[int, int]]
 
 METRICS = ["tx_exec_us", "commit_us", "total_us"]
@@ -42,7 +42,7 @@ COUNTS = ["retries"]
 # wall time is what a retry count belongs to: retries are a property of
 # executing the whole block, not of one of its phases.
 REFERENCE_METRIC = "total_us"
-FORKS = ["MONAD_NINE", "MONAD_TEN"]
+FORKS = ["MONAD_TEN", "MONAD_ELEVEN"]
 # A measure is significant at this Benjamini-Hochberg adjusted p-value.
 # The table runs one test per (case, measure), so the unadjusted rate
 # would produce a steady trickle of false positives across a cycle. The
@@ -52,8 +52,8 @@ FORKS = ["MONAD_NINE", "MONAD_TEN"]
 # signed-rank test can reach scales with 2^RUNS.
 ALPHA = 0.05
 
-UP = "🔴⬆️"  # significant measures all rise NINE->TEN (TEN slower)
-DOWN = "🟢⬇️"  # significant measures all fall NINE->TEN (TEN faster)
+UP = "🔴⬆️"  # significant measures all rise TEN->ELEVEN (ELEVEN slower)
+DOWN = "🟢⬇️"  # significant measures all fall TEN->ELEVEN (ELEVEN faster)
 MIXED = "⚠️"  # significant measures move both up and down
 
 # Per-case workload descriptions live here; pinned to the execution-specs
@@ -151,7 +151,7 @@ def _wilcoxon_p(diffs: List[int]) -> float:
     Two-sided Wilcoxon signed-rank p-value for paired differences.
 
     Both forks are measured inside the same consume pass, so run `i`
-    yields a matched (NINE, TEN) pair. Testing the differences cancels
+    yields a matched (TEN, ELEVEN) pair. Testing the differences cancels
     whatever drifted between runs — host thermals, page cache, other load
     — which an unpaired test would instead charge to both samples'
     variance.
@@ -243,13 +243,13 @@ def _paired_samples(
         }
         missing = 0
         for run in runs:
-            nine = run.get((*case, FORKS[0]))
-            ten = run.get((*case, FORKS[1]))
-            if nine is None or ten is None:
+            ten = run.get((*case, FORKS[0]))
+            eleven = run.get((*case, FORKS[1]))
+            if ten is None or eleven is None:
                 missing += 1
                 continue
             for m in (*METRICS, *COUNTS):
-                per_metric[m].append((nine[m], ten[m]))
+                per_metric[m].append((ten[m], eleven[m]))
         samples[case] = per_metric
         if missing:
             dropped[case] = missing
@@ -274,16 +274,16 @@ def build(runs: List[Run]) -> List[str]:
 
     header = ["test-params"]
     for m in METRICS:
-        header += [f"{m} NINE", f"{m} TEN", f"{m} q"]
+        header += [f"{m} TEN", f"{m} ELEVEN", f"{m} q"]
     for c in COUNTS:
-        header += [f"{c} NINE", f"{c} TEN"]
-    header += ["significant", "Δ avg NINE→TEN (sig)"]
+        header += [f"{c} TEN", f"{c} ELEVEN"]
+    header += ["significant", "Δ avg TEN→ELEVEN (sig)"]
 
     lines = [
         f"Mean ± sd over up to {len(runs)} runs; durations in µs, "
         f"{'/'.join(COUNTS)} a count. Bold = measure significant (paired "
         f"Wilcoxon signed-rank, Benjamini–Hochberg adjusted q ≤ {ALPHA}). "
-        f"Significant flag: {UP} TEN slower, {DOWN} TEN faster, "
+        f"Significant flag: {UP} ELEVEN slower, {DOWN} ELEVEN faster, "
         f"{MIXED} mixed.",
         "",
         "| " + " | ".join(header) + " |",
@@ -301,8 +301,8 @@ def build(runs: List[Run]) -> List[str]:
         chgs = []
         for m in METRICS:
             pairs = samples[case][m]
-            n = [nine for nine, _ in pairs]
-            x = [ten for _, ten in pairs]
+            n = [ten for ten, _ in pairs]
+            x = [eleven for _, eleven in pairs]
             q = adjusted[(case, m)]
             ncell, xcell = _stat(n), _stat(x)
             if q <= ALPHA:
@@ -315,8 +315,8 @@ def build(runs: List[Run]) -> List[str]:
         for c in COUNTS:
             pairs = samples[case][c]
             cells += [
-                _stat([nine for nine, _ in pairs]),
-                _stat([ten for _, ten in pairs]),
+                _stat([ten for ten, _ in pairs]),
+                _stat([eleven for _, eleven in pairs]),
             ]
         cells.append(_direction(chgs) if chgs else "-")
         cells.append(", ".join(deltas) if deltas else "-")
@@ -325,7 +325,7 @@ def build(runs: List[Run]) -> List[str]:
     lines += [
         "",
         "q is the Benjamini–Hochberg adjusted p-value of a two-sided "
-        "paired Wilcoxon signed-rank test on the per-run NINE→TEN "
+        "paired Wilcoxon signed-rank test on the per-run TEN→ELEVEN "
         f"differences for that measure; significant at q ≤ {ALPHA}. "
         f"Smallest raw p in this table: {_pfmt(min(ps)) if ps else 'n/a'}. "
         f"{'/'.join(COUNTS)} is reported, not tested: it tells a block "
@@ -490,7 +490,7 @@ def main(
     monad: Optional[str],
 ) -> None:
     """
-    Build a NINE-vs-TEN significance table from perf timing runs.
+    Build a TEN-vs-ELEVEN significance table from perf timing runs.
 
     Each RUN_DIRS argument is one `consume direct --timing-report` output
     directory holding a `timing_consume.csv`.
