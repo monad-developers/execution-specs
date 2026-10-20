@@ -242,7 +242,7 @@ fn main() {
     }
 
     // The canonical state root is the page-encoded secondary timeline's
-    // from MONAD_NEXT (MIP-8, revision 10) on, the slot-encoded
+    // from MONAD_ELEVEN (MIP-8, revision 10) on, the slot-encoded
     // primary's before. The schedule is ascending, so the last entry is
     // the revision the run ends in.
     let final_revision = input

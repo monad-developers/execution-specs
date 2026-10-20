@@ -1,8 +1,9 @@
 """Helpers for testing EIP-7981."""
 
-from typing import List
+from typing import Callable, List, Tuple
 
 from execution_testing import AccessList, Fork
+from execution_testing.forks import MONAD_EIGHT
 
 
 def calculate_access_list_data_cost(
@@ -25,3 +26,31 @@ def calculate_access_list_data_cost(
             total_bytes += len(slot)
 
     return total_bytes * 4 * fork.gas_costs().TX_DATA_TOKEN_FLOOR
+
+
+def billed_gas(fork: Fork, gas_limit: int, gas_used: int) -> int:
+    """
+    Return the gas a successful transaction's receipt reports.
+
+    Monad bills the whole limit, with no refund and no floor comparison.
+    """
+    return gas_limit if fork >= MONAD_EIGHT else gas_used
+
+
+def calldata_clearing_floor(
+    bill: Callable[[bytes], Tuple[int, int]],
+) -> bytes:
+    """
+    Return zero calldata grown in words until the floor clears the bill.
+
+    `bill` returns the floor and the cost it competes with for the
+    calldata it is given. Each byte adds more to the floor than to the
+    intrinsic, so the search terminates on any fork.
+    """
+    size = 0
+    while True:
+        data = b"\x00" * size
+        floor, competing = bill(data)
+        if floor > competing:
+            return data
+        size += 32

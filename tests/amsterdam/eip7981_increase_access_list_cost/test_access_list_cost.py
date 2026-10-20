@@ -17,8 +17,13 @@ from execution_testing import (
     Transaction,
     TransactionReceipt,
 )
+from execution_testing.forks import MONAD_EIGHT
 
-from .helpers import calculate_access_list_data_cost
+from .helpers import (
+    billed_gas,
+    calculate_access_list_data_cost,
+    calldata_clearing_floor,
+)
 from .spec import ref_spec_7981
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7981.git_path
@@ -123,13 +128,11 @@ def test_access_list_token_calculation(
         == expected_data_cost
     )
 
-    expected_floor_cost = (
-        expected_data_cost
-        + gas_costs.TX_BASE
+    expected_floor_cost = expected_data_cost + gas_costs.TX_BASE
+    if fork.is_eip_enabled(2780):
         # EIP-2780 anchors the floor on the decomposed intrinsic base; the
         # tx targets a non-self account, adding the recipient-access charge.
-        + gas_costs.COLD_ACCOUNT_ACCESS
-    )
+        expected_floor_cost += gas_costs.COLD_ACCOUNT_ACCESS
     actual_floor_cost = fork.transaction_data_floor_cost_calculator()(
         data=b"", access_list=access_list
     )
@@ -161,7 +164,7 @@ def test_access_list_token_calculation(
                     storage_keys=[Hash(i) for i in range(10)],
                 )
             ],
-            Bytes(b"\x00" * 500 + b"\x01" * 500),
+            Bytes(b"\x00" * 1800 + b"\x01" * 1800),
             id="large_access_list_mixed_calldata",
         ),
     ],
@@ -332,16 +335,24 @@ def test_access_list_data_cost_with_execution(
     # cost so each case lands exactly where the delta places it.
     jumpdest_gas = Op.JUMPDEST.gas_cost(fork)
     assert execution_budget % jumpdest_gas == 0
+    # Monad's access list entry charges outgrow the floor, leaving a
+    # negative budget that no program can be sized from.
+    program_sized_from_budget = not fork >= MONAD_EIGHT
     jumpdests = execution_budget // jumpdest_gas + execution_gas_delta
-    assert jumpdests >= 0
+    if program_sized_from_budget:
+        assert jumpdests >= 0
+    else:
+        jumpdests = max(jumpdests, 0)
     code = Op.JUMPDEST * jumpdests
     contract = pre.deploy_contract(code + Op.STOP)
     execution_cost = (
         intrinsic_without_access_list + entry_charges + code.gas_cost(fork)
     )
-    assert (
-        execution_cost - calldata_floor == execution_gas_delta * jumpdest_gas
-    )
+    if program_sized_from_budget:
+        assert (
+            execution_cost - calldata_floor
+            == execution_gas_delta * jumpdest_gas
+        )
     expected_gas_used = max(execution_cost, calldata_floor) + surcharge
 
     tx = Transaction(
@@ -354,7 +365,9 @@ def test_access_list_data_cost_with_execution(
         # a gas limit that happens to equal the expected receipt value.
         gas_limit=expected_gas_used + 1000,
         expected_receipt=TransactionReceipt(
-            cumulative_gas_used=expected_gas_used
+            cumulative_gas_used=billed_gas(
+                fork, expected_gas_used + 1000, expected_gas_used
+            )
         ),
     )
 
@@ -380,18 +393,24 @@ def test_access_list_surcharge_with_recipient_costs(
     target = sender if self_transfer else pre.fund_eoa(amount=1)
     access_list = [AccessList(address=target, storage_keys=[])]
     recipient_type = RecipientType.SELF if self_transfer else RecipientType.EOA
-    data = b"\x00" * (400 if floor_dominates else 0)
-    intrinsic = fork.transaction_intrinsic_cost_calculator()(
-        calldata=data,
-        sends_value=value > 0,
-        recipient_type=recipient_type,
-        return_cost_deducted_prior_execution=True,
-    )
-    floor = fork.transaction_data_floor_cost_calculator()(
-        data=data, sends_value=value > 0, recipient_type=recipient_type
-    )
-    costs = fork.gas_costs()
-    execution_cost = intrinsic + costs.TX_ACCESS_LIST_ADDRESS
+    intrinsic_calculator = fork.transaction_intrinsic_cost_calculator()
+    floor_calculator = fork.transaction_data_floor_cost_calculator()
+
+    def bill(data: bytes) -> tuple[int, int]:
+        """Return the floor and the execution bill for `data`."""
+        intrinsic = intrinsic_calculator(
+            calldata=data,
+            sends_value=value > 0,
+            recipient_type=recipient_type,
+            return_cost_deducted_prior_execution=True,
+        )
+        floor = floor_calculator(
+            data=data, sends_value=value > 0, recipient_type=recipient_type
+        )
+        return floor, intrinsic + fork.gas_costs().TX_ACCESS_LIST_ADDRESS
+
+    data = calldata_clearing_floor(bill) if floor_dominates else b""
+    floor, execution_cost = bill(data)
     surcharge = calculate_access_list_data_cost(access_list, fork)
     assert (floor > execution_cost) == floor_dominates
     expected_gas = max(execution_cost, floor) + surcharge
@@ -403,6 +422,9 @@ def test_access_list_surcharge_with_recipient_costs(
         data=data,
         access_list=access_list,
         gas_limit=expected_gas + 1000,
-        expected_receipt=TransactionReceipt(status=1, gas_used=expected_gas),
+        expected_receipt=TransactionReceipt(
+            status=1,
+            gas_used=billed_gas(fork, expected_gas + 1000, expected_gas),
+        ),
     )
     state_test(pre=pre, post={}, tx=tx)
