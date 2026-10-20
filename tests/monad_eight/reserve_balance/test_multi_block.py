@@ -12,13 +12,14 @@ from execution_testing import (
     AuthorizationTuple,
     Block,
     BlockchainTestFiller,
+    ChainConfig,
     Op,
     Transaction,
 )
 from execution_testing.exceptions.exceptions import TransactionException
 from execution_testing.forks.helpers import Fork
 
-from .helpers import generous_gas
+from .helpers import InertAuthorization, generous_gas
 from .spec import Spec, ref_spec_7702
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7702.git_path
@@ -167,6 +168,103 @@ def test_exception_rule(
     blockchain_test(
         pre=pre,
         post={contract_address: Account(storage=storage)},
+        blocks=blocks,
+    )
+
+
+@pytest.mark.parametrize("inert_authorization", InertAuthorization)
+@pytest.mark.parametrize(
+    "auth_pos", [(0, 0), (0, 1), (1, 0), (2, 1), (3, 0), (3, 1), (3, 2)]
+)
+def test_exception_rule_inert_authorization(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    chain_config: ChainConfig,
+    inert_authorization: InertAuthorization,
+    auth_pos: Tuple[int, int],
+    fork: Fork,
+) -> None:
+    """
+    Test that signing an authorization denies the emptying exception for
+    the whole window even when the authorization is never applied, since
+    the clients record every authority a block's signatures recover.
+    Position (3, 2) puts the authorization on the test tx itself.
+    """
+    nblocks = 4
+    test_tx_pos = (nblocks - 1, 2)
+    value = 1
+    balance = Spec.RESERVE_BALANCE
+    test_sender = pre.fund_eoa(balance)
+
+    contract = Op.SSTORE(slot_code_worked, value_code_worked) + Op.STOP
+    contract_address = pre.deploy_contract(contract)
+
+    # A self-sponsored authorization is checked against the nonce the
+    # transaction itself has already consumed.
+    valid_nonce = int(test_sender.nonce) + (
+        1 if auth_pos == test_tx_pos else 0
+    )
+    authorization = inert_authorization.authorization(
+        signer=test_sender,
+        valid_nonce=valid_nonce,
+        chain_id=chain_config.chain_id,
+    )
+
+    blocks = []
+    for nblock in range(nblocks):
+        txs = []
+        for ntx in range(2):
+            authorization_list = []
+            pos = (nblock, ntx)
+
+            if auth_pos == pos:
+                authorization_list += [authorization]
+            prepare_tx = Transaction(
+                max_fee_per_gas=GAS_PRICE,
+                max_priority_fee_per_gas=GAS_PRICE,
+                to=Address(0x7873),
+                sender=pre.fund_eoa(),
+                authorization_list=authorization_list or None,
+            )
+            txs.append(prepare_tx)
+        # If this isn't the last block, we're done.
+        # If it is, we'll append the test tx below.
+        if nblock < nblocks - 1:
+            blocks.append(Block(txs=txs))
+            del txs
+
+    authorization_list = []
+    if auth_pos == test_tx_pos:
+        authorization_list += [authorization]
+    test_tx = Transaction(
+        gas_limit=generous_gas(fork),
+        max_fee_per_gas=GAS_PRICE,
+        max_priority_fee_per_gas=GAS_PRICE,
+        to=contract_address,
+        value=value,
+        sender=test_sender,
+        authorization_list=authorization_list or None,
+    )
+    txs.append(test_tx)
+    blocks.append(Block(txs=txs))
+
+    reverted = auth_pos[0] >= nblocks - Spec.RESERVE_BALANCE_DELAY_BLOCKS
+    gas_fee = GAS_PRICE * generous_gas(fork)
+    storage = {} if reverted else {slot_code_worked: value_code_worked}
+
+    blockchain_test(
+        pre=pre,
+        post={
+            contract_address: Account(
+                storage=storage, balance=0 if reverted else value
+            ),
+            # Only the transaction itself bumped the nonce: the inert
+            # authorization did not.
+            test_sender: Account(
+                nonce=1,
+                balance=balance - gas_fee - (0 if reverted else value),
+            ),
+        },
         blocks=blocks,
     )
 

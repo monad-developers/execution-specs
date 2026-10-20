@@ -26,3 +26,4 @@ class Spec:
     """
 
     RESERVE_BALANCE = 10 * 10**18
+    RESERVE_BALANCE_DELAY_BLOCKS = 3

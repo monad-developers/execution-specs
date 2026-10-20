@@ -444,7 +444,7 @@ def check_transaction(
     NonceMismatchError :
         If the nonce of the transaction is not equal to the sender's nonce.
     InsufficientBalanceError :
-        If the sender's balance is not enough to pay for the transaction.
+        If the sender's balance is not enough to pay for the gas fees.
     InvalidSenderError :
         If the transaction is from an address that does not exist anymore.
     PriorityFeeGreaterThanMaxFeeError :
@@ -507,12 +507,14 @@ def check_transaction(
             tx.max_fee_per_gas - block_env.base_fee_per_gas,
         )
         effective_gas_price = priority_fee_per_gas + block_env.base_fee_per_gas
-        max_gas_fee = tx.gas * tx.max_fee_per_gas
     else:
         if tx.gas_price < block_env.base_fee_per_gas:
             raise InvalidBlock
         effective_gas_price = tx.gas_price
-        max_gas_fee = tx.gas * tx.gas_price
+
+    # Monad: the sender covers the gas fees the transaction is charged, at
+    # the effective gas price, and not its maximum fee.
+    gas_fee = tx.gas * effective_gas_price
 
     if isinstance(tx, BlobTransaction):
         blob_count = len(tx.blob_versioned_hashes)
@@ -534,9 +536,7 @@ def check_transaction(
                 "insufficient max fee per blob gas"
             )
 
-        max_gas_fee += Uint(calculate_total_blob_gas(tx)) * Uint(
-            tx.max_fee_per_blob_gas
-        )
+        gas_fee += calculate_data_fee(block_env.excess_blob_gas, tx)
         blob_versioned_hashes = tx.blob_versioned_hashes
     else:
         blob_versioned_hashes = ()
@@ -553,7 +553,9 @@ def check_transaction(
         raise NonceMismatchError("nonce too low")
     elif sender_account.nonce < Uint(tx.nonce):
         raise NonceMismatchError("nonce too high")
-    if Uint(sender_account.balance) < max_gas_fee + Uint(tx.value):
+    # Monad: the value is not part of the inclusion check. A value the
+    # sender cannot cover fails the top-level frame at execution time.
+    if Uint(sender_account.balance) < gas_fee:
         raise InsufficientBalanceError("insufficient sender balance")
     sender_code = get_code(tx_state, sender_account.code_hash)
     if sender_account.code_hash != EMPTY_CODE_HASH and not is_valid_delegation(

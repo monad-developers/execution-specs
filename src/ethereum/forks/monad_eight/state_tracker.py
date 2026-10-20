@@ -60,9 +60,10 @@ class BlockState:
     )
     code_writes: Dict[Hash32, Bytes] = field(default_factory=dict)
     storage_clears: Set[Address] = field(default_factory=set)
-    # Monad: per-block-number set of EOAs that sent or were authorized in
-    # that block. Carried across blocks via t8n; used by the reserve
-    # balance exception window (RESERVE_BALANCE_DELAY_BLOCKS lookback).
+    # Monad: per-block-number set of EOAs that sent a transaction or
+    # signed an authorization, applied or not, in that block. Carried
+    # across blocks via t8n; used by the reserve balance exception window
+    # (RESERVE_BALANCE_DELAY_BLOCKS lookback).
     _senders_authorities: Dict[Uint, Set[Address]] = field(
         default_factory=dict
     )

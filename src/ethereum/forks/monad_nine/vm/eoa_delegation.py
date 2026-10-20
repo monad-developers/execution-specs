@@ -174,15 +174,19 @@ def set_delegation(message: Message) -> U256:
     tx_state = message.tx_env.state
     refund_counter = U256(0)
     for auth in message.tx_env.authorizations:
+        try:
+            authority = recover_authority(auth)
+        except InvalidSignatureError:
+            continue
+
+        add_sender_authority(
+            message.block_env.state, message.block_env.number, authority
+        )
+
         if auth.chain_id not in (message.block_env.chain_id, U256(0)):
             continue
 
         if auth.nonce >= U64.MAX_VALUE:
-            continue
-
-        try:
-            authority = recover_authority(auth)
-        except InvalidSignatureError:
             continue
 
         message.accessed_addresses.add(authority)
@@ -210,10 +214,6 @@ def set_delegation(message: Message) -> U256:
         set_code(tx_state, authority, code_to_set)
 
         increment_nonce(tx_state, authority)
-
-        add_sender_authority(
-            message.block_env.state, message.block_env.number, authority
-        )
 
     if message.code_address is None:
         raise InvalidBlock("Invalid type 4 transaction: no target")
