@@ -321,43 +321,21 @@ class MonadFixtureConsumer(
         """
         return self._block_timings
 
-    def _init_triedb(
-        self, db_path: Path, schedule: List[Tuple[int, int]]
-    ) -> None:
+    def _init_triedb(self, db_path: Path) -> None:
         """
-        Create and format a fresh triedb file via `monad-mpt`.
+        Create and format a fresh page-encoded triedb file via `monad-mpt`.
 
-        The storage encoding depends on the fixture's revision schedule.
-        MIP-8 (MONAD_TEN, revision >= 10) uses a page-encoded triedb; older
-        revisions use slot encoding. A fixture that crosses the boundary
-        (e.g. a MONAD_NINE->MONAD_TEN transition) needs both: a slot-encoded
-        primary plus an activated page-encoded secondary timeline, so the
-        runloop can dual-write across the fork.
-
-        Only the secondary's kind is decided here. `Db::Db` re-stamps the
-        primary to whatever state machine the runloop opens it with, so the
-        `--state-machine` passed for the primary below does not survive
-        into the run.
+        The runloop requires a page-encoded db and reads the encoding from
+        the state machine kind `--create` stamps (`monad` is the
+        page-encoded one).
         """
         monad_mpt = self.binary.parent / "monad-mpt"
-        revisions = [revision for revision, _ in schedule]
-        uses_page = any(revision >= 10 for revision in revisions)
-        uses_slot = any(revision < 10 for revision in revisions)
 
         with open(db_path, "wb") as f:
             f.truncate(2 * 1024**3)
 
         # Shrunk chunk capacity / history ring keep per-test time at ~2s
-        # (the production defaults dominate runtime). `monad` is the
-        # page-encoded state machine, `ethereum` the slot-encoded one.
-        # This only sets the kind `--create` stamps; the runloop re-stamps
-        # the primary when it opens the db, so the value is inert. Kept
-        # matched to the schedule so the two agree on disk; it can collapse
-        # to one constant once a TEN-only run confirms nothing reads the
-        # db in between.
-        initial_primary = (
-            "monad" if uses_page and not uses_slot else "ethereum"
-        )
+        # (the production defaults dominate runtime).
         subprocess.run(
             [
                 str(monad_mpt),
@@ -369,28 +347,12 @@ class MonadFixtureConsumer(
                 "--root-offsets-chunk-count",
                 "2",
                 "--state-machine",
-                initial_primary,
+                "monad",
             ],
             capture_output=True,
             text=True,
             check=True,
         )
-
-        if uses_page and uses_slot:
-            # Transition fixture: add a page-encoded secondary timeline.
-            subprocess.run(
-                [
-                    str(monad_mpt),
-                    "--storage",
-                    str(db_path),
-                    "--activate-secondary",
-                    "--state-machine",
-                    "monad",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
 
     def _run_harness(
         self,
@@ -479,6 +441,14 @@ class MonadFixtureConsumer(
         )
         if any("expectException" in block for block in fixture["blocks"]):
             pytest.skip("invalid blocks cannot be proposed through the ledger")
+        # The runloop only executes on a page-encoded db, which MIP-8
+        # (MONAD_TEN, revision 10) introduced; earlier revisions need the
+        # slot-encoded one monad no longer supports.
+        if FORK_REVISION_SCHEDULES[network][0][0] < 10:
+            raise Exception(
+                f"network {network} has blocks before MONAD_TEN, which the "
+                "runloop cannot execute"
+            )
         input_doc = {
             "genesis_alloc": _digest_genesis_alloc(fixture["pre"]),
             "genesis_rlp": fixture["genesisRLP"],
@@ -498,7 +468,7 @@ class MonadFixtureConsumer(
             ledger_dir = tmp_path / "ledger"
             ledger_dir.mkdir()
             db_path = tmp_path / "triedb"
-            self._init_triedb(db_path, FORK_REVISION_SCHEDULES[network])
+            self._init_triedb(db_path)
 
             input_path.write_text(json.dumps(input_doc, indent=2))
 

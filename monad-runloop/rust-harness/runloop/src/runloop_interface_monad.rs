@@ -38,14 +38,8 @@ extern "C" {
     // Execute and finalize `nblocks` number of blocks.
     fn monad_runloop_run(runloop: *mut RawMonadRunloop, nblocks: u64);
 
-    // Store current primary (slot-encoded) state root.
-    fn monad_runloop_get_primary_state_root(
-        runloop: *mut RawMonadRunloop,
-        result_state_root: *mut RawMonadRunloopWord,
-    );
-
-    // Store current secondary (page-encoded) state root.
-    fn monad_runloop_get_secondary_state_root(
+    // Store current (page-encoded) state root.
+    fn monad_runloop_get_state_root(
         runloop: *mut RawMonadRunloop,
         result_state_root: *mut RawMonadRunloopWord,
     );
@@ -130,22 +124,12 @@ impl Runloop for MonadRunloop {
         }
     }
 
-    fn get_primary_state_root(&mut self) -> U256 {
+    fn get_state_root(&mut self) -> U256 {
         let mut state_root = RawMonadRunloopWord{
             bytes: [0; 32],
         };
         unsafe {
-            monad_runloop_get_primary_state_root(self.raw, &mut state_root)
-        };
-        U256::from_be_bytes(state_root.bytes)
-    }
-
-    fn get_secondary_state_root(&mut self) -> U256 {
-        let mut state_root = RawMonadRunloopWord{
-            bytes: [0; 32],
-        };
-        unsafe {
-            monad_runloop_get_secondary_state_root(self.raw, &mut state_root)
+            monad_runloop_get_state_root(self.raw, &mut state_root)
         };
         U256::from_be_bytes(state_root.bytes)
     }

@@ -241,20 +241,7 @@ fn main() {
         runloop.run(1);
     }
 
-    // The canonical state root is the page-encoded secondary timeline's
-    // from MONAD_ELEVEN (MIP-8, revision 10) on, the slot-encoded
-    // primary's before. The schedule is ascending, so the last entry is
-    // the revision the run ends in.
-    let final_revision = input
-        .revision_schedule
-        .last()
-        .expect("non-empty revision schedule")
-        .revision;
-    let state_root = if final_revision >= 10 {
-        runloop.get_secondary_state_root()
-    } else {
-        runloop.get_primary_state_root()
-    };
+    let state_root = runloop.get_state_root();
     let post_state = normalize_dump(&runloop.dump_json());
 
     let output = json!({
