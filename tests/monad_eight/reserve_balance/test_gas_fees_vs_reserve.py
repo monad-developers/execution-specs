@@ -4,7 +4,6 @@ its fee cap exceeds its balance.
 """
 
 from enum import Enum, auto, unique
-from typing import Any
 
 import pytest
 from execution_testing import (
@@ -15,12 +14,12 @@ from execution_testing import (
     BlockchainTestFiller,
     Header,
     Op,
-    Transaction,
     TransactionException,
 )
 from execution_testing.forks.helpers import Fork
 from execution_testing.test_types.block_types import DEFAULT_BASE_FEE
 
+from .helpers import priced_transaction
 from .spec import Spec, ref_spec_7702
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_7702.git_path
@@ -40,27 +39,6 @@ pytestmark = [
         reason="Tests reserve balance",
     ),
 ]
-
-
-def priced_transaction(
-    tx_type: int, gas_price: int, **fields: Any
-) -> Transaction:
-    """
-    Build a transaction of `tx_type` charged at `gas_price`.
-
-    A type-2 transaction caps its fee at twice that price, with the tip
-    chosen so that the effective price stays at `gas_price`.
-    """
-    if tx_type == 0:
-        return Transaction(ty=0, gas_price=gas_price, **fields)
-    if tx_type == 2:
-        return Transaction(
-            ty=2,
-            max_fee_per_gas=2 * gas_price,
-            max_priority_fee_per_gas=gas_price - DEFAULT_BASE_FEE,
-            **fields,
-        )
-    raise ValueError(f"unsupported transaction type {tx_type}")
 
 
 @unique

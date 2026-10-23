@@ -3,10 +3,11 @@ Helper types, functions and classes for testing reserve balance.
 """
 
 from enum import Enum, auto, unique
-from typing import List
+from typing import Any, List
 
-from execution_testing import EOA, Address, AuthorizationTuple, Op
+from execution_testing import EOA, Address, AuthorizationTuple, Op, Transaction
 from execution_testing.forks.helpers import Fork
+from execution_testing.test_types.block_types import DEFAULT_BASE_FEE
 
 from tests.prague.eip7702_set_code_tx.spec import Spec as Spec7702
 
@@ -30,6 +31,27 @@ def generous_gas(fork: Fork) -> int:
         + 5 * access_cost
         + selfdestruct_cost
     )
+
+
+def priced_transaction(
+    tx_type: int, gas_price: int, **fields: Any
+) -> Transaction:
+    """
+    Build a transaction of `tx_type` charged at `gas_price`.
+
+    A type-2 transaction caps its fee at twice that price, with the tip
+    chosen so that the effective price stays at `gas_price`.
+    """
+    if tx_type in (0, 1):
+        return Transaction(ty=tx_type, gas_price=gas_price, **fields)
+    if tx_type == 2:
+        return Transaction(
+            ty=2,
+            max_fee_per_gas=2 * gas_price,
+            max_priority_fee_per_gas=gas_price - DEFAULT_BASE_FEE,
+            **fields,
+        )
+    raise ValueError(f"unsupported transaction type {tx_type}")
 
 
 @unique

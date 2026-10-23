@@ -405,6 +405,13 @@ def test_contract_creation_with_access_list(
             id="value_non_zero_insufficient_balance",
             marks=[
                 pytest.mark.exception_test,
+                # Monad includes a transaction once the sender's balance
+                # covers its gas fees; the value it cannot cover fails the
+                # top-level frame instead, which the reserve balance tests
+                # cover.
+                pytest.mark.not_valid_for(
+                    "MONAD_EIGHT", subsequent_forks=True
+                ),
                 EIPChecklist.TransactionType.Test.IntrinsicValidity.ValueNonZeroInsufficientBalance(),
             ],
         ),
