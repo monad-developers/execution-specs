@@ -37,7 +37,7 @@ SALT = 0x42
 FACTORY = Address(Spec.FACTORY_ADDRESS)
 
 pytestmark = [
-    pytest.mark.valid_from("MONAD_ELEVEN"),
+    pytest.mark.valid_from("MONAD_NEXT_AMSTERDAM"),
     pytest.mark.pre_alloc_group(
         "eip7997_delegated_create_tests",
         reason="Tests the EIP-7997 factory reached from a delegated frame",
