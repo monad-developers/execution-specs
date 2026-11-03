@@ -75,7 +75,7 @@ FORK_ORDER = [
     "MONAD_EIGHT",
     "MONAD_NINE",
     "MONAD_TEN",
-    "MONAD_ELEVEN",
+    "MONAD_NEXT_AMSTERDAM",
 ]
 
 FORK_INDEX = {name: i for i, name in enumerate(FORK_ORDER)}
