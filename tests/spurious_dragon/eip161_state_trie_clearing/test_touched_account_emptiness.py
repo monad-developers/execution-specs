@@ -37,8 +37,9 @@ REFERENCE_SPEC_VERSION = ref_spec_161.version
 REJECTS_EMPTY_INPUT = (
     {Address(0x09), Address(0x0A)}
     | {Address(address) for address in range(0x0B, 0x12)}
-    # Monad's reserve balance precompile wants a four byte selector.
-    | {Address(0x1001)}
+    # Monad's staking and reserve balance precompiles want a four byte
+    # selector.
+    | {Address(0x1000), Address(0x1001)}
 )
 
 

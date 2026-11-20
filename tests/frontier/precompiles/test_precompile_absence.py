@@ -47,9 +47,6 @@ def test_precompile_absence(
     for address in range(offset, UPPER_BOUND + offset):
         if Address(address) in active_precompiles:
             continue
-        if address == 0x1000:
-            # Monad Staking Precompile not implemented yet
-            continue
         call_code += Op.SSTORE(
             address,
             Op.CALL(gas=0, address=address, args_size=calldata_size),

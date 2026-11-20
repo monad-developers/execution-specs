@@ -99,6 +99,7 @@ class GasCosts:
     # Precompiles
     PRECOMPILE_ECRECOVER: Final[Uint] = Uint(3000 * 2)
     PRECOMPILE_P256VERIFY: Final[Uint] = Uint(6900)
+    PRECOMPILE_STAKING_FALLBACK: Final[Uint] = Uint(40000)
     PRECOMPILE_SHA256_BASE: Final[Uint] = Uint(60)
     PRECOMPILE_SHA256_PER_WORD: Final[Uint] = Uint(12)
     PRECOMPILE_RIPEMD160_BASE: Final[Uint] = Uint(600)

@@ -1626,10 +1626,15 @@ class MONAD_EIGHT(Prague):  # noqa: N801
         """
         At MONAD_EIGHT, a precompile for p256verify operation is added.
 
+        The staking precompile, active since MONAD_FOUR, is listed here
+        because MONAD_EIGHT is the earliest Monad fork defined.
+
         P256VERIFY = 0x100
+        STAKING = 0x1000
         """
         return [
             Address(0x100, label="P256VERIFY"),
+            Address(0x1000, label="STAKING"),
         ] + super(MONAD_EIGHT, cls).precompiles()
 
     @classmethod
