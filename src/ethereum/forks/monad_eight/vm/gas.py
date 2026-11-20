@@ -90,6 +90,7 @@ class GasCosts:
     PRECOMPILE_ECPAIRING_PER_POINT: Final[Uint] = Uint(34000 * 5)
     # Monad-specific EIP-7951 P256VERIFY
     PRECOMPILE_P256VERIFY: Final[Uint] = Uint(6900)
+    PRECOMPILE_STAKING_FALLBACK: Final[Uint] = Uint(40000)
 
     # Blobs
     PER_BLOB: Final[U64] = U64(2**17)
